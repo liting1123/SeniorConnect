@@ -28,8 +28,12 @@ const resources = {
       continue: 'Continue',
 
       // Home Screen
-      goodMorning: 'Good Morning',
+      helloFriend: 'Hello, Friend!',
       dailyCheckIn: 'Daily Check-in',
+      howAreYouToday: 'How are you today?',
+      iAmOk: 'I AM OK',
+      sosButton: 'SOS',
+      goodMorning: 'Good Morning',
       checkedIn: 'Checked In',
       checkInDesc: 'How are you feeling today? Complete your daily health check-in',
       checkedInDesc: "Great! You've completed your daily check-in",
@@ -43,6 +47,8 @@ const resources = {
 
       // Navigation
       home: 'Home',
+      wellness: 'Wellness',
+      rewards: 'Rewards',
       meds: 'Meds',
       sos: 'SOS',
       points: 'Points',
@@ -55,6 +61,16 @@ const resources = {
       sosWarning: 'This feature will alert emergency services in 15 seconds',
       editEmergencyContacts: 'Edit Emergency Contacts',
       viewSupport: 'View My Support',
+
+      // SOS Confirmation
+      didYouMeanToSendSOS1: 'Did you mean to',
+      didYouMeanToSendSOS2: 'send SOS?',
+      alertContactsLine1: 'We will alert your emergency',
+      alertContactsLine2: 'contacts once you confirm.',
+      autoCancelIn: 'Auto-cancel in',
+      seconds: 'seconds',
+      yesSendSOS: 'Yes, send SOS',
+      cancelSOS: 'Cancel SOS',
 
       // Profile Screen
       personalInfo: 'Personal Information',
@@ -111,8 +127,12 @@ const resources = {
       continue: 'Teruskan',
 
       // Home Screen
-      goodMorning: 'Selamat Pagi',
+      helloFriend: 'Helo, Kawan!',
       dailyCheckIn: 'Daftar Masuk Harian',
+      howAreYouToday: 'Apa khabar anda hari ini?',
+      iAmOk: 'SAYA OK',
+      sosButton: 'SOS',
+      goodMorning: 'Selamat Pagi',
       checkedIn: 'Berjaya Daftar',
       checkInDesc: 'Bagaimana perasaan anda hari ini? Lengkapkan pemeriksaan kesihatan harian anda',
       checkedInDesc: 'Hebat! Anda telah menyelesaikan daftar masuk harian anda',
@@ -126,6 +146,8 @@ const resources = {
 
       // Navigation
       home: 'Utama',
+      wellness: 'Kesihatan',
+      rewards: 'Ganjaran',
       meds: 'Ubat',
       sos: 'SOS',
       points: 'Mata',
@@ -138,6 +160,16 @@ const resources = {
       sosWarning: 'Ciri ini akan memaklumkan perkhidmatan kecemasan dalam 15 saat',
       editEmergencyContacts: 'Edit Kenalan Kecemasan',
       viewSupport: 'Lihat Sokongan Saya',
+
+      // SOS Confirmation
+      didYouMeanToSendSOS1: 'Adakah anda bermaksud',
+      didYouMeanToSendSOS2: 'untuk hantar SOS?',
+      alertContactsLine1: 'Kami akan memaklumkan kenalan',
+      alertContactsLine2: 'kecemasan anda sebaik sahaja anda mengesahkan.',
+      autoCancelIn: 'Auto-batal dalam',
+      seconds: 'saat',
+      yesSendSOS: 'Ya, hantar SOS',
+      cancelSOS: 'Batal SOS',
 
       // Profile Screen
       personalInfo: 'Maklumat Peribadi',
@@ -194,8 +226,12 @@ const resources = {
       continue: '继续',
 
       // Home Screen
-      goodMorning: '早上好',
+      helloFriend: '你好，朋友！',
       dailyCheckIn: '每日签到',
+      howAreYouToday: '你今天怎么样？',
+      iAmOk: '我很好',
+      sosButton: '紧急求救',
+      goodMorning: '早上好',
       checkedIn: '已签到',
       checkInDesc: '您今天感觉如何？完成您的每日健康检查',
       checkedInDesc: '太好了！您已完成今日签到',
@@ -209,6 +245,8 @@ const resources = {
 
       // Navigation
       home: '首页',
+      wellness: '健康',
+      rewards: '奖励',
       meds: '药物',
       sos: '紧急',
       points: '积分',
@@ -221,6 +259,16 @@ const resources = {
       sosWarning: '此功能将在15秒内通知紧急服务',
       editEmergencyContacts: '编辑紧急联系人',
       viewSupport: '查看我的支持',
+
+      // SOS Confirmation
+      didYouMeanToSendSOS1: '您是否要',
+      didYouMeanToSendSOS2: '发送求救信号？',
+      alertContactsLine1: '一旦您确认，我们将通知',
+      alertContactsLine2: '您的紧急联系人。',
+      autoCancelIn: '自动取消时间',
+      seconds: '秒',
+      yesSendSOS: '是的，发送求救',
+      cancelSOS: '取消求救',
 
       // Profile Screen
       personalInfo: '个人信息',
@@ -277,8 +325,12 @@ const resources = {
       continue: 'தொடரவும்',
 
       // Home Screen
-      goodMorning: 'காலை வணக்கம்',
+      helloFriend: 'வணக்கம், நண்பரே!',
       dailyCheckIn: 'தினசரி செக்-இன்',
+      howAreYouToday: 'இன்று நீங்கள் எப்படி இருக்கிறீர்கள்?',
+      iAmOk: 'நான் நன்றாக இருக்கிறேன்',
+      sosButton: 'SOS',
+      goodMorning: 'காலை வணக்கம்',
       checkedIn: 'செக்-இன் செய்யப்பட்டது',
       checkInDesc: 'இன்று நீங்கள் எப்படி உணர்கிறீர்கள்? உங்கள் தினசரி சுகாதார சோதனையை முடிக்கவும்',
       checkedInDesc: 'அருமை! நீங்கள் உங்கள் தினசரி செக்-இன் முடித்துவிட்டீர்கள்',
@@ -292,6 +344,8 @@ const resources = {
 
       // Navigation
       home: 'முகப்பு',
+      wellness: 'நலவாழ்வு',
+      rewards: 'வெகுமதிகள்',
       meds: 'மருந்துகள்',
       sos: 'SOS',
       points: 'புள்ளிகள்',
@@ -304,6 +358,16 @@ const resources = {
       sosWarning: 'இந்த அம்சம் 15 விநாடிகளில் அவசர சேவைகளை எச்சரிக்கும்',
       editEmergencyContacts: 'அவசர தொடர்புகளைத் திருத்து',
       viewSupport: 'எனது ஆதரவைக் காண்க',
+
+      // SOS Confirmation
+      didYouMeanToSendSOS1: 'நீங்கள்',
+      didYouMeanToSendSOS2: 'SOS அனுப்ப விரும்புகிறீர்களா?',
+      alertContactsLine1: 'நீங்கள் உறுதிப்படுத்தியவுடன் உங்கள்',
+      alertContactsLine2: 'அவசர தொடர்புகளுக்கு எச்சரிக்கை அனுப்புவோம்.',
+      autoCancelIn: 'தானாக ரத்து செய்யப்படும்',
+      seconds: 'விநாடிகளில்',
+      yesSendSOS: 'ஆம், SOS அனுப்பவும்',
+      cancelSOS: 'SOS ரத்து செய்யவும்',
 
       // Profile Screen
       personalInfo: 'தனிப்பட்ட தகவல்',

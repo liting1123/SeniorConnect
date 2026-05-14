@@ -5,7 +5,7 @@ import '../i18n';
 import WelcomeScreen from './components/WelcomeScreen';
 import LanguageSelectionScreen from './components/LanguageSelectionScreen';
 import HomeScreen from './components/HomeScreen';
-import SOSScreen from './components/SOSScreen';
+import SOSConfirmationScreen from './components/SOSConfirmation';
 import ProfileScreen from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
 import MedicationScreen from './components/MedicationScreen';
@@ -16,6 +16,11 @@ export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
 
+  const handleSOSConfirm = () => {
+    alert('Emergency contacts have been notified!');
+    setCurrentScreen('home');
+  };
+
   const renderScreen = () => {
     switch (currentScreen) {
       case 'welcome':
@@ -23,9 +28,14 @@ export default function App() {
       case 'language':
         return <LanguageSelectionScreen onContinue={() => setCurrentScreen('home')} />;
       case 'home':
-        return <HomeScreen />;
+        return <HomeScreen onSOSClick={() => setCurrentScreen('sos')} />;
       case 'sos':
-        return <SOSScreen />;
+        return (
+          <SOSConfirmationScreen
+            onConfirm={handleSOSConfirm}
+            onCancel={() => setCurrentScreen('home')}
+          />
+        );
       case 'profile':
         return <ProfileScreen />;
       case 'points':
@@ -33,20 +43,17 @@ export default function App() {
       case 'medication':
         return <MedicationScreen />;
       default:
-        return <HomeScreen />;
+        return <HomeScreen onSOSClick={() => setCurrentScreen('sos')} />;
     }
   };
 
   return (
     <div className="size-full flex items-center justify-center bg-gray-100">
-      {/* Mobile Container */}
       <div className="w-full max-w-md h-full bg-white shadow-2xl flex flex-col relative">
-        {/* Screen Content */}
         <div className="flex-1 overflow-hidden">
           {renderScreen()}
         </div>
 
-        {/* Bottom Navigation */}
         {currentScreen !== 'welcome' && currentScreen !== 'language' && (
           <nav className="bg-white border-t-2 border-gray-200 px-2 py-3 flex justify-around items-center">
             <NavButton

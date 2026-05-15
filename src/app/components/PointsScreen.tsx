@@ -1,95 +1,108 @@
-import { Trophy, Gift, ChevronRight } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
+import {
+  Bell,
+  CalendarCheck,
+  Car,
+  ShoppingCart,
+  Star,
+  User,
+} from 'lucide-react';
 
 export default function PointsScreen() {
-  const { t } = useTranslation();
   return (
-    <div className="h-full bg-gray-50 overflow-y-auto">
-      {/* Points Header */}
-      <div className="bg-gradient-to-br from-orange-400 to-orange-600 px-8 pt-16 pb-12 text-white">
-        <div className="text-center">
-          <div className="w-32 h-32 mx-auto mb-6 bg-white rounded-full flex items-center justify-center">
-            <Trophy className="w-16 h-16 text-orange-500" />
+    <div className="h-full overflow-y-auto bg-[#fbf9f8] text-[#1b1c1c]">
+      <header className="sticky top-0 z-10 bg-[#fbf9f8] shadow-sm">
+        <div className="flex h-16 items-center justify-between px-6">
+          <div className="flex items-center gap-2 text-[#316342]">
+            <User className="h-7 w-7 fill-current" />
+            <span className="text-2xl font-bold">CareConnect</span>
           </div>
-          <h1 className="text-7xl font-bold mb-4">120 {t('points')}</h1>
-          <p className="text-orange-100 text-2xl">{t('healthRewardsBalance')}</p>
+          <button
+            aria-label="Notifications"
+            className="flex h-12 w-12 items-center justify-center rounded-full text-[#414942] transition-colors active:scale-95 active:bg-[#e4e2e1]"
+          >
+            <Bell className="h-7 w-7" />
+          </button>
         </div>
-      </div>
+      </header>
 
-      {/* Rewards Section */}
-      <div className="p-8">
-        <h3 className="text-3xl font-bold mb-6">{t('redeemPoints')}</h3>
-        <div className="space-y-5">
-          <RewardCard
-            title={t('healthStoreVoucher')}
-            points={50}
-            icon="🏪"
-          />
-          <RewardCard
-            title={t('freeCheckup')}
-            points={100}
-            icon="🩺"
-          />
-          <RewardCard
-            title={t('pharmacyDiscount')}
-            points={80}
-            icon="💊"
-          />
-        </div>
+      <main className="flex flex-col gap-8 px-6 py-8">
+        <section className="flex flex-col items-center rounded-[32px] bg-[#f6f3f2] p-6 text-center shadow-[0_8px_20px_rgba(49,99,66,0.08)]">
+          <div className="mb-4 flex h-32 w-32 items-center justify-center rounded-full bg-[#ff9742] text-[#6c3400]">
+            <User className="h-16 w-16 fill-current" />
+          </div>
 
-        {/* How to Earn Points */}
-        <div className="mt-12">
-          <h3 className="text-3xl font-bold mb-6">{t('howToEarn')}</h3>
-          <div className="bg-white rounded-2xl p-8 shadow-sm space-y-6">
-            <EarnPointsItem
-              title={t('earnCheckIn')}
-              points={5}
+          <div className="mb-2 flex items-center justify-center gap-2">
+            <Star className="h-10 w-10 fill-[#ff9742] text-[#ff9742]" />
+            <h1 className="text-[40px] font-bold leading-[52px] text-[#316342]">
+              120 Points
+            </h1>
+          </div>
+
+          <p className="text-lg leading-7 text-[#414942]">
+            Great job! Keep staying active to earn more.
+          </p>
+        </section>
+
+        <section className="flex items-center justify-between rounded-[32px] bg-[#4a7c59] p-6 shadow-[0_8px_20px_rgba(49,99,66,0.08)]">
+          <div className="flex items-center gap-4 text-[#e1ffe5]">
+            <CalendarCheck className="h-9 w-9 fill-current" />
+            <div>
+              <h2 className="text-xl font-semibold leading-6">Daily Check-in</h2>
+              <p className="text-lg leading-7 opacity-90">Log in today</p>
+            </div>
+          </div>
+          <div className="rounded-full bg-[#e1ffe5] px-4 py-2 text-xl font-semibold text-[#4a7c59] shadow-sm">
+            +10
+          </div>
+        </section>
+
+        <section>
+          <h2 className="mb-4 text-2xl font-semibold leading-8 text-[#1b1c1c]">
+            Redeem Rewards
+          </h2>
+          <div className="flex flex-col gap-4">
+            <RewardCard
+              icon={<ShoppingCart className="h-8 w-8" />}
+              title="$5 NTUC Voucher"
+              points="50 Points"
             />
-            <EarnPointsItem
-              title={t('earnAssessment')}
-              points={10}
-            />
-            <EarnPointsItem
-              title={t('earnAdherence')}
-              points={15}
-            />
-            <EarnPointsItem
-              title={t('earnReferral')}
-              points={25}
+            <RewardCard
+              icon={<Car className="h-8 w-8" />}
+              title="$10 Grab Voucher"
+              points="100 Points"
             />
           </div>
-        </div>
-      </div>
+        </section>
+      </main>
     </div>
   );
 }
 
-function RewardCard({ title, points, icon }: { title: string; points: number; icon: string }) {
-  const { t } = useTranslation();
-
+function RewardCard({
+  icon,
+  title,
+  points,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  points: string;
+}) {
   return (
-    <div className="bg-white rounded-2xl p-6 flex items-center gap-5 shadow-sm">
-      <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center text-4xl flex-shrink-0">
+    <div className="flex items-center rounded-[32px] bg-[#f0eded] p-4 shadow-[0_8px_20px_rgba(49,99,66,0.08)]">
+      <div className="mr-4 flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-[#fbf9f8] text-[#316342]">
         {icon}
       </div>
-      <div className="flex-1">
-        <h4 className="text-2xl font-bold">{title}</h4>
-        <p className="text-xl text-orange-500 font-bold mt-1">{points} {t('points')}</p>
+      <div className="min-w-0 flex-1">
+        <h3 className="text-xl font-semibold leading-6 text-[#1b1c1c]">
+          {title}
+        </h3>
+        <p className="mt-1 text-base font-bold leading-5 text-[#316342]">
+          {points}
+        </p>
       </div>
-      <button className="bg-orange-500 text-white px-6 py-4 rounded-full text-xl font-bold active:scale-95 transition-transform">
-        {t('redeem')}
+      <button className="rounded-full bg-[#316342] px-5 py-3 text-base font-semibold leading-5 text-white shadow-sm transition-transform active:scale-95">
+        REDEEM
       </button>
-    </div>
-  );
-}
-
-function EarnPointsItem({ title, points }: { title: string; points: number }) {
-  const { t } = useTranslation();
-
-  return (
-    <div className="flex items-center justify-between py-2">
-      <span className="text-gray-700 text-xl">{title}</span>
-      <span className="text-green-600 text-2xl font-bold">+{points} {t('pts')}</span>
     </div>
   );
 }

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import imgUserProfile from '../../imports/image-2.png';
 
@@ -11,9 +10,14 @@ const svgPaths = {
     'M7.5 0C5.843 0 4.5 1.343 4.5 3v6c0 1.657 1.343 3 3 3s3-1.343 3-3V3c0-1.657-1.343-3-3-3Zm-6 8.25a.75.75 0 0 1 1.5 0V9c0 2.486 2.014 4.5 4.5 4.5S12 11.486 12 9v-.75a.75.75 0 0 1 1.5 0V9a6.001 6.001 0 0 1-5.25 5.953V18h3a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1 0-1.5h3v-3.047A6.001 6.001 0 0 1 1.5 9v-.75Z',
 };
 
-export default function HomeScreen({ onSOSClick }: { onSOSClick?: () => void }) {
+export default function HomeScreen({
+  onSOSClick,
+  onCheckIn,
+}: {
+  onSOSClick?: () => void;
+  onCheckIn?: () => void;
+}) {
   const { t } = useTranslation();
-  const [checkedIn, setCheckedIn] = useState(false);
 
   return (
     <div className="bg-white content-stretch flex flex-col items-start relative size-full overflow-y-auto">
@@ -57,12 +61,12 @@ export default function HomeScreen({ onSOSClick }: { onSOSClick?: () => void }) 
               <div className="content-stretch flex flex-col gap-[8px] items-start relative shrink-0 w-full">
                 <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
                   <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[32px] text-center tracking-[-0.8px] whitespace-nowrap">
-                    <p className="leading-[42px]">{checkedIn ? t('checkedIn') : t('dailyCheckIn')}</p>
+                    <p className="leading-[42px]">{t('dailyCheckIn')}</p>
                   </div>
                 </div>
                 <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
                   <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#414942] text-[20px] text-center whitespace-nowrap">
-                    <p className="leading-[30px]">{checkedIn ? t('checkedInDesc') : t('howAreYouToday')}</p>
+                    <p className="leading-[30px]">{t('howAreYouToday')}</p>
                   </div>
                 </div>
               </div>
@@ -70,7 +74,7 @@ export default function HomeScreen({ onSOSClick }: { onSOSClick?: () => void }) 
 
             <div className="content-stretch flex flex-col items-start pb-[32px] relative shrink-0 w-full">
               <button
-                onClick={() => setCheckedIn(true)}
+                onClick={onCheckIn}
                 className="bg-[#4a7c59] content-stretch flex flex-col items-center justify-center py-[40px] relative rounded-[32px] shrink-0 w-full active:scale-95 transition-transform"
               >
                 <div className="absolute bg-[rgba(255,255,255,0)] inset-[0_0_-0.25px_0] rounded-[32px] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)]" />

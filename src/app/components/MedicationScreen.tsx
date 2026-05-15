@@ -1,78 +1,81 @@
-import { Clock, Plus } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
+import { Bell, CheckCircle2, Clock, Pill } from 'lucide-react';
+import { useState } from 'react';
 
 export default function MedicationScreen() {
-  const { t } = useTranslation();
-  const medications = [
-    { name: 'Aspirin', dosage: '100mg', time: '08:00 AM', status: 'taken' },
-    { name: 'Metformin', dosage: '500mg', time: '08:00 AM', status: 'taken' },
-    { name: 'Lisinopril', dosage: '10mg', time: '02:00 PM', status: 'pending' },
-    { name: 'Atorvastatin', dosage: '20mg', time: '08:00 PM', status: 'pending' },
-  ];
+  const [doseTaken, setDoseTaken] = useState(false);
 
   return (
-    <div className="h-full bg-gray-50 overflow-y-auto">
-      {/* Header */}
-      <div className="bg-white px-8 py-6">
-        <h1 className="text-4xl font-bold">{t('medicationRemindersTitle')}</h1>
-        <p className="text-gray-600 text-xl mt-2">Thursday, May 7, 2026</p>
-      </div>
-
-      {/* Medications List */}
-      <div className="p-8 space-y-5">
-        {medications.map((med, index) => (
-          <MedicationCard key={index} {...med} />
-        ))}
-      </div>
-
-      {/* Add Medication Button */}
-      <div className="p-8">
-        <button className="w-full bg-green-500 text-white py-6 rounded-full text-2xl font-bold flex items-center justify-center gap-3 active:scale-95 transition-transform">
-          <Plus className="w-8 h-8" />
-          {t('addNewMedication')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function MedicationCard({
-  name,
-  dosage,
-  time,
-  status
-}: {
-  name: string;
-  dosage: string;
-  time: string;
-  status: 'taken' | 'pending';
-}) {
-  const { t } = useTranslation();
-
-  return (
-    <div className="bg-white rounded-2xl p-6 shadow-sm">
-      <div className="flex items-start gap-5">
-        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center text-4xl flex-shrink-0">
-          💊
-        </div>
-        <div className="flex-1">
-          <h3 className="font-bold text-3xl">{name}</h3>
-          <p className="text-gray-600 text-xl mt-1">{dosage}</p>
-          <div className="flex items-center gap-2 mt-2 text-gray-500 text-lg">
-            <Clock className="w-6 h-6" />
-            <span>{time}</span>
-          </div>
+    <div className="h-full overflow-y-auto bg-[#fafafa] px-6 pb-8 pt-8 text-gray-900">
+      <header className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="mb-1 text-[26px] font-bold leading-tight tracking-tight">
+            Medication Reminder
+          </h1>
+          <p className="text-[15px] font-medium text-gray-500">
+            Never miss a dose.
+          </p>
         </div>
         <button
-          className={`px-6 py-4 rounded-full text-xl font-bold flex-shrink-0 active:scale-95 transition-transform ${
-            status === 'taken'
-              ? 'bg-green-100 text-green-700'
-              : 'bg-orange-100 text-orange-700'
-          }`}
+          aria-label="Notifications"
+          className="relative mt-1 rounded-full p-2 text-[#ff4400] transition-colors active:scale-95 active:bg-[#fff0ea]"
         >
-          {status === 'taken' ? `✓ ${t('taken')}` : t('takeNow')}
+          <Bell className="h-7 w-7" />
+          <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#ff4400]" />
         </button>
-      </div>
+      </header>
+
+      <section className="mb-8 rounded-[24px] border border-gray-100 bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.05)]">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">Next dose</h2>
+          <div className="flex items-center gap-1.5 rounded-full bg-[#e8f5e9] px-3 py-1.5">
+            <CheckCircle2 className="h-4 w-4 text-[#2e8b57]" />
+            <span className="text-sm font-medium text-[#2e8b57]">
+              {doseTaken ? 'Taken' : 'On time'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-5">
+          <div className="relative flex h-24 w-24 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-orange-50">
+            <div className="relative flex h-16 w-12 flex-col rounded-b-md rounded-t-lg border border-gray-200 bg-white shadow-sm">
+              <div className="h-4 w-full rounded-t-lg bg-gray-200" />
+              <div className="mt-1 flex flex-1 items-center justify-center bg-[#ff4400]">
+                <Pill className="h-5 w-5 text-white" />
+              </div>
+            </div>
+            <div className="absolute bottom-4 right-4 h-6 w-6 rounded-full border border-gray-200 bg-white shadow" />
+            <div className="absolute bottom-2 right-2 h-6 w-6 rounded-full border border-gray-200 bg-white shadow" />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <h3 className="mb-1 text-[20px] font-bold leading-tight text-gray-900">
+              Atorvastatin 20mg
+            </h3>
+            <p className="mb-3 text-[14px] font-medium text-gray-500">
+              1 tablet - Once daily
+            </p>
+            <div className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-[#ff4400]" />
+              <span className="text-[18px] font-bold tracking-tight text-[#ff4400]">
+                5:45 PM
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <button className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#ff4400] py-4 text-[17px] font-semibold text-white shadow-sm transition-colors active:scale-95 active:bg-orange-600">
+          <Bell className="h-5 w-5" />
+          <span>Snooze 15 minutes</span>
+        </button>
+        <button
+          onClick={() => setDoseTaken(true)}
+          className="w-full rounded-2xl border border-[#ff4400] bg-white py-4 text-[17px] font-semibold text-[#ff4400] shadow-sm transition-colors active:scale-95 active:bg-orange-50"
+        >
+          I've taken this dose
+        </button>
+      </section>
     </div>
   );
 }

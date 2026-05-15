@@ -49,7 +49,7 @@ const resources = {
       home: 'Home',
       wellness: 'Wellness',
       rewards: 'Rewards',
-      meds: 'Meds',
+      meds: 'Medicine',
       sos: 'SOS',
       points: 'Points',
       profile: 'Profile',

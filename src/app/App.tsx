@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Home, AlertCircle, User, Trophy, Pill } from 'lucide-react';
+import { Home, User, Trophy, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -10,15 +10,16 @@ import ProfileScreen from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
 import MedicationScreen from './components/MedicationScreen';
 
-type Screen = 'welcome' | 'language' | 'home' | 'sos' | 'profile' | 'points' | 'medication';
+type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication';
 
 export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
+  const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
 
   const handleSOSConfirm = () => {
     alert('Emergency contacts have been notified!');
-    setCurrentScreen('home');
+    setShowSOSConfirmation(false);
   };
 
   const renderScreen = () => {
@@ -28,12 +29,10 @@ export default function App() {
       case 'language':
         return <LanguageSelectionScreen onContinue={() => setCurrentScreen('home')} />;
       case 'home':
-        return <HomeScreen onSOSClick={() => setCurrentScreen('sos')} />;
-      case 'sos':
         return (
-          <SOSConfirmationScreen
-            onConfirm={handleSOSConfirm}
-            onCancel={() => setCurrentScreen('home')}
+          <HomeScreen
+            onSOSClick={() => setShowSOSConfirmation(true)}
+            onCheckIn={() => setCurrentScreen('points')}
           />
         );
       case 'profile':
@@ -43,7 +42,12 @@ export default function App() {
       case 'medication':
         return <MedicationScreen />;
       default:
-        return <HomeScreen onSOSClick={() => setCurrentScreen('sos')} />;
+        return (
+          <HomeScreen
+            onSOSClick={() => setShowSOSConfirmation(true)}
+            onCheckIn={() => setCurrentScreen('points')}
+          />
+        );
     }
   };
 
@@ -69,13 +73,6 @@ export default function App() {
               onClick={() => setCurrentScreen('medication')}
             />
             <NavButton
-              icon={<AlertCircle className="w-9 h-9" />}
-              label={t('sos')}
-              active={currentScreen === 'sos'}
-              onClick={() => setCurrentScreen('sos')}
-              special
-            />
-            <NavButton
               icon={<Trophy className="w-9 h-9" />}
               label={t('points')}
               active={currentScreen === 'points'}
@@ -89,6 +86,15 @@ export default function App() {
             />
           </nav>
         )}
+
+        {showSOSConfirmation && (
+          <div className="absolute inset-0 z-50 bg-white">
+            <SOSConfirmationScreen
+              onConfirm={handleSOSConfirm}
+              onCancel={() => setShowSOSConfirmation(false)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -98,24 +104,18 @@ function NavButton({
   icon,
   label,
   active,
-  onClick,
-  special
+  onClick
 }: {
   icon: React.ReactNode;
   label: string;
   active: boolean;
   onClick: () => void;
-  special?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       className={`flex flex-col items-center gap-2 py-3 px-2 rounded-lg transition-colors active:scale-95 ${
-        active
-          ? special
-            ? 'text-red-500'
-            : 'text-green-600'
-          : 'text-gray-400'
+        active ? 'text-green-600' : 'text-gray-400'
       }`}
     >
       {icon}

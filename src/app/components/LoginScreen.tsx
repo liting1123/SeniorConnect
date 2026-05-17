@@ -1,16 +1,37 @@
 import { Heart, Mail, Lock, Eye, HelpCircle, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../../../firebase';
 
-export default function WelcomeScreen({ onGetStarted }: { onGetStarted: () => void }) {
+export default function LoginScreen({
+  onGetStarted,
+  onCaregiverLogin
+}: {
+  onGetStarted: () => void;
+  onCaregiverLogin: () => void;
+}) {
   const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    onGetStarted();
+    setError('');
+    setIsLoggingIn(true);
+
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      onGetStarted();
+    } catch (error) {
+      console.error('Login failed:', error);
+      setError('Email or password is incorrect.');
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   return (
@@ -43,6 +64,7 @@ export default function WelcomeScreen({ onGetStarted }: { onGetStarted: () => vo
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder={t('enterEmail')}
+                  required
                   className="w-full bg-gray-50 border border-gray-200 rounded-2xl py-5 pl-14 pr-5 text-xl placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
@@ -58,6 +80,7 @@ export default function WelcomeScreen({ onGetStarted }: { onGetStarted: () => vo
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={t('enterPassword')}
+                  required
                   className="w-full bg-gray-50 border border-gray-200 rounded-2xl py-5 pl-14 pr-14 text-xl placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
                 <button
@@ -70,13 +93,16 @@ export default function WelcomeScreen({ onGetStarted }: { onGetStarted: () => vo
               </div>
             </div>
 
+            {error && <p className="text-lg font-bold text-red-600">{error}</p>}
+
             {/* Log In Button */}
             <button
               type="submit"
-              className="w-full bg-green-700 text-white py-5 rounded-2xl text-2xl font-bold flex items-center justify-center gap-3 active:scale-95 transition-transform"
+              disabled={isLoggingIn}
+              className="w-full bg-green-700 text-white py-5 rounded-2xl text-2xl font-bold flex items-center justify-center gap-3 active:scale-95 transition-transform disabled:bg-gray-400 disabled:active:scale-100"
             >
               <Lock className="w-6 h-6" />
-              {t('logIn')}
+              {isLoggingIn ? 'Logging in...' : t('logIn')}
             </button>
 
             {/* Forgot Password */}
@@ -96,10 +122,11 @@ export default function WelcomeScreen({ onGetStarted }: { onGetStarted: () => vo
           </div>
 
           {/* Caregiver Login */}
-          <button className="w-full bg-green-50 border border-green-200 rounded-2xl p-5 flex items-center gap-4 active:bg-green-100 transition-colors">
-            <div className="w-14 h-14 bg-green-200 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-2xl">👥</span>
-            </div>
+          <button
+            type="button"
+            onClick={onCaregiverLogin}
+            className="w-full bg-green-50 border border-green-200 rounded-2xl p-5 flex items-center gap-4 active:bg-green-100 transition-colors"
+          >
             <div className="flex-1 text-left">
               <h3 className="text-xl font-bold text-gray-900">{t('caregiverLogin')}</h3>
               <p className="text-base text-gray-600">{t('caregiverDesc')}</p>
@@ -107,11 +134,6 @@ export default function WelcomeScreen({ onGetStarted }: { onGetStarted: () => vo
             <ChevronRight className="w-6 h-6 text-gray-400 flex-shrink-0" />
           </button>
 
-          {/* Help Link */}
-          <button className="w-full mt-8 flex items-center justify-center gap-2 text-gray-700 text-xl font-bold">
-            <HelpCircle className="w-6 h-6" />
-            {t('needHelp')}
-          </button>
         </div>
       </div>
     </div>

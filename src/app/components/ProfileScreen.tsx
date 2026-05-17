@@ -1,7 +1,7 @@
 import { ChevronRight, User, Bell, Shield, HelpCircle, LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-export default function ProfileScreen() {
+export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   const { t } = useTranslation();
   return (
     <div className="h-full bg-gray-50 overflow-y-auto">
@@ -35,6 +35,7 @@ export default function ProfileScreen() {
             icon={<LogOut className="w-8 h-8" />}
             title={t('logOut')}
             textColor="text-red-500"
+            onClick={onLogout}
           />
         </div>
       </div>
@@ -45,14 +46,19 @@ export default function ProfileScreen() {
 function SettingsItem({
   icon,
   title,
-  textColor = "text-gray-900"
+  textColor = "text-gray-900",
+  onClick
 }: {
   icon: React.ReactNode;
   title: string;
   textColor?: string;
+  onClick?: () => void;
 }) {
   return (
-    <button className="w-full px-8 py-6 flex items-center gap-6 active:bg-gray-50 transition-colors border-b last:border-b-0 border-gray-100">
+    <button
+      onClick={onClick}
+      className="w-full px-8 py-6 flex items-center gap-6 active:bg-gray-50 transition-colors border-b last:border-b-0 border-gray-100"
+    >
       <div className="text-gray-600">{icon}</div>
       <span className={`flex-1 text-left text-2xl font-bold ${textColor}`}>{title}</span>
       <ChevronRight className="w-8 h-8 text-gray-400" />

@@ -26,8 +26,8 @@ export default function SOSConfirmationScreen({ onConfirm, onCancel }: SOSConfir
       return () => clearTimeout(timer);
     }
 
-    onConfirm();
-  }, [countdown, onConfirm]);
+    onCancel();
+  }, [countdown, onCancel]);
 
   return (
     <div

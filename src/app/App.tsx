@@ -2,15 +2,18 @@ import { useState } from 'react';
 import { Home, User, Trophy, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import WelcomeScreen from './components/WelcomeScreen';
+import LoginScreen from './components/LoginScreen';
 import LanguageSelectionScreen from './components/LanguageSelectionScreen';
 import HomeScreen from './components/HomeScreen';
 import SOSConfirmationScreen from './components/SOSConfirmation';
 import ProfileScreen from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
 import MedicationScreen from './components/MedicationScreen';
+import CarePortalScreen from './components/CarePortalScreen';
+import { signOut } from 'firebase/auth';
+import { auth } from '../../firebase';
 
-type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication';
+type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'carePortal';
 
 export default function App() {
   const { t } = useTranslation();
@@ -22,10 +25,25 @@ export default function App() {
     setShowSOSConfirmation(false);
   };
 
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setCurrentScreen('welcome');
+    } catch (error) {
+      console.error('Logout failed:', error);
+      alert('Unable to log out. Please try again.');
+    }
+  };
+
   const renderScreen = () => {
     switch (currentScreen) {
       case 'welcome':
-        return <WelcomeScreen onGetStarted={() => setCurrentScreen('language')} />;
+        return (
+          <LoginScreen
+            onGetStarted={() => setCurrentScreen('language')}
+            onCaregiverLogin={() => setCurrentScreen('carePortal')}
+          />
+        );
       case 'language':
         return <LanguageSelectionScreen onContinue={() => setCurrentScreen('home')} />;
       case 'home':
@@ -36,11 +54,13 @@ export default function App() {
           />
         );
       case 'profile':
-        return <ProfileScreen />;
+        return <ProfileScreen onLogout={handleLogout} />;
       case 'points':
         return <PointsScreen />;
       case 'medication':
         return <MedicationScreen />;
+      case 'carePortal':
+        return <CarePortalScreen onBack={() => setCurrentScreen('welcome')} />;
       default:
         return (
           <HomeScreen
@@ -58,7 +78,7 @@ export default function App() {
           {renderScreen()}
         </div>
 
-        {currentScreen !== 'welcome' && currentScreen !== 'language' && (
+        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && (
           <nav className="bg-white border-t-2 border-gray-200 px-2 py-3 flex justify-around items-center">
             <NavButton
               icon={<Home className="w-9 h-9" />}

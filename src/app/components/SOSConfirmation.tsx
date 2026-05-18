@@ -30,18 +30,10 @@ export default function SOSConfirmationScreen({ onConfirm, onCancel }: SOSConfir
   }, [countdown, onCancel]);
 
   return (
-    <div
-      className="content-stretch flex flex-col items-start pb-8 pt-5 relative size-full overflow-y-auto min-[390px]:pb-20 min-[390px]:pt-14"
-      style={{
-        backgroundImage:
-          'linear-gradient(90deg, rgb(251, 249, 248) 0%, rgb(251, 249, 248) 100%), linear-gradient(90deg, rgb(255, 255, 255) 0%, rgb(255, 255, 255) 100%)',
-      }}
-    >
-      <div className="relative shrink-0 w-full">
-        <div className="flex flex-col items-center justify-center overflow-clip rounded-[inherit] size-full">
-          <div className="content-stretch flex flex-col items-center justify-center px-5 py-5 relative size-full min-[390px]:px-6 min-[390px]:py-8">
-            <div className="absolute bg-[#ffdad6] inset-0 opacity-20" />
-
+    <div className="content-stretch flex flex-col items-start bg-[#fff4f2] pb-8 pt-5 relative size-full overflow-y-auto min-[390px]:pb-20 min-[390px]:pt-14">
+      <div className="relative min-h-full w-full">
+        <div className="flex min-h-full flex-col items-center justify-center overflow-clip rounded-[inherit] w-full">
+          <div className="content-stretch flex flex-col items-center justify-center bg-[#fff4f2] px-5 py-5 relative size-full min-[390px]:px-6 min-[390px]:py-8">
             <div className="content-stretch flex flex-col items-start pb-5 relative shrink-0 min-[390px]:pb-8">
               <div className="content-stretch flex items-center justify-center relative shrink-0">
                 <div className="absolute left-[-14px] top-[-14px] size-[168px] rounded-[9999px] bg-[#ba1a1a] animate-ping min-[390px]:left-[-16px] min-[390px]:top-[-16px] min-[390px]:size-[192px]" />
@@ -59,18 +51,12 @@ export default function SOSConfirmationScreen({ onConfirm, onCancel }: SOSConfir
               </div>
             </div>
 
-            <div className="content-stretch flex flex-col items-start pb-5 relative shrink-0 min-[390px]:pb-8">
+            <div className="content-stretch flex flex-col items-start pb-4 relative shrink-0 min-[390px]:pb-6">
               <div className="content-stretch flex flex-col gap-[8px] items-center relative shrink-0">
                 <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
                   <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[28px] text-center min-[390px]:text-[32px]">
                     <p className="mb-0 leading-9 min-[390px]:leading-[42px]">{t('didYouMeanToSendSOS1')}</p>
                     <p className="leading-9 min-[390px]:leading-[42px]">{t('didYouMeanToSendSOS2')}</p>
-                  </div>
-                </div>
-                <div className="content-stretch flex flex-col items-center max-w-[300px] relative shrink-0 w-[300px]">
-                  <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#414942] text-lg text-center min-[390px]:text-[20px]">
-                    <p className="mb-0 leading-6 min-[390px]:leading-[30px]">{t('alertContactsLine1')}</p>
-                    <p className="leading-6 min-[390px]:leading-[30px]">{t('alertContactsLine2')}</p>
                   </div>
                 </div>
               </div>
@@ -113,7 +99,7 @@ export default function SOSConfirmationScreen({ onConfirm, onCancel }: SOSConfir
                     </svg>
                   </div>
                   <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[20px] text-center text-white tracking-[0.4px] whitespace-nowrap">
-                    <p className="leading-[24px]">{t('yesSendSOS')}</p>
+                    <p className="leading-[24px]">{t('SOS')}</p>
                   </div>
                 </button>
 

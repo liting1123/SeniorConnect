@@ -3,36 +3,35 @@ import { useTranslation } from 'react-i18next';
 
 export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   const { t } = useTranslation();
+
   return (
-    <div className="h-full bg-gray-50 overflow-y-auto">
-      {/* Profile Header */}
-      <div className="bg-gradient-to-br from-green-400 to-green-600 px-8 pt-16 pb-10 text-white">
-        <div className="flex items-center gap-6 mb-6">
-          <div className="w-28 h-28 bg-white rounded-full flex items-center justify-center text-6xl">
-            👤
+    <div className="h-full overflow-y-auto bg-gray-50">
+      <div className="bg-gradient-to-br from-green-400 to-green-600 px-5 pb-6 pt-8 text-white min-[390px]:px-8 min-[390px]:pb-10 min-[390px]:pt-16">
+        <div className="mb-5 flex items-center gap-4 min-[390px]:mb-6 min-[390px]:gap-6">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white text-[#316342] min-[390px]:h-28 min-[390px]:w-28">
+            <User className="h-10 w-10 min-[390px]:h-14 min-[390px]:w-14" />
           </div>
-          <div>
-            <h2 className="text-4xl font-bold">John Tan</h2>
-            <p className="text-green-100 text-xl mt-1">john.tan@email.com</p>
+          <div className="min-w-0">
+            <h2 className="text-3xl font-bold min-[390px]:text-4xl">John Tan</h2>
+            <p className="mt-1 truncate text-base text-green-100 min-[390px]:text-xl">john.tan@email.com</p>
           </div>
         </div>
-        <button className="mt-6 bg-white/20 backdrop-blur px-8 py-4 rounded-full text-xl font-bold active:bg-white/30 transition-colors">
+        <button className="mt-3 rounded-full bg-white/20 px-6 py-3 text-lg font-bold backdrop-blur transition-colors active:bg-white/30 min-[390px]:mt-6 min-[390px]:px-8 min-[390px]:py-4 min-[390px]:text-xl">
           {t('editProfile')}
         </button>
       </div>
 
-      {/* Settings List */}
-      <div className="p-8 space-y-6">
-        <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
-          <SettingsItem icon={<User className="w-8 h-8" />} title={t('personalInfo')} />
-          <SettingsItem icon={<Bell className="w-8 h-8" />} title={t('notifications')} />
-          <SettingsItem icon={<Shield className="w-8 h-8" />} title={t('privacySecurity')} />
+      <div className="space-y-5 p-5 min-[390px]:space-y-6 min-[390px]:p-8">
+        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <SettingsItem icon={<User className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('personalInfo')} />
+          <SettingsItem icon={<Bell className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('notifications')} />
+          <SettingsItem icon={<Shield className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('privacySecurity')} />
         </div>
 
-        <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
-          <SettingsItem icon={<HelpCircle className="w-8 h-8" />} title={t('helpSupport')} />
+        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <SettingsItem icon={<HelpCircle className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('helpSupport')} />
           <SettingsItem
-            icon={<LogOut className="w-8 h-8" />}
+            icon={<LogOut className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
             title={t('logOut')}
             textColor="text-red-500"
             onClick={onLogout}
@@ -46,8 +45,8 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
 function SettingsItem({
   icon,
   title,
-  textColor = "text-gray-900",
-  onClick
+  textColor = 'text-gray-900',
+  onClick,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -57,11 +56,13 @@ function SettingsItem({
   return (
     <button
       onClick={onClick}
-      className="w-full px-8 py-6 flex items-center gap-6 active:bg-gray-50 transition-colors border-b last:border-b-0 border-gray-100"
+      className="flex w-full items-center gap-4 border-b border-gray-100 px-5 py-4 transition-colors last:border-b-0 active:bg-gray-50 min-[390px]:gap-6 min-[390px]:px-8 min-[390px]:py-6"
     >
       <div className="text-gray-600">{icon}</div>
-      <span className={`flex-1 text-left text-2xl font-bold ${textColor}`}>{title}</span>
-      <ChevronRight className="w-8 h-8 text-gray-400" />
+      <span className={`flex-1 text-left text-xl font-bold min-[390px]:text-2xl ${textColor}`}>
+        {title}
+      </span>
+      <ChevronRight className="h-7 w-7 text-gray-400 min-[390px]:h-8 min-[390px]:w-8" />
     </button>
   );
 }

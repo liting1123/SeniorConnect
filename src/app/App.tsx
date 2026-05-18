@@ -72,34 +72,34 @@ export default function App() {
   };
 
   return (
-    <div className="size-full flex items-center justify-center bg-gray-100">
-      <div className="w-full max-w-md h-full bg-white shadow-2xl flex flex-col relative">
+    <div className="h-[100dvh] w-full overflow-hidden bg-gray-100 min-[415px]:flex min-[415px]:items-center min-[415px]:justify-center">
+      <div className="mx-auto flex h-full max-h-[896px] min-h-0 w-full max-w-[414px] flex-col bg-white shadow-2xl min-[415px]:rounded-[2px] relative">
         <div className="flex-1 overflow-hidden">
           {renderScreen()}
         </div>
 
         {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && (
-          <nav className="bg-white border-t-2 border-gray-200 px-2 py-3 flex justify-around items-center">
+          <nav className="shrink-0 bg-white border-t-2 border-gray-200 px-2 py-2 flex justify-around items-center">
             <NavButton
-              icon={<Home className="w-9 h-9" />}
+              icon={<Home className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('home')}
               active={currentScreen === 'home'}
               onClick={() => setCurrentScreen('home')}
             />
             <NavButton
-              icon={<Pill className="w-9 h-9" />}
+              icon={<Pill className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('meds')}
               active={currentScreen === 'medication'}
               onClick={() => setCurrentScreen('medication')}
             />
             <NavButton
-              icon={<Trophy className="w-9 h-9" />}
+              icon={<Trophy className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('points')}
               active={currentScreen === 'points'}
               onClick={() => setCurrentScreen('points')}
             />
             <NavButton
-              icon={<User className="w-9 h-9" />}
+              icon={<User className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('profile')}
               active={currentScreen === 'profile'}
               onClick={() => setCurrentScreen('profile')}
@@ -134,12 +134,12 @@ function NavButton({
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center gap-2 py-3 px-2 rounded-lg transition-colors active:scale-95 ${
+      className={`flex min-w-[72px] flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors active:scale-95 min-[390px]:gap-2 min-[390px]:px-2 ${
         active ? 'text-green-600' : 'text-gray-400'
       }`}
     >
       {icon}
-      <span className="text-base font-bold">{label}</span>
+      <span className="text-sm font-bold min-[390px]:text-base">{label}</span>
     </button>
   );
 }

@@ -23,8 +23,8 @@ export default function HomePage({
     <div className="bg-white content-stretch flex flex-col items-start relative size-full overflow-y-auto">
       <div className="bg-[#fbf9f8] relative shrink-0 w-full">
         <div className="flex flex-row items-center size-full">
-          <div className="content-stretch flex items-center justify-between px-[24px] py-[8px] relative size-full">
-            <div className="content-stretch flex items-center justify-center relative shrink-0 size-[40px]">
+          <div className="content-stretch flex items-center justify-between px-5 py-2 relative size-full min-[390px]:px-6">
+            <div className="content-stretch flex items-center justify-center relative shrink-0 size-9 min-[390px]:size-10">
               <div className="relative shrink-0 size-[24.375px]">
                 <svg className="absolute block inset-0 size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 24.375 24.375">
                   <g id="Container">
@@ -35,12 +35,12 @@ export default function HomePage({
             </div>
 
             <div className="content-stretch flex flex-[1_0_0] flex-col items-center min-w-px relative">
-              <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#316342] text-[50px] text-center whitespace-nowrap">
-                <p className="leading-[50px]">{t('home')}</p>
+              <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#316342] text-[40px] text-center whitespace-nowrap min-[390px]:text-[50px]">
+                <p className="leading-[44px] min-[390px]:leading-[50px]">{t('home')}</p>
               </div>
             </div>
 
-            <div className="bg-[#dcd9d9] relative rounded-[9999px] shrink-0 size-[48px]">
+            <div className="bg-[#dcd9d9] relative rounded-[9999px] shrink-0 size-11 min-[390px]:size-12">
               <div className="content-stretch flex flex-col items-start justify-center overflow-clip p-[2px] relative rounded-[inherit] size-full">
                 <div className="flex-[1_0_0] min-h-px relative w-full">
                   <div className="absolute bg-clip-padding border-0 border-[transparent] border-solid inset-0 overflow-hidden pointer-events-none">
@@ -56,30 +56,30 @@ export default function HomePage({
 
       <div className="relative flex-1 w-full">
         <div className="flex flex-col items-center size-full">
-          <div className="content-stretch flex flex-col items-center px-[24px] pb-[16px] relative size-full">
-            <div className="content-stretch flex flex-col items-start pb-[18px] pt-[12px] relative shrink-0 w-full">
+          <div className="content-stretch flex flex-col items-center px-5 pb-4 relative size-full min-[390px]:px-6">
+            <div className="content-stretch flex flex-col items-start pb-3 pt-2 relative shrink-0 w-full min-[390px]:pb-[18px] min-[390px]:pt-3">
               <div className="content-stretch flex flex-col gap-[8px] items-start relative shrink-0 w-full">
                 <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
-                  <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[32px] text-center tracking-[-0.8px] whitespace-nowrap">
-                    <p className="leading-[42px]">{t('dailyCheckIn')}</p>
+                  <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[28px] text-center whitespace-nowrap min-[390px]:text-[32px]">
+                    <p className="leading-9 min-[390px]:leading-[42px]">{t('dailyCheckIn')}</p>
                   </div>
                 </div>
                 <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
-                  <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#414942] text-[20px] text-center whitespace-nowrap">
-                    <p className="leading-[30px]">{t('howAreYouToday')}</p>
+                  <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#414942] text-lg text-center whitespace-nowrap min-[390px]:text-[20px]">
+                    <p className="leading-6 min-[390px]:leading-[30px]">{t('howAreYouToday')}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="content-stretch flex flex-col items-start pb-[24px] relative shrink-0 w-full">
+            <div className="content-stretch flex flex-col items-start pb-4 relative shrink-0 w-full min-[390px]:pb-6">
               <button
                 onClick={onCheckIn}
-                className="bg-[#4a7c59] content-stretch flex flex-col items-center justify-center py-[32px] relative rounded-[32px] shrink-0 w-full active:scale-95 transition-transform"
+                className="bg-[#4a7c59] content-stretch flex flex-col items-center justify-center py-5 relative rounded-[28px] shrink-0 w-full active:scale-95 transition-transform min-[390px]:rounded-[32px] min-[390px]:py-8"
               >
                 <div className="absolute bg-[rgba(255,255,255,0)] inset-[0_0_-0.25px_0] rounded-[32px] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)]" />
-                <div className="content-stretch flex flex-col items-start pb-[12px] relative shrink-0">
-                  <div className="relative shrink-0 size-[48.75px]">
+                <div className="content-stretch flex flex-col items-start pb-2 relative shrink-0 min-[390px]:pb-3">
+                  <div className="relative shrink-0 size-10 min-[390px]:size-[48.75px]">
                     <svg className="absolute block inset-0 size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 48.75 48.75">
                       <g id="Container" opacity="0.9">
                         <path d={svgPaths.p22515f80} fill="var(--fill-0, #E1FFE5)" id="Symbol" />
@@ -88,8 +88,8 @@ export default function HomePage({
                   </div>
                 </div>
                 <div className="content-stretch flex flex-col items-center relative shrink-0">
-                  <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#e1ffe5] text-[40px] text-center tracking-[1px] whitespace-nowrap">
-                    <p className="leading-[60px]">{t('iAmOk')}</p>
+                  <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#e1ffe5] text-[32px] text-center tracking-[1px] whitespace-nowrap min-[390px]:text-[40px]">
+                    <p className="leading-10 min-[390px]:leading-[60px]">{t('iAmOk')}</p>
                   </div>
                 </div>
               </button>
@@ -99,11 +99,11 @@ export default function HomePage({
               <div className="content-stretch flex items-center justify-center relative shrink-0 w-full">
                 <button
                   onClick={onSOSClick}
-                  className="bg-[#ba1a1a] content-stretch flex flex-col items-center justify-center relative rounded-[9999px] shrink-0 size-[min(72vw,292px)] active:scale-95 transition-transform"
+                  className="bg-[#ba1a1a] content-stretch flex flex-col items-center justify-center relative rounded-[9999px] shrink-0 size-[clamp(212px,58vw,240px)] active:scale-95 transition-transform min-[390px]:size-[clamp(248px,68vw,292px)]"
                 >
                   <div className="-translate-x-1/2 -translate-y-1/2 absolute bg-[rgba(255,255,255,0)] left-1/2 rounded-[9999px] shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1),0px_4px_6px_-4px_rgba(0,0,0,0.1)] size-full top-1/2" />
 
-                  <div className="content-stretch flex flex-col h-[120px] items-start pb-[8px] relative shrink-0 w-[112px]">
+                  <div className="content-stretch flex flex-col h-[120px] items-start pb-[8px] relative shrink-0 w-[112px] scale-75 min-[390px]:scale-100">
                     <div className="relative shrink-0 size-[112px]">
                       <div className="absolute bg-white bottom-0 h-[16px] left-0 right-0 rounded-[6px]" />
                       <div className="-translate-x-1/2 absolute bg-white bottom-[16px] h-[40px] left-1/2 rounded-tl-[9999px] rounded-tr-[9999px] w-[48px]" />
@@ -121,16 +121,16 @@ export default function HomePage({
                     </div>
                   </div>
 
-                  <div className="content-stretch flex flex-col items-start pt-[8px] relative shrink-0">
+                  <div className="content-stretch flex flex-col items-start pt-[4px] relative shrink-0 min-[390px]:pt-[8px]">
                     <div className="content-stretch drop-shadow-[0px_2px_1px_rgba(0,0,0,0.06),0px_4px_1.5px_rgba(0,0,0,0.07)] flex flex-col items-center relative shrink-0">
-                      <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[52px] text-center text-white tracking-[5.2px] whitespace-nowrap">
-                        <p className="leading-[78px]">{t('sosButton')}</p>
+                      <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[42px] text-center text-white tracking-[4px] whitespace-nowrap min-[390px]:text-[52px] min-[390px]:tracking-[5.2px]">
+                        <p className="leading-[54px] min-[390px]:leading-[78px]">{t('sosButton')}</p>
                       </div>
                     </div>
                   </div>
                 </button>
 
-                <button className="absolute bg-white bottom-0 content-stretch flex items-center justify-center p-px right-[-8px] rounded-[9999px] size-[56px] active:scale-95 transition-transform">
+                <button className="absolute bg-white bottom-0 content-stretch flex items-center justify-center p-px right-[-4px] rounded-[9999px] size-12 active:scale-95 transition-transform min-[390px]:right-[-8px] min-[390px]:size-14">
                   <div aria-hidden="true" className="absolute border border-[#f0eded] border-solid inset-0 pointer-events-none rounded-[9999px]" />
                   <div className="absolute bg-[rgba(255,255,255,0)] bottom-0 right-0 rounded-[9999px] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] size-[56px]" />
                   <div className="h-[21.75px] relative shrink-0 w-[15px]">

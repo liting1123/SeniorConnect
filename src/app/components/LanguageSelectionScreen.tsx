@@ -19,30 +19,30 @@ export default function LanguageSelectionScreen({ onContinue }: { onContinue: ()
   };
 
   return (
-    <div className="h-full bg-gray-50 flex flex-col p-8">
+    <div className="flex h-full flex-col overflow-y-auto bg-gray-50 p-5 min-[390px]:p-8">
       <div className="flex-1">
-        <h1 className="text-5xl font-bold text-green-700 mb-12">{t('selectLanguage')}</h1>
+        <h1 className="mb-8 text-4xl font-bold leading-tight text-green-700 min-[390px]:mb-12 min-[390px]:text-5xl">{t('selectLanguage')}</h1>
 
-        <div className="space-y-4">
+        <div className="space-y-3 min-[390px]:space-y-4">
           {languages.map((language, index) => (
             <button
               key={language.id}
               onClick={() => handleLanguageSelect(language.id)}
-              className={`w-full bg-white rounded-2xl p-6 flex items-center gap-5 transition-all ${
+              className={`flex w-full items-center gap-4 rounded-2xl bg-white p-4 transition-all min-[390px]:gap-5 min-[390px]:p-6 ${
                 selectedLanguage === language.id
                   ? 'ring-2 ring-green-600'
                   : 'ring-1 ring-gray-200'
               }`}
             >
-              <span className="text-2xl font-bold text-gray-600 w-8">
+              <span className="w-7 text-xl font-bold text-gray-600 min-[390px]:w-8 min-[390px]:text-2xl">
                 {index + 1}.
               </span>
-              <span className="flex-1 text-left text-2xl font-bold text-gray-900">
+              <span className="flex-1 text-left text-xl font-bold text-gray-900 min-[390px]:text-2xl">
                 {language.name}
               </span>
               {selectedLanguage === language.id && (
-                <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center flex-shrink-0">
-                  <Check className="w-6 h-6 text-white" strokeWidth={3} />
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-green-600 min-[390px]:h-10 min-[390px]:w-10">
+                  <Check className="h-5 w-5 text-white min-[390px]:h-6 min-[390px]:w-6" strokeWidth={3} />
                 </div>
               )}
             </button>
@@ -52,10 +52,10 @@ export default function LanguageSelectionScreen({ onContinue }: { onContinue: ()
 
       <button
         onClick={onContinue}
-        className="w-full bg-green-700 text-white py-6 rounded-full text-2xl font-bold flex items-center justify-center gap-3 active:scale-95 transition-transform"
+        className="mt-6 flex w-full items-center justify-center gap-3 rounded-full bg-green-700 py-4 text-xl font-bold text-white transition-transform active:scale-95 min-[390px]:py-6 min-[390px]:text-2xl"
       >
         {t('continue')}
-        <ArrowRight className="w-7 h-7" />
+        <ArrowRight className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
       </button>
     </div>
   );

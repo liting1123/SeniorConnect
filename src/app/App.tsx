@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import '../i18n';
 import LoginScreen from './components/LoginScreen';
 import LanguageSelectionScreen from './components/LanguageSelectionScreen';
-import HomeScreen from './components/HomeScreen';
+import HomePage from './components/HomePage';
 import SOSConfirmationScreen from './components/SOSConfirmation';
 import ProfileScreen from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
@@ -48,7 +48,7 @@ export default function App() {
         return <LanguageSelectionScreen onContinue={() => setCurrentScreen('home')} />;
       case 'home':
         return (
-          <HomeScreen
+          <HomePage
             onSOSClick={() => setShowSOSConfirmation(true)}
             onCheckIn={() => setCurrentScreen('points')}
           />
@@ -63,7 +63,7 @@ export default function App() {
         return <CarePortalScreen onBack={() => setCurrentScreen('welcome')} />;
       default:
         return (
-          <HomeScreen
+          <HomePage
             onSOSClick={() => setShowSOSConfirmation(true)}
             onCheckIn={() => setCurrentScreen('points')}
           />

@@ -10,7 +10,7 @@ const svgPaths = {
     'M7.5 0C5.843 0 4.5 1.343 4.5 3v6c0 1.657 1.343 3 3 3s3-1.343 3-3V3c0-1.657-1.343-3-3-3Zm-6 8.25a.75.75 0 0 1 1.5 0V9c0 2.486 2.014 4.5 4.5 4.5S12 11.486 12 9v-.75a.75.75 0 0 1 1.5 0V9a6.001 6.001 0 0 1-5.25 5.953V18h3a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1 0-1.5h3v-3.047A6.001 6.001 0 0 1 1.5 9v-.75Z',
 };
 
-export default function HomeScreen({
+export default function HomePage({
   onSOSClick,
   onCheckIn,
 }: {
@@ -35,8 +35,8 @@ export default function HomeScreen({
             </div>
 
             <div className="content-stretch flex flex-[1_0_0] flex-col items-center min-w-px relative">
-              <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#316342] text-[24px] text-center whitespace-nowrap">
-                <p className="leading-[32px]">{t('helloFriend')}</p>
+              <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#316342] text-[50px] text-center whitespace-nowrap">
+                <p className="leading-[50px]">{t('home')}</p>
               </div>
             </div>
 
@@ -54,10 +54,10 @@ export default function HomeScreen({
         </div>
       </div>
 
-      <div className="relative shrink-0 w-full">
+      <div className="relative flex-1 w-full">
         <div className="flex flex-col items-center size-full">
-          <div className="content-stretch flex flex-col items-center pb-[87px] px-[24px] relative size-full">
-            <div className="content-stretch flex flex-col items-start pb-[32px] pt-[16px] relative shrink-0 w-full">
+          <div className="content-stretch flex flex-col items-center px-[24px] pb-[16px] relative size-full">
+            <div className="content-stretch flex flex-col items-start pb-[18px] pt-[12px] relative shrink-0 w-full">
               <div className="content-stretch flex flex-col gap-[8px] items-start relative shrink-0 w-full">
                 <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
                   <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[32px] text-center tracking-[-0.8px] whitespace-nowrap">
@@ -72,10 +72,10 @@ export default function HomeScreen({
               </div>
             </div>
 
-            <div className="content-stretch flex flex-col items-start pb-[32px] relative shrink-0 w-full">
+            <div className="content-stretch flex flex-col items-start pb-[24px] relative shrink-0 w-full">
               <button
                 onClick={onCheckIn}
-                className="bg-[#4a7c59] content-stretch flex flex-col items-center justify-center py-[40px] relative rounded-[32px] shrink-0 w-full active:scale-95 transition-transform"
+                className="bg-[#4a7c59] content-stretch flex flex-col items-center justify-center py-[32px] relative rounded-[32px] shrink-0 w-full active:scale-95 transition-transform"
               >
                 <div className="absolute bg-[rgba(255,255,255,0)] inset-[0_0_-0.25px_0] rounded-[32px] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)]" />
                 <div className="content-stretch flex flex-col items-start pb-[12px] relative shrink-0">
@@ -95,13 +95,13 @@ export default function HomeScreen({
               </button>
             </div>
 
-            <div className="content-stretch flex flex-col items-start pb-[32px] relative shrink-0 w-full">
+            <div className="content-stretch flex flex-col items-start relative shrink-0 w-full">
               <div className="content-stretch flex items-center justify-center relative shrink-0 w-full">
                 <button
                   onClick={onSOSClick}
-                  className="bg-[#ba1a1a] content-stretch flex flex-col items-center justify-center relative rounded-[9999px] shrink-0 size-[320px] active:scale-95 transition-transform"
+                  className="bg-[#ba1a1a] content-stretch flex flex-col items-center justify-center relative rounded-[9999px] shrink-0 size-[min(72vw,292px)] active:scale-95 transition-transform"
                 >
-                  <div className="-translate-x-1/2 -translate-y-1/2 absolute bg-[rgba(255,255,255,0)] left-1/2 rounded-[9999px] shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1),0px_4px_6px_-4px_rgba(0,0,0,0.1)] size-[320px] top-1/2" />
+                  <div className="-translate-x-1/2 -translate-y-1/2 absolute bg-[rgba(255,255,255,0)] left-1/2 rounded-[9999px] shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1),0px_4px_6px_-4px_rgba(0,0,0,0.1)] size-full top-1/2" />
 
                   <div className="content-stretch flex flex-col h-[120px] items-start pb-[8px] relative shrink-0 w-[112px]">
                     <div className="relative shrink-0 size-[112px]">

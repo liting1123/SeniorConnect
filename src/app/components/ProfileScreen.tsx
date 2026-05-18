@@ -1,22 +1,38 @@
 import { ChevronRight, User, Bell, Shield, HelpCircle, LogOut } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
+import { auth } from '../../../firebase';
 
 export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   const { t } = useTranslation();
+  const [user, setUser] = useState<FirebaseUser | null>(() => auth.currentUser);
+  const email = user?.email ?? 'No email found';
+  const displayName = useMemo(() => {
+    if (user?.displayName?.trim()) {
+      return user.displayName.trim();
+    }
+
+    return user?.email?.split('@')[0] || 'My Profile';
+  }, [user]);
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, setUser);
+  }, []);
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50">
-      <div className="bg-gradient-to-br from-green-400 to-green-600 px-5 pb-6 pt-8 text-white min-[390px]:px-8 min-[390px]:pb-10 min-[390px]:pt-16">
-        <div className="mb-5 flex items-center gap-4 min-[390px]:mb-6 min-[390px]:gap-6">
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white text-[#316342] min-[390px]:h-28 min-[390px]:w-28">
-            <User className="h-10 w-10 min-[390px]:h-14 min-[390px]:w-14" />
+      <div className="bg-gradient-to-br from-green-400 to-green-600 px-5 pb-5 pt-6 text-white min-[390px]:px-7 min-[390px]:pb-7 min-[390px]:pt-8">
+        <div className="mb-4 flex items-center gap-4 min-[390px]:gap-5">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-[#316342] min-[390px]:h-20 min-[390px]:w-20">
+            <User className="h-8 w-8 min-[390px]:h-10 min-[390px]:w-10" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-3xl font-bold min-[390px]:text-4xl">John Tan</h2>
-            <p className="mt-1 truncate text-base text-green-100 min-[390px]:text-xl">john.tan@email.com</p>
+            <h2 className="truncate text-2xl font-bold min-[390px]:text-3xl">{displayName}</h2>
+            <p className="mt-1 truncate text-sm text-green-100 min-[390px]:text-base">{email}</p>
           </div>
         </div>
-        <button className="mt-3 rounded-full bg-white/20 px-6 py-3 text-lg font-bold backdrop-blur transition-colors active:bg-white/30 min-[390px]:mt-6 min-[390px]:px-8 min-[390px]:py-4 min-[390px]:text-xl">
+        <button className="rounded-full bg-white/20 px-5 py-2.5 text-base font-bold backdrop-blur transition-colors active:bg-white/30 min-[390px]:px-6 min-[390px]:py-3 min-[390px]:text-lg">
           {t('editProfile')}
         </button>
       </div>

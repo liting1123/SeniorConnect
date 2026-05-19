@@ -10,72 +10,52 @@ import ProfileScreen from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
 import MedicationScreen from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
-import { signOut } from 'firebase/auth';
-import { ref, runTransaction, serverTimestamp, update } from 'firebase/database';
-import { auth, database } from '../../firebase';
+import { createSosAlert } from './services/serviceNow';
+import { clearLocalUser, getLocalPointsKey, getLocalUser } from './services/localUser';
 
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'carePortal';
-
-const getLocalPointsKey = (uid: string) => `careconnect.points.${uid}`;
 
 export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
 
-  const handleSOSConfirm = () => {
-    alert('Emergency contacts have been notified!');
-    setShowSOSConfirmation(false);
+  const handleSOSConfirm = async () => {
+    try {
+      await createSosAlert({
+        location: 'Block 123 Woodlands',
+        message: 'SOS alert triggered',
+        seniorName: 'Tan HA HA',
+        seniorPhone: '91234567',
+        status: 'New',
+      });
+
+      alert('Emergency contacts have been notified!');
+      setShowSOSConfirmation(false);
+    } catch (error) {
+      console.error('ServiceNow SOS alert failed:', error);
+      const message = error instanceof Error ? error.message : 'Please try again.';
+      alert(`Unable to send SOS alert to ServiceNow. ${message}`);
+    }
   };
 
   const handleCheckIn = async () => {
-    const user = auth.currentUser;
+    const user = getLocalUser();
+    const localPointsKey = getLocalPointsKey(user.uid);
+    const nextPoints = (Number(localStorage.getItem(localPointsKey)) || 0) + 5;
 
-    if (!user) {
-      alert('Please log in again before checking in.');
-      setCurrentScreen('welcome');
-      return;
-    }
-
-    const pointsRef = ref(database, `users/${user.uid}/points`);
-
-    try {
-      await runTransaction(pointsRef, (currentPoints) => {
-        return (Number(currentPoints) || 0) + 5;
-      });
-
-      update(ref(database, `users/${user.uid}/profile`), {
-        email: user.email,
-        name: user.displayName?.trim() || user.email?.split('@')[0] || 'User',
-        lastCheckInAt: serverTimestamp(),
-      }).catch((error) => {
-        console.warn('Profile metadata update failed:', error);
-      });
-
-      setCurrentScreen('points');
-    } catch (error) {
-      console.error('Check-in failed:', error);
-      const localPointsKey = getLocalPointsKey(user.uid);
-      const nextPoints = (Number(localStorage.getItem(localPointsKey)) || 0) + 5;
-
-      localStorage.setItem(localPointsKey, String(nextPoints));
-      window.dispatchEvent(
-        new CustomEvent('careconnect-points-updated', {
-          detail: { uid: user.uid, points: nextPoints },
-        }),
-      );
-      setCurrentScreen('points');
-    }
+    localStorage.setItem(localPointsKey, String(nextPoints));
+    window.dispatchEvent(
+      new CustomEvent('careconnect-points-updated', {
+        detail: { uid: user.uid, points: nextPoints },
+      }),
+    );
+    setCurrentScreen('points');
   };
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      setCurrentScreen('welcome');
-    } catch (error) {
-      console.error('Logout failed:', error);
-      alert('Unable to log out. Please try again.');
-    }
+  const handleLogout = () => {
+    clearLocalUser();
+    setCurrentScreen('welcome');
   };
 
   const renderScreen = () => {

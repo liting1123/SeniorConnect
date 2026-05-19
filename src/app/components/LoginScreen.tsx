@@ -1,8 +1,7 @@
 import { Heart, Mail, Lock, Eye, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../../../firebase';
+import { createLocalUser, saveLocalUser } from '../services/localUser';
 
 export default function LoginScreen({
   onGetStarted,
@@ -24,11 +23,16 @@ export default function LoginScreen({
     setIsLoggingIn(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      if (!email.trim() || !password.trim()) {
+        setError('Please enter your email and password.');
+        return;
+      }
+
+      saveLocalUser(createLocalUser(email));
       onGetStarted();
     } catch (error) {
       console.error('Login failed:', error);
-      setError('Email or password is incorrect.');
+      setError('Unable to log in. Please try again.');
     } finally {
       setIsLoggingIn(false);
     }

@@ -9,29 +9,16 @@ import {
   User,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
-import { onValue, ref } from 'firebase/database';
-import { auth, database } from '../../../firebase';
-
-const getLocalPointsKey = (uid: string) => `careconnect.points.${uid}`;
+import { getLocalPointsKey, getLocalUser, type LocalUser } from '../services/localUser';
 
 export default function PointsScreen() {
-  const [user, setUser] = useState<FirebaseUser | null>(() => auth.currentUser);
+  const [user] = useState<LocalUser>(() => getLocalUser());
   const [points, setPoints] = useState(0);
   const displayName = useMemo(() => {
-    return user?.displayName?.trim() || user?.email?.split('@')[0] || 'User';
+    return user.name || user.email.split('@')[0] || 'User';
   }, [user]);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, setUser);
-  }, []);
-
-  useEffect(() => {
-    if (!user) {
-      setPoints(0);
-      return;
-    }
-
     const localPointsKey = getLocalPointsKey(user.uid);
     setPoints(Number(localStorage.getItem(localPointsKey)) || 0);
 
@@ -45,25 +32,8 @@ export default function PointsScreen() {
 
     window.addEventListener('careconnect-points-updated', handleLocalPointsUpdate);
 
-    const unsubscribePoints = onValue(
-      ref(database, `users/${user.uid}/points`),
-      (snapshot) => {
-        const databasePoints = Number(snapshot.val());
-
-        if (Number.isFinite(databasePoints)) {
-          setPoints(databasePoints);
-          localStorage.setItem(localPointsKey, String(databasePoints));
-        }
-      },
-      (error) => {
-        console.error('Unable to load points:', error);
-        setPoints(Number(localStorage.getItem(localPointsKey)) || 0);
-      },
-    );
-
     return () => {
       window.removeEventListener('careconnect-points-updated', handleLocalPointsUpdate);
-      unsubscribePoints();
     };
   }, [user]);
 

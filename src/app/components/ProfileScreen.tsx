@@ -1,24 +1,15 @@
 import { ChevronRight, User, Bell, Shield, HelpCircle, LogOut } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
-import { auth } from '../../../firebase';
+import { getLocalUser, type LocalUser } from '../services/localUser';
 
 export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   const { t } = useTranslation();
-  const [user, setUser] = useState<FirebaseUser | null>(() => auth.currentUser);
-  const email = user?.email ?? 'No email found';
+  const [user] = useState<LocalUser>(() => getLocalUser());
+  const email = user.email;
   const displayName = useMemo(() => {
-    if (user?.displayName?.trim()) {
-      return user.displayName.trim();
-    }
-
-    return user?.email?.split('@')[0] || 'My Profile';
+    return user.name || user.email.split('@')[0] || 'My Profile';
   }, [user]);
-
-  useEffect(() => {
-    return onAuthStateChanged(auth, setUser);
-  }, []);
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50">

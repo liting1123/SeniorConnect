@@ -62,7 +62,7 @@ export default function LoginScreen({
                   type="text"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="Enter ServiceNow email"
+                  placeholder="Enter email"
                   required
                   className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-4 pl-12 pr-5 text-lg placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 min-[390px]:py-5 min-[390px]:pl-14 min-[390px]:text-xl"
                 />

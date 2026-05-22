@@ -1,81 +1,284 @@
-import { Bell, CheckCircle2, Clock, Pill } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Bell, CheckCircle, Clock, Pill, Utensils } from 'lucide-react';
+
+const medicines = [
+  {
+    id: 'atorvastatin',
+    name: 'Atorvastatin',
+    dose: '20mg',
+    schedule: '1 tablet - Daily',
+    instruction: 'After dinner',
+    time: '5:45 PM',
+  },
+  {
+    id: 'metformin',
+    name: 'Metformin',
+    dose: '500mg',
+    schedule: '1 tablet - Daily',
+    instruction: 'After breakfast',
+    time: '8:00 AM',
+  },
+];
+
+function getMinutesFromTimeLabel(timeLabel: string) {
+  const match = timeLabel.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, rawHour, rawMinute, period] = match;
+  let hour = Number(rawHour);
+  const minute = Number(rawMinute);
+
+  if (period.toUpperCase() === 'PM' && hour !== 12) {
+    hour += 12;
+  }
+
+  if (period.toUpperCase() === 'AM' && hour === 12) {
+    hour = 0;
+  }
+
+  return hour * 60 + minute;
+}
+
+function getCurrentMinutes() {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
 
 export default function MedicationScreen() {
-  const [doseTaken, setDoseTaken] = useState(false);
+  const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
+  const [dismissedReminderIds, setDismissedReminderIds] = useState<string[]>([]);
+  const [activeReminderId, setActiveReminderId] = useState<string | null>(null);
+  const [currentMinutes, setCurrentMinutes] = useState(() => getCurrentMinutes());
+
+  const activeReminder = useMemo(() => {
+    return medicines.find((medicine) => medicine.id === activeReminderId) || null;
+  }, [activeReminderId]);
+
+  const markMedicineDone = (medicineId: string) => {
+    setTakenMedicineIds((current) => (current.includes(medicineId) ? current : [...current, medicineId]));
+    setDismissedReminderIds((current) => (current.includes(medicineId) ? current : [...current, medicineId]));
+    setActiveReminderId(null);
+  };
+
+  useEffect(() => {
+    const checkForDueMedicine = () => {
+      if (activeReminderId) {
+        return;
+      }
+
+      const currentMinutes = getCurrentMinutes();
+      const dueMedicine = medicines.find((medicine) => {
+        const medicineMinutes = getMinutesFromTimeLabel(medicine.time);
+
+        return (
+          medicineMinutes !== null &&
+          currentMinutes >= medicineMinutes &&
+          !takenMedicineIds.includes(medicine.id) &&
+          !dismissedReminderIds.includes(medicine.id)
+        );
+      });
+
+      if (dueMedicine) {
+        setActiveReminderId(dueMedicine.id);
+      }
+    };
+
+    checkForDueMedicine();
+    const timer = window.setInterval(checkForDueMedicine, 30000);
+
+    return () => window.clearInterval(timer);
+  }, [activeReminderId, dismissedReminderIds, takenMedicineIds]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setCurrentMinutes(getCurrentMinutes());
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   return (
-    <div className="h-full overflow-y-auto bg-[#fafafa] px-5 pb-6 pt-5 text-gray-900 min-[390px]:px-6 min-[390px]:pb-8 min-[390px]:pt-8">
-      <header className="mb-5 flex items-start justify-between min-[390px]:mb-8">
-        <div>
-          <h1 className="mb-1 text-2xl font-bold leading-tight tracking-tight min-[390px]:text-[26px]">
-            Medication Reminder
-          </h1>
-          <p className="text-sm font-medium text-gray-500 min-[390px]:text-[15px]">
-            Never miss a dose.
+    <div className="relative h-full overflow-y-auto bg-[#f7f7f7]">
+      <main className="px-5 pb-6 pt-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold leading-tight text-[#07122e]">
+              Medicine Reminder
+            </h1>
+            <p className="mt-2 text-lg text-gray-500">Take on time.</p>
+          </div>
+
+          <button
+            aria-label="Notifications"
+            className="mt-2 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white text-[#f04a24] shadow-sm active:scale-95"
+          >
+            <Bell className="h-7 w-7" />
+          </button>
+        </div>
+
+        <section className="mt-6 flex items-center gap-3 rounded-[22px] bg-[#fff7ef] px-4 py-4 shadow-sm">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ffe8dd]">
+            <Clock className="h-6 w-6 text-[#f04a24]" />
+          </div>
+          <p className="text-xl font-bold leading-tight text-[#07122e]">
+            Today's medicine
           </p>
-        </div>
-        <button
-          aria-label="Notifications"
-          className="relative mt-1 rounded-full p-2 text-[#ff4400] transition-colors active:scale-95 active:bg-[#fff0ea]"
-        >
-          <Bell className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
-          <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#ff4400]" />
-        </button>
-      </header>
+        </section>
 
-      <section className="mb-5 rounded-[24px] border border-gray-100 bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.05)] min-[390px]:mb-8 min-[390px]:p-5">
-        <div className="mb-4 flex items-center justify-between min-[390px]:mb-5">
-          <h2 className="text-lg font-semibold text-gray-900">Next dose</h2>
-          <div className="flex items-center gap-1.5 rounded-full bg-[#e8f5e9] px-3 py-1.5">
-            <CheckCircle2 className="h-4 w-4 text-[#2e8b57]" />
-            <span className="text-sm font-medium text-[#2e8b57]">
-              {doseTaken ? 'Taken' : 'On time'}
-            </span>
-          </div>
+        <div className="mt-5 flex flex-col gap-4">
+          {medicines.map((medicine) => (
+            <MedicineCard
+              currentMinutes={currentMinutes}
+              key={medicine.id}
+              isTaken={takenMedicineIds.includes(medicine.id)}
+              medicine={medicine}
+              onTaken={() => markMedicineDone(medicine.id)}
+            />
+          ))}
         </div>
+      </main>
 
-        <div className="flex items-center gap-4 min-[390px]:gap-5">
-          <div className="relative flex h-20 w-20 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-orange-50 min-[390px]:h-24 min-[390px]:w-24">
-            <div className="relative flex h-14 w-10 flex-col rounded-b-md rounded-t-lg border border-gray-200 bg-white shadow-sm min-[390px]:h-16 min-[390px]:w-12">
-              <div className="h-4 w-full rounded-t-lg bg-gray-200" />
-              <div className="mt-1 flex flex-1 items-center justify-center bg-[#ff4400]">
-                <Pill className="h-5 w-5 text-white" />
-              </div>
+      {activeReminder && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+          <div className="w-full rounded-[28px] bg-white p-6 text-center shadow-2xl">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#fff0e8] text-[#f04a24]">
+              <Clock className="h-9 w-9" />
             </div>
-            <div className="absolute bottom-4 right-4 h-6 w-6 rounded-full border border-gray-200 bg-white shadow" />
-            <div className="absolute bottom-2 right-2 h-6 w-6 rounded-full border border-gray-200 bg-white shadow" />
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <h3 className="mb-1 text-lg font-bold leading-tight text-gray-900 min-[390px]:text-[20px]">
-              Atorvastatin 20mg
-            </h3>
-            <p className="mb-3 text-sm font-medium text-gray-500">
-              1 tablet - Once daily
+            <h2 className="mt-4 text-3xl font-bold text-[#07122e]">
+              Medicine reminder
+            </h2>
+            <p className="mt-3 text-xl leading-7 text-gray-600">
+              It is time to take {activeReminder.name} {activeReminder.dose}.
             </p>
-            <div className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-[#ff4400]" />
-              <span className="text-base font-bold tracking-tight text-[#ff4400] min-[390px]:text-[18px]">
-                5:45 PM
-              </span>
+            <div className="mt-6 flex flex-col gap-3">
+              <button
+                onClick={() => markMedicineDone(activeReminder.id)}
+                className="flex h-14 items-center justify-center rounded-full bg-[#18833b] text-xl font-bold text-white active:scale-95"
+              >
+                Done
+              </button>
+              <button
+                onClick={() => {
+                  setDismissedReminderIds((current) =>
+                    current.includes(activeReminder.id) ? current : [...current, activeReminder.id],
+                  );
+                  setActiveReminderId(null);
+                }}
+                className="flex h-14 items-center justify-center rounded-full border-2 border-[#f04a24] bg-white text-xl font-bold text-[#f04a24] active:scale-95"
+              >
+                Remind later
+              </button>
             </div>
           </div>
         </div>
-      </section>
-
-      <section className="space-y-4">
-        <button className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#ff4400] py-3.5 text-base font-semibold text-white shadow-sm transition-colors active:scale-95 active:bg-orange-600 min-[390px]:py-4 min-[390px]:text-[17px]">
-          <Bell className="h-5 w-5" />
-          <span>Snooze 15 minutes</span>
-        </button>
-        <button
-          onClick={() => setDoseTaken(true)}
-          className="w-full rounded-2xl border border-[#ff4400] bg-white py-3.5 text-base font-semibold text-[#ff4400] shadow-sm transition-colors active:scale-95 active:bg-orange-50 min-[390px]:py-4 min-[390px]:text-[17px]"
-        >
-          I've taken this dose
-        </button>
-      </section>
+      )}
     </div>
+  );
+}
+
+function MedicineCard({
+  currentMinutes,
+  isTaken,
+  medicine,
+  onTaken,
+}: {
+  currentMinutes: number;
+  isTaken: boolean;
+  medicine: {
+    id: string;
+    name: string;
+    dose: string;
+    schedule: string;
+    instruction: string;
+    time: string;
+  };
+  onTaken: () => void;
+}) {
+  const medicineMinutes = getMinutesFromTimeLabel(medicine.time);
+  const status =
+    isTaken ? 'Taken' : medicineMinutes !== null && currentMinutes > medicineMinutes ? 'Missed' : 'Not yet';
+  const statusStyle = {
+    Taken: {
+      badge: 'bg-[#e9f6ed] text-[#18833b]',
+      row: 'bg-[#e9f6ed]',
+      text: 'text-[#18833b]',
+      button: 'bg-[#18833b]',
+    },
+    'Not yet': {
+      badge: 'bg-[#fff5ef] text-[#f04a24]',
+      row: 'bg-[#fff5ef]',
+      text: 'text-[#f04a24]',
+      button: 'bg-[#f04a24]',
+    },
+    Missed: {
+      badge: 'bg-[#fdeaea] text-[#c62828]',
+      row: 'bg-[#fdeaea]',
+      text: 'text-[#c62828]',
+      button: 'bg-[#c62828]',
+    },
+  }[status];
+
+  return (
+    <section className="rounded-[24px] bg-white p-4 shadow-[0_8px_20px_rgba(7,18,46,0.08)]">
+      <div className="mb-3 flex justify-end">
+        <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold ${statusStyle.badge}`}>
+          <CheckCircle className="h-4 w-4" />
+          {status}
+        </div>
+      </div>
+
+      <div className="flex gap-4">
+        <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-[#fff4ec]">
+          <div className="relative">
+            <div className="flex h-16 w-14 items-center justify-center rounded-xl bg-[#f04a24]">
+              <Pill className="h-8 w-8 text-white" />
+            </div>
+            <div className="absolute -right-2 bottom-0 h-8 w-8 rounded-full bg-white shadow" />
+          </div>
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <h2 className="text-2xl font-bold leading-tight text-[#07122e]">
+            {medicine.name}
+          </h2>
+          <p className="text-2xl font-bold leading-tight text-[#07122e]">
+            {medicine.dose}
+          </p>
+
+          <p className="mt-2 text-lg text-gray-500">{medicine.schedule}</p>
+
+          <div className="my-3 border-t border-gray-200" />
+
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#fff0e8]">
+              <Utensils className="h-5 w-5 text-[#f04a24]" />
+            </div>
+            <p className="text-lg font-semibold text-[#07122e]">
+              {medicine.instruction}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className={`mt-4 flex items-center justify-between gap-3 rounded-2xl px-4 py-3 transition-colors ${
+          statusStyle.row
+        }`}
+      >
+        <div className={`flex items-center gap-2 ${statusStyle.text}`}>
+          <Clock className="h-7 w-7" />
+          <p className="text-3xl font-bold">{medicine.time}</p>
+        </div>
+        <button
+          onClick={onTaken}
+          className={`rounded-full px-4 py-2 text-base font-bold text-white transition-colors active:scale-95 ${statusStyle.button}`}
+        >
+          {isTaken ? 'Done' : 'Taken'}
+        </button>
+      </div>
+    </section>
   );
 }

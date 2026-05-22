@@ -255,15 +255,23 @@ export async function loginWithServiceNow({ identifier, email, password }) {
   const query = `(${LOGIN_FIELD_MAP.email}=${normalizedIdentifier}^OR${LOGIN_FIELD_MAP.username}=${normalizedIdentifier})`;
   const params = new URLSearchParams({
     sysparm_query: query,
-    sysparm_limit: '1',
+    sysparm_limit: '10',
   });
   const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${params.toString()}`));
-  const record = data?.result?.[0];
+  const record = data?.result?.find(user =>
+  (
+    user[LOGIN_FIELD_MAP.email] === normalizedIdentifier ||
+    user[LOGIN_FIELD_MAP.username] === normalizedIdentifier
+  ) &&
+  String(user[LOGIN_FIELD_MAP.password] || '') === String(rawPassword)
+);
 
-  if (!record || String(record[LOGIN_FIELD_MAP.password] || '') !== rawPassword) {
-    throw Object.assign(new Error('Email/username or password is incorrect.'), { status: 401 });
-  }
-
+if (!record) {
+  throw Object.assign(
+    new Error('Email/username or password is incorrect.'),
+    { status: 401 }
+  );
+}
   const activeValue = record[LOGIN_FIELD_MAP.active];
 
   if (activeValue !== undefined && activeValue !== '' && String(activeValue).toLowerCase() === 'false') {

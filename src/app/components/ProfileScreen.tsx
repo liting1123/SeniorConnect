@@ -1,4 +1,4 @@
-import { ChevronRight, User, Bell, Shield, HelpCircle, LogOut } from 'lucide-react';
+import { ChevronRight, User, Shield, HelpCircle, LogOut } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { type AppUser, getStoredUser } from '../services/backend';
@@ -45,7 +45,6 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
       <div className="space-y-5 p-5 min-[390px]:space-y-6 min-[390px]:p-8">
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
           <SettingsItem icon={<User className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('personalInfo')} />
-          <SettingsItem icon={<Bell className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('notifications')} />
           <SettingsItem icon={<Shield className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('privacySecurity')} />
         </div>
 

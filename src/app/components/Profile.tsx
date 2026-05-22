@@ -22,11 +22,7 @@ export function Profile({ onNavigate, currentTab }: ProfileProps) {
       label: 'Devices & Sensors',
       onClick: () => console.log('Devices & Sensors')
     },
-    {
-      icon: Bell,
-      label: 'Notification Settings',
-      onClick: () => console.log('Notification Settings')
-    },
+    
     {
       icon: HelpCircle,
       label: 'Help & Support',

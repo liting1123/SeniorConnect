@@ -3,7 +3,7 @@ import { loadEnv } from './env.mjs';
 import {
   addCheckInPoints,
   getServiceNowLoginConfig,
-  getUserByFirebaseUid,
+  getUserById,
   loginWithServiceNow,
   upsertUserProfile,
 } from './servicenow.mjs';
@@ -80,7 +80,7 @@ async function handleRequest(request, response) {
   requireAuth(request);
 
   if (request.method === 'GET' && route.action === 'points') {
-    const user = await getUserByFirebaseUid(route.uid);
+    const user = await getUserById(route.uid);
     sendJson(response, 200, { points: user?.points || 0, user });
     return;
   }
@@ -88,7 +88,7 @@ async function handleRequest(request, response) {
   if (request.method === 'POST' && route.action === 'check-in') {
     const body = await readJson(request);
     const user = await addCheckInPoints({
-      firebaseUid: route.uid,
+      userId: route.uid,
       email: body.email,
       name: body.name,
       pointsToAdd: 5,
@@ -100,7 +100,7 @@ async function handleRequest(request, response) {
   if (request.method === 'PATCH' && route.action === 'profile') {
     const body = await readJson(request);
     const user = await upsertUserProfile({
-      firebaseUid: route.uid,
+      userId: route.uid,
       email: body.email,
       name: body.name,
     });

@@ -24,7 +24,6 @@ Add these fields:
 
 | Label | Column name | Type |
 | --- | --- | --- |
-| Firebase UID | `u_firebase_uid` | String |
 | Email | `u_email` | String or Email |
 | Name | `u_name` | String |
 | Points | `u_points` | Integer |
@@ -70,7 +69,7 @@ After logging in to the app, press the daily check-in button. The app should cre
 The backend uses these ServiceNow API actions:
 
 ```text
-GET   /api/now/table/{table}?sysparm_query=u_firebase_uid={uid}
+GET   /api/now/table/{table}/{sys_id}
 POST  /api/now/table/{table}
 PATCH /api/now/table/{table}/{sys_id}
 ```

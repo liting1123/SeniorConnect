@@ -6,7 +6,7 @@ const REQUIRED_FIELDS = [
 ];
 
 const FIELD_MAP = {
-  firebaseUid: process.env.SERVICE_NOW_FIELD_FIREBASE_UID || 'u_firebase_uid',
+  userId: process.env.SERVICE_NOW_FIELD_USER_ID || 'u_user_id',
   email: process.env.SERVICE_NOW_FIELD_EMAIL || 'u_email',
   name: process.env.SERVICE_NOW_FIELD_NAME || 'u_name',
   points: process.env.SERVICE_NOW_FIELD_POINTS || 'u_points',
@@ -81,7 +81,7 @@ function getNamedTablePath(table, query = '') {
 function toUserRecord(record = {}) {
   return {
     sysId: record.sys_id,
-    firebaseUid: record[FIELD_MAP.firebaseUid] || '',
+    userId: record[FIELD_MAP.userId] || '',
     email: record[FIELD_MAP.email] || '',
     name: record[FIELD_MAP.name] || '',
     points: Number(record[FIELD_MAP.points]) || 0,
@@ -89,9 +89,14 @@ function toUserRecord(record = {}) {
   };
 }
 
-export async function getUserByFirebaseUid(firebaseUid) {
+export async function getUserById(userId) {
+  if (FIELD_MAP.userId === 'sys_id') {
+    const data = await serviceNowFetch(getTablePath(`/${encodeURIComponent(userId)}`));
+    return data?.result ? toUserRecord(data.result) : null;
+  }
+
   const params = new URLSearchParams({
-    sysparm_query: `${FIELD_MAP.firebaseUid}=${firebaseUid}`,
+    sysparm_query: `${FIELD_MAP.userId}=${userId}`,
     sysparm_limit: '1',
   });
   const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
@@ -100,13 +105,16 @@ export async function getUserByFirebaseUid(firebaseUid) {
   return record ? toUserRecord(record) : null;
 }
 
-export async function upsertUserProfile({ firebaseUid, email, name }) {
-  const existing = await getUserByFirebaseUid(firebaseUid);
+export async function upsertUserProfile({ userId, email, name }) {
+  const existing = await getUserById(userId);
   const payload = {
-    [FIELD_MAP.firebaseUid]: firebaseUid,
     [FIELD_MAP.email]: email || '',
     [FIELD_MAP.name]: name || email?.split('@')[0] || 'User',
   };
+
+  if (FIELD_MAP.userId !== 'sys_id') {
+    payload[FIELD_MAP.userId] = userId;
+  }
 
   if (existing?.sysId) {
     const data = await serviceNowFetch(getTablePath(`/${existing.sysId}`), {
@@ -125,8 +133,8 @@ export async function upsertUserProfile({ firebaseUid, email, name }) {
   return toUserRecord(data.result);
 }
 
-export async function addCheckInPoints({ firebaseUid, email, name, pointsToAdd = 5 }) {
-  const profile = await upsertUserProfile({ firebaseUid, email, name });
+export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 }) {
+  const profile = await upsertUserProfile({ userId, email, name });
   const nextPoints = profile.points + pointsToAdd;
   const data = await serviceNowFetch(getTablePath(`/${profile.sysId}`), {
     method: 'PATCH',

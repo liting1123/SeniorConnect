@@ -248,18 +248,20 @@ export async function loginWithServiceNow({ identifier, email, password }) {
   const rawPassword = String(password || '');
 
   if (!normalizedIdentifier || !rawPassword) {
-    throw Object.assign(new Error('Username/email and password are required.'), { status: 400 });
+    throw Object.assign(new Error('Email/username and password are required.'), { status: 400 });
   }
 
+  // Allow login with either email or username
+  const query = `(${LOGIN_FIELD_MAP.email}=${normalizedIdentifier}^OR${LOGIN_FIELD_MAP.username}=${normalizedIdentifier})`;
   const params = new URLSearchParams({
-    sysparm_query: `${LOGIN_FIELD_MAP.username}=${normalizedIdentifier}^OR${LOGIN_FIELD_MAP.email}=${normalizedIdentifier}`,
+    sysparm_query: query,
     sysparm_limit: '1',
   });
   const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${params.toString()}`));
   const record = data?.result?.[0];
 
   if (!record || String(record[LOGIN_FIELD_MAP.password] || '') !== rawPassword) {
-    throw Object.assign(new Error('Username/email or password is incorrect.'), { status: 401 });
+    throw Object.assign(new Error('Email/username or password is incorrect.'), { status: 401 });
   }
 
   const activeValue = record[LOGIN_FIELD_MAP.active];

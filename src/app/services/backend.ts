@@ -75,43 +75,23 @@ export function clearStoredUser() {
 }
 
 export async function login(identifier: string, password: string) {
+  const response = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier, password }),
+  });
+  const data = await response.json().catch(() => null);
 
-  const BASE_URL =
-    'https://dev201489.service-now.com/api/now/table/';
-
-  const AUTH_HEADER =
-    'Basic ' + btoa('admin:o07YB%NtEm!k');
-
-  const response = await fetch(
-    `${BASE_URL}/u_login?sysparm_query=u_email=${identifier}`,
-    {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: AUTH_HEADER,
-      },
-    }
-  );
-
-  const data = await response.json();
-
-  console.log(data);
-
-  if (!data.result || data.result.length === 0) {
-    throw new Error('User not found');
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText);
   }
 
-  const snUser = data.result[0];
-
-  if (snUser.u_password !== password) {
-    throw new Error('Wrong password');
-  }
-
+  const loginData = data as LoginResponse;
   const user: AppUser = {
-    uid: snUser.sys_id,
-    email: snUser.u_email,
-    displayName: snUser.u_full_name,
-    token: 'servicenow-session',
+    uid: loginData.user.id,
+    email: loginData.user.email || loginData.user.username || '',
+    displayName: loginData.user.name,
+    token: loginData.token,
   };
 
   localStorage.setItem(SESSION_KEY, JSON.stringify(user));
@@ -127,6 +107,18 @@ export async function getPoints(user: AppUser) {
 
 export async function addCheckIn(user: AppUser) {
   const data = await request<PointsResponse>(user, `/api/users/${user.uid}/check-in`, {
+    method: 'POST',
+    body: JSON.stringify({
+      email: user.email,
+      name: getDisplayName(user),
+    }),
+  });
+
+  return Number(data.points) || 0;
+}
+
+export async function addGamePoint(user: AppUser) {
+  const data = await request<PointsResponse>(user, `/api/users/${user.uid}/game`, {
     method: 'POST',
     body: JSON.stringify({
       email: user.email,

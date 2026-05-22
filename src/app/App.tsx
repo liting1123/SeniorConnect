@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Home, User, Trophy, Pill } from 'lucide-react';
+import { Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import LoginScreen from './components/LoginScreen';
@@ -10,9 +10,10 @@ import ProfileScreen from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
 import MedicationScreen from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
+import GameScreen from './components/GameScreen';
 import { addCheckIn, clearStoredUser, getStoredUser } from './services/backend';
 
-type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'carePortal';
+type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal';
 
 const getLocalPointsKey = (uid: string) => `careconnect.points.${uid}`;
 
@@ -46,16 +47,7 @@ export default function App() {
       setCurrentScreen('points');
     } catch (error) {
       console.error('Check-in failed:', error);
-      const localPointsKey = getLocalPointsKey(user.uid);
-      const nextPoints = (Number(localStorage.getItem(localPointsKey)) || 0) + 5;
-
-      localStorage.setItem(localPointsKey, String(nextPoints));
-      window.dispatchEvent(
-        new CustomEvent('careconnect-points-updated', {
-          detail: { uid: user.uid, points: nextPoints },
-        }),
-      );
-      setCurrentScreen('points');
+      alert(error instanceof Error ? error.message : 'Unable to check in right now. Please try again later.');
     }
   };
 
@@ -88,6 +80,8 @@ export default function App() {
         return <PointsScreen />;
       case 'medication':
         return <MedicationScreen />;
+      case 'game':
+        return <GameScreen />;
       case 'carePortal':
         return <CarePortalScreen onBack={() => setCurrentScreen('welcome')} />;
       default:
@@ -126,6 +120,12 @@ export default function App() {
               label={t('points')}
               active={currentScreen === 'points'}
               onClick={() => setCurrentScreen('points')}
+            />
+            <NavButton
+              icon={<Gamepad2 className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
+              label="Game"
+              active={currentScreen === 'game'}
+              onClick={() => setCurrentScreen('game')}
             />
             <NavButton
               icon={<User className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}

@@ -27,7 +27,7 @@ export default function LoginScreen({
       onGetStarted();
     } catch (error) {
       console.error('Login failed:', error);
-      setError('Username/email or password is incorrect.');
+      setError(error instanceof Error ? error.message : 'Username/email or password is incorrect.');
     } finally {
       setIsLoggingIn(false);
     }

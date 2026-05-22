@@ -2,6 +2,7 @@ import http from 'node:http';
 import { loadEnv } from './env.mjs';
 import {
   addCheckInPoints,
+  addUserPoints,
   getServiceNowLoginConfig,
   getUserById,
   loginWithServiceNow,
@@ -42,7 +43,7 @@ function requireAuth(request) {
 }
 
 function getUidFromPath(pathname) {
-  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|profile))?$/);
+  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|game|profile))?$/);
   return match ? { uid: decodeURIComponent(match[1]), action: match[2] || null } : null;
 }
 
@@ -92,6 +93,18 @@ async function handleRequest(request, response) {
       email: body.email,
       name: body.name,
       pointsToAdd: 5,
+    });
+    sendJson(response, 200, { points: user.points, user });
+    return;
+  }
+
+  if (request.method === 'POST' && route.action === 'game') {
+    const body = await readJson(request);
+    const user = await addUserPoints({
+      userId: route.uid,
+      email: body.email,
+      name: body.name,
+      pointsToAdd: 1,
     });
     sendJson(response, 200, { points: user.points, user });
     return;

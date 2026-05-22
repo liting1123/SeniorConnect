@@ -26,7 +26,7 @@ Add these fields:
 | --- | --- | --- |
 | Email | `u_email` | String or Email |
 | Name | `u_name` | String |
-| Points | `u_points` | Integer |
+| Points | `u_points` | Integer or String |
 | Last Check In At | `u_last_check_in_at` | Date/Time |
 
 If ServiceNow creates a different table name, copy that exact table name into `.env`.
@@ -65,6 +65,13 @@ Backend:  http://localhost:3001
 ## 4. Test The Link
 
 After logging in to the app, press the daily check-in button. The app should create or update a record in your ServiceNow table.
+
+Check-in points are only awarded twice per Singapore day:
+
+- Morning: 5:00 AM-8:59 AM, +5 points
+- Evening: 4:00 PM-5:59 PM, +5 points
+
+The `u_last_check_in_at` field is required because the backend uses it to prevent duplicate rewards in the same time window.
 
 The backend uses these ServiceNow API actions:
 

@@ -15,14 +15,9 @@ export default function CarePortalScreen({ onBack }: { onBack: () => void }) {
   const [phone, setPhone] = useState('');
   const [relationship, setRelationship] = useState('Next-of-Kin');
   const [confirmed, setConfirmed] = useState(false);
-  const hasSeniorSearch = name.trim().length > 0 || phone.trim().length > 0;
-  const canComplete = hasSeniorSearch && confirmed;
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!canComplete) {
-      return;
-    }
     alert('Caregiver registration completed.');
   };
 
@@ -76,12 +71,6 @@ export default function CarePortalScreen({ onBack }: { onBack: () => void }) {
             value={phone}
             onChange={setPhone}
           />
-
-          {!hasSeniorSearch && (
-            <p className="ml-2 text-sm font-medium text-[#b94a1c]">
-              Enter either the senior's name or phone number before completing.
-            </p>
-          )}
         </section>
 
         <section className="flex flex-col gap-3 min-[390px]:gap-4">
@@ -129,8 +118,8 @@ export default function CarePortalScreen({ onBack }: { onBack: () => void }) {
 
         <button
           type="submit"
-          disabled={!canComplete}
-          className="flex h-14 w-full items-center justify-center gap-3 rounded-full bg-[#174b2c] text-lg font-bold text-white shadow-md transition-transform active:scale-95 disabled:cursor-not-allowed disabled:bg-[#aab3aa] disabled:shadow-none disabled:active:scale-100 min-[390px]:h-16 min-[390px]:text-xl"
+          disabled={!confirmed}
+          className="flex h-14 w-full items-center justify-center gap-3 rounded-full bg-[#174b2c] text-lg font-bold text-white shadow-md transition-transform active:scale-95 min-[390px]:h-16 min-[390px]:text-xl"
         >
           Complete
         </button>

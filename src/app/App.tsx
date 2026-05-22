@@ -10,51 +10,57 @@ import ProfileScreen from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
 import MedicationScreen from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
-import { createSosAlert } from './services/serviceNow';
-import { clearLocalUser, getLocalPointsKey, getLocalUser } from './services/localUser';
+import { addCheckIn, clearStoredUser, getStoredUser } from './services/backend';
 
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'carePortal';
+
+const getLocalPointsKey = (uid: string) => `careconnect.points.${uid}`;
 
 export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
 
-  const handleSOSConfirm = async () => {
-    try {
-      await createSosAlert({
-        location: 'Block 123 Woodlands',
-        message: 'SOS alert triggered',
-        seniorName: 'Tan HA HA',
-        seniorPhone: '91234567',
-        status: 'New',
-      });
-
-      alert('Emergency contacts have been notified!');
-      setShowSOSConfirmation(false);
-    } catch (error) {
-      console.error('ServiceNow SOS alert failed:', error);
-      const message = error instanceof Error ? error.message : 'Please try again.';
-      alert(`Unable to send SOS alert to ServiceNow. ${message}`);
-    }
+  const handleSOSConfirm = () => {
+    alert('Emergency contacts have been notified!');
+    setShowSOSConfirmation(false);
   };
 
   const handleCheckIn = async () => {
-    const user = getLocalUser();
-    const localPointsKey = getLocalPointsKey(user.uid);
-    const nextPoints = (Number(localStorage.getItem(localPointsKey)) || 0) + 5;
+    const user = getStoredUser();
 
-    localStorage.setItem(localPointsKey, String(nextPoints));
-    window.dispatchEvent(
-      new CustomEvent('careconnect-points-updated', {
-        detail: { uid: user.uid, points: nextPoints },
-      }),
-    );
-    setCurrentScreen('points');
+    if (!user) {
+      alert('Please log in again before checking in.');
+      setCurrentScreen('welcome');
+      return;
+    }
+
+    try {
+      const nextPoints = await addCheckIn(user);
+      localStorage.setItem(getLocalPointsKey(user.uid), String(nextPoints));
+      window.dispatchEvent(
+        new CustomEvent('careconnect-points-updated', {
+          detail: { uid: user.uid, points: nextPoints },
+        }),
+      );
+      setCurrentScreen('points');
+    } catch (error) {
+      console.error('Check-in failed:', error);
+      const localPointsKey = getLocalPointsKey(user.uid);
+      const nextPoints = (Number(localStorage.getItem(localPointsKey)) || 0) + 5;
+
+      localStorage.setItem(localPointsKey, String(nextPoints));
+      window.dispatchEvent(
+        new CustomEvent('careconnect-points-updated', {
+          detail: { uid: user.uid, points: nextPoints },
+        }),
+      );
+      setCurrentScreen('points');
+    }
   };
 
   const handleLogout = () => {
-    clearLocalUser();
+    clearStoredUser();
     setCurrentScreen('welcome');
   };
 

@@ -9,16 +9,33 @@ import {
   User,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { getLocalPointsKey, getLocalUser, type LocalUser } from '../services/localUser';
+import { type AppUser, getPoints, getStoredUser } from '../services/backend';
+
+const getLocalPointsKey = (uid: string) => `careconnect.points.${uid}`;
 
 export default function PointsScreen() {
-  const [user] = useState<LocalUser>(() => getLocalUser());
+  const [user, setUser] = useState<AppUser | null>(() => getStoredUser());
   const [points, setPoints] = useState(0);
   const displayName = useMemo(() => {
-    return user.name || user.email.split('@')[0] || 'User';
+    return user?.displayName?.trim() || user?.email?.split('@')[0] || 'User';
   }, [user]);
 
   useEffect(() => {
+    const handleUserUpdate = () => setUser(getStoredUser());
+
+    window.addEventListener('careconnect-user-updated', handleUserUpdate);
+
+    return () => {
+      window.removeEventListener('careconnect-user-updated', handleUserUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setPoints(0);
+      return;
+    }
+
     const localPointsKey = getLocalPointsKey(user.uid);
     setPoints(Number(localStorage.getItem(localPointsKey)) || 0);
 
@@ -31,6 +48,16 @@ export default function PointsScreen() {
     };
 
     window.addEventListener('careconnect-points-updated', handleLocalPointsUpdate);
+
+    getPoints(user)
+      .then((databasePoints) => {
+        setPoints(databasePoints);
+        localStorage.setItem(localPointsKey, String(databasePoints));
+      })
+      .catch((error) => {
+        console.error('Unable to load points:', error);
+        setPoints(Number(localStorage.getItem(localPointsKey)) || 0);
+      });
 
     return () => {
       window.removeEventListener('careconnect-points-updated', handleLocalPointsUpdate);

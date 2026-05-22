@@ -1,15 +1,29 @@
 import { ChevronRight, User, Bell, Shield, HelpCircle, LogOut } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getLocalUser, type LocalUser } from '../services/localUser';
+import { type AppUser, getStoredUser } from '../services/backend';
 
 export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
   const { t } = useTranslation();
-  const [user] = useState<LocalUser>(() => getLocalUser());
-  const email = user.email;
+  const [user, setUser] = useState<AppUser | null>(() => getStoredUser());
+  const email = user?.email ?? 'No email found';
   const displayName = useMemo(() => {
-    return user.name || user.email.split('@')[0] || 'My Profile';
+    if (user?.displayName?.trim()) {
+      return user.displayName.trim();
+    }
+
+    return user?.email?.split('@')[0] || 'My Profile';
   }, [user]);
+
+  useEffect(() => {
+    const handleUserUpdate = () => setUser(getStoredUser());
+
+    window.addEventListener('careconnect-user-updated', handleUserUpdate);
+
+    return () => {
+      window.removeEventListener('careconnect-user-updated', handleUserUpdate);
+    };
+  }, []);
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50">

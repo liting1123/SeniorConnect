@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite",
+    "dev:api": "node server/index.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -46,6 +48,7 @@
     "cmdk": "1.1.1",
     "date-fns": "3.6.0",
     "embla-carousel-react": "8.6.0",
+    "firebase": "^12.13.0",
     "i18next": "^26.1.0",
     "input-otp": "1.4.2",
     "lucide-react": "0.487.0",

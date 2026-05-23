@@ -3,6 +3,8 @@ import { loadEnv } from './env.mjs';
 import {
   addCheckInPoints,
   addUserPoints,
+  createCaregiverConnection,
+  createSosAlert,
   getServiceNowLoginConfig,
   getUserById,
   loginWithServiceNow,
@@ -68,6 +70,35 @@ async function handleRequest(request, response) {
       password: body.password,
     });
     sendJson(response, 200, { user, token: `servicenow:${user.id}` });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/sos-alert' && request.method === 'POST') {
+    const body = await readJson(request);
+    const alert = await createSosAlert({
+      location: body.location,
+      message: body.message,
+      seniorName: body.seniorName,
+      seniorPhone: body.seniorPhone,
+      status: body.status,
+    });
+
+    sendJson(response, 200, { alert });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/connect-senior' && request.method === 'POST') {
+    const body = await readJson(request);
+    const connection = await createCaregiverConnection({
+      caregiverName: body.caregiverName,
+      caregiverEmail: body.caregiverEmail,
+      seniorName: body.seniorName,
+      seniorPhone: body.seniorPhone,
+      seniorEmail: body.seniorEmail,
+      relationship: body.relationship,
+    });
+
+    sendJson(response, 200, { connection });
     return;
   }
 

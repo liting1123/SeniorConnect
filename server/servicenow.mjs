@@ -20,6 +20,7 @@ const CHECK_IN_WINDOWS = [
 ];
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
+const SOS_ALERT_TABLE = process.env.SERVICE_NOW_SOS_ALERT_TABLE || 'u_sos_alert';
 
 const LOGIN_FIELD_MAP = {
   username: process.env.SERVICE_NOW_LOGIN_FIELD_USERNAME || 'u_username',
@@ -27,6 +28,24 @@ const LOGIN_FIELD_MAP = {
   password: process.env.SERVICE_NOW_LOGIN_FIELD_PASSWORD || 'u_password',
   name: process.env.SERVICE_NOW_LOGIN_FIELD_NAME || 'u_name',
   active: process.env.SERVICE_NOW_LOGIN_FIELD_ACTIVE || 'u_active',
+};
+
+const SOS_ALERT_FIELD_MAP = {
+  location: process.env.SERVICE_NOW_SOS_ALERT_FIELD_LOCATION || 'u_location',
+  message: process.env.SERVICE_NOW_SOS_ALERT_FIELD_MESSAGE || 'u_message',
+  seniorName: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR_NAME || 'u_senior_name',
+  seniorPhone: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR_PHONE || 'u_senior_phone',
+  status: process.env.SERVICE_NOW_SOS_ALERT_FIELD_STATUS || 'u_status',
+};
+
+const CAREGIVER_CONNECTION_FIELD_MAP = {
+  caregiverName: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_CAREGIVER_NAME || 'u_caregiver_name',
+  caregiverEmail: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_CAREGIVER_EMAIL || 'u_caregiver_email',
+  seniorName: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_SENIOR_NAME || 'u_senior_name',
+  seniorPhone: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_SENIOR_PHONE || 'u_senior_phone',
+  seniorEmail: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_SENIOR_EMAIL || 'u_senior_email',
+  relationship: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_RELATIONSHIP || 'u_relationship',
+  status: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_STATUS || 'u_status',
 };
 
 function getConfig() {
@@ -280,6 +299,40 @@ if (!record) {
 
   const user = toLoginUser(record);
   return user;
+}
+
+export async function createSosAlert({ location, message, seniorName, seniorPhone, status }) {
+  const payload = {
+    [SOS_ALERT_FIELD_MAP.location]: location || '',
+    [SOS_ALERT_FIELD_MAP.message]: message || 'SOS alert triggered',
+    [SOS_ALERT_FIELD_MAP.seniorName]: seniorName || '',
+    [SOS_ALERT_FIELD_MAP.seniorPhone]: seniorPhone || '',
+    [SOS_ALERT_FIELD_MAP.status]: status || 'New',
+  };
+
+  const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE), {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return data?.result || data;
+}
+
+export async function createCaregiverConnection(data) {
+  const response = await serviceNowFetch('/api/now/table/u_caregivers_dash', {
+    method: 'POST',
+    body: JSON.stringify({
+      u_senior_name: data.seniorName,
+      u_senior_phone: data.seniorPhone,
+      u_senior_email: data.seniorEmail,
+      u_caregiver_name: data.caregiverName,
+      u_caregiver_email: data.caregiverEmail,
+      u_relationship: data.relationship,
+      u_status: 'connected',
+    }),
+  });
+
+  return response;
 }
 
 export function getServiceNowLoginConfig() {

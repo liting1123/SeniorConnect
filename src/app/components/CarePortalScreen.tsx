@@ -19,16 +19,86 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 
+const seniors = [
+  {
+    id: 1,
+    name: 'John Tan',
+    phone: '91234567',
+    email: 'johntan@gmail.com',
+  },
+  {
+    id: 2,
+    name: 'Mary Lim',
+    phone: '98765432',
+    email: 'marylim@gmail.com',
+  },
+  {
+    id: 3,
+    name: 'David Lee',
+    phone: '92345678',
+    email: 'davidlee@gmail.com',
+  },
+];
+
+type Senior = (typeof seniors)[number];
+
+const currentUser = {
+  full_name: 'Mei Ling',
+  email: 'meiling@gmail.com',
+};
+
 export default function CarePortalScreen({ onBack }: { onBack: () => void }) {
-  const [name, setName] = useState('');
+  const [searchName, setSearchName] = useState('');
   const [phone, setPhone] = useState('');
+  const [selectedSenior, setSelectedSenior] = useState<Senior | null>(null);
   const [relationship, setRelationship] = useState('Next-of-Kin');
   const [confirmed, setConfirmed] = useState(false);
   const [registered, setRegistered] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectError, setConnectError] = useState('');
+  const filteredSeniors = seniors.filter((senior) =>
+    senior.name.toLowerCase().includes(searchName.trim().toLowerCase()),
+  );
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setRegistered(true);
+
+    if (!selectedSenior || isConnecting) {
+      return;
+    }
+
+    setConnectError('');
+    setIsConnecting(true);
+
+    try {
+      const response = await fetch('/api/servicenow/connect-senior', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          seniorName: selectedSenior.name,
+          seniorPhone: selectedSenior.phone,
+          seniorEmail: selectedSenior.email,
+          caregiverName: currentUser.full_name,
+          caregiverEmail: currentUser.email,
+          relationship,
+        }),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to connect senior');
+      }
+
+      setRegistered(true);
+    } catch (error) {
+      console.error('Connect senior failed:', error);
+      setConnectError(error instanceof Error ? error.message : 'Failed to connect senior');
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   if (registered) {
@@ -67,9 +137,33 @@ export default function CarePortalScreen({ onBack }: { onBack: () => void }) {
             icon={<Search className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />}
             label="Search by Name"
             placeholder="Search by name"
-            value={name}
-            onChange={setName}
+            value={searchName}
+            onChange={setSearchName}
           />
+
+          {searchName && (
+            <div className="overflow-hidden rounded-2xl bg-white shadow-md">
+              {filteredSeniors.length > 0 ? (
+                filteredSeniors.map((senior) => (
+                  <button
+                    key={senior.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSenior(senior);
+                      setSearchName('');
+                      setPhone(senior.phone);
+                    }}
+                    className="flex w-full flex-col border-b border-gray-100 p-4 text-left transition-colors last:border-b-0 active:bg-gray-100"
+                  >
+                    <span className="text-lg font-bold text-[#1b1c1c]">{senior.name}</span>
+                    <span className="text-base text-[#717971]">{senior.phone}</span>
+                  </button>
+                ))
+              ) : (
+                <p className="p-4 text-base text-[#717971]">No senior found</p>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center gap-4 py-1">
             <div className="flex-1 h-px bg-[#c1c9bf]" />
@@ -85,6 +179,15 @@ export default function CarePortalScreen({ onBack }: { onBack: () => void }) {
             value={phone}
             onChange={setPhone}
           />
+
+          {selectedSenior && (
+            <div className="rounded-2xl bg-green-50 p-4">
+              <p className="text-lg font-bold text-[#174b2c]">Connected Senior</p>
+              <p className="mt-2 text-lg font-semibold text-[#1b1c1c]">{selectedSenior.name}</p>
+              <p className="text-base text-[#414942]">{selectedSenior.phone}</p>
+              <p className="text-base text-[#414942]">{selectedSenior.email}</p>
+            </div>
+          )}
         </section>
 
         <section className="flex flex-col gap-3 min-[390px]:gap-4">
@@ -130,12 +233,18 @@ export default function CarePortalScreen({ onBack }: { onBack: () => void }) {
           </label>
         </section>
 
+        {connectError && (
+          <p className="rounded-2xl bg-red-50 p-4 text-base font-semibold text-red-700">
+            {connectError}
+          </p>
+        )}
+
         <button
           type="submit"
-          disabled={!confirmed}
-          className="flex h-14 w-full items-center justify-center gap-3 rounded-full bg-[#174b2c] text-lg font-bold text-white shadow-md transition-transform active:scale-95 min-[390px]:h-16 min-[390px]:text-xl"
+          disabled={!confirmed || !selectedSenior || isConnecting}
+          className="flex h-14 w-full items-center justify-center gap-3 rounded-full bg-[#174b2c] text-lg font-bold text-white shadow-md transition-transform active:scale-95 disabled:bg-gray-300 disabled:text-gray-600 disabled:active:scale-100 min-[390px]:h-16 min-[390px]:text-xl"
         >
-          Complete
+          {isConnecting ? 'Connecting...' : 'Complete'}
         </button>
       </form>
     </div>

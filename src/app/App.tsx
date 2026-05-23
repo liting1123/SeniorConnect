@@ -12,6 +12,7 @@ import MedicationScreen from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
 import GameScreen from './components/GameScreen';
 import { addCheckIn, clearStoredUser, getStoredUser } from './services/backend';
+import { createSosAlert } from './services/serviceNow';
 
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal';
 
@@ -21,10 +22,34 @@ export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
+  const [isSendingSOS, setIsSendingSOS] = useState(false);
 
-  const handleSOSConfirm = () => {
-    alert('Emergency contacts have been notified!');
-    setShowSOSConfirmation(false);
+  const handleSOSConfirm = async () => {
+    if (isSendingSOS) {
+      return;
+    }
+
+    setIsSendingSOS(true);
+
+    try {
+      const user = getStoredUser();
+
+      await createSosAlert({
+        location: 'Block 123 Woodlands',
+        message: 'SOS alert triggered',
+        seniorName: user?.displayName || 'Tan HA HA',
+        seniorPhone: '91234567',
+        status: 'New',
+      });
+
+      alert('Emergency contacts have been notified!');
+      setShowSOSConfirmation(false);
+    } catch (error) {
+      console.error('SOS alert failed:', error);
+      alert(error instanceof Error ? error.message : 'Unable to send SOS alert. Please try again.');
+    } finally {
+      setIsSendingSOS(false);
+    }
   };
 
   const handleCheckIn = async () => {

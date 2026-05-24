@@ -11,6 +11,7 @@ const FIELD_MAP = {
   name: process.env.SERVICE_NOW_FIELD_NAME || 'u_name',
   points: process.env.SERVICE_NOW_FIELD_POINTS || 'u_points',
   lastCheckInAt: process.env.SERVICE_NOW_FIELD_LAST_CHECK_IN_AT || 'u_last_check_in_at',
+  gameRewardDate: process.env.SERVICE_NOW_FIELD_GAME_REWARD_DATE || 'u_game_reward_date',
 };
 
 const CHECK_IN_TIME_ZONE = process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore';
@@ -116,6 +117,7 @@ function toUserRecord(record = {}) {
     name: record[FIELD_MAP.name] || '',
     points: Number(record[FIELD_MAP.points]) || 0,
     lastCheckInAt: record[FIELD_MAP.lastCheckInAt] || null,
+    gameRewardDate: record[FIELD_MAP.gameRewardDate] || null,
   };
 }
 
@@ -158,6 +160,10 @@ function getCheckInWindow(value = new Date()) {
 
 function getWindowSummary() {
   return 'Morning check-in is 5:00 AM-8:59 AM. Evening check-in is 4:00 PM-5:59 PM.';
+}
+
+function getSingaporeDateKey(value = new Date()) {
+  return getSingaporeParts(value)?.dateKey || null;
 }
 
 export async function getUserById(userId) {
@@ -214,6 +220,28 @@ export async function addUserPoints({ userId, email, name, pointsToAdd = 1 }) {
   const data = await serviceNowFetch(getTablePath(`/${profile.sysId}`), {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+
+  return toUserRecord(data.result);
+}
+
+export async function addGamePoint({ userId, email, name, pointsToAdd = 1 }) {
+  const profile = await upsertUserProfile({ userId, email, name });
+  const today = getSingaporeDateKey();
+
+  if (profile.gameRewardDate === today) {
+    throw Object.assign(new Error('You have already collected your game point today. Please play again tomorrow.'), {
+      status: 409,
+    });
+  }
+
+  const nextPoints = profile.points + pointsToAdd;
+  const data = await serviceNowFetch(getTablePath(`/${profile.sysId}`), {
+    method: 'PATCH',
+    body: JSON.stringify({
+      [FIELD_MAP.points]: String(nextPoints),
+      [FIELD_MAP.gameRewardDate]: today,
+    }),
   });
 
   return toUserRecord(data.result);

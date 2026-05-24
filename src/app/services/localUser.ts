@@ -37,6 +37,7 @@ export function clearLocalUser() {
   localStorage.removeItem(userKey);
 }
 
-export function getLocalPointsKey(uid: string) {
-  return `careconnect.points.${uid}`;
+export function getLocalPointsKey(user: Pick<LocalUser, 'email' | 'uid'>) {
+  const identity = (user.email || user.uid || 'guest').trim().toLowerCase();
+  return `points_${identity}`;
 }

@@ -3,6 +3,7 @@ import { Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import LoginScreen from './components/LoginScreen';
+import CaregiverLoginScreen from './components/CaregiverLoginScreen';
 import LanguageSelectionScreen from './components/LanguageSelectionScreen';
 import HomePage from './components/HomePage';
 import SOSConfirmationScreen from './components/SOSConfirmation';
@@ -11,12 +12,10 @@ import PointsScreen from './components/PointsScreen';
 import MedicationScreen from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
 import GameScreen from './components/GameScreen';
-import { addCheckIn, clearStoredUser, getStoredUser } from './services/backend';
+import { addCheckIn, clearStoredUser, getStoredUser, setCachedUserPoints } from './services/backend';
 import { createSosAlert } from './services/serviceNow';
 
-type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal';
-
-const getLocalPointsKey = (uid: string) => `careconnect.points.${uid}`;
+type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'caregiverLogin' | 'carePortal';
 
 export default function App() {
   const { t } = useTranslation();
@@ -63,7 +62,7 @@ export default function App() {
 
     try {
       const nextPoints = await addCheckIn(user);
-      localStorage.setItem(getLocalPointsKey(user.uid), String(nextPoints));
+      setCachedUserPoints(user, nextPoints);
       window.dispatchEvent(
         new CustomEvent('careconnect-points-updated', {
           detail: { uid: user.uid, points: nextPoints },
@@ -87,7 +86,14 @@ export default function App() {
         return (
           <LoginScreen
             onGetStarted={() => setCurrentScreen('language')}
-            onCaregiverLogin={() => setCurrentScreen('carePortal')}
+            onCaregiverLogin={() => setCurrentScreen('caregiverLogin')}
+          />
+        );
+      case 'caregiverLogin':
+        return (
+          <CaregiverLoginScreen
+            onBack={() => setCurrentScreen('welcome')}
+            onLoginSuccess={() => setCurrentScreen('carePortal')}
           />
         );
       case 'language':
@@ -126,7 +132,7 @@ export default function App() {
           {renderScreen()}
         </div>
 
-        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && (
+        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'caregiverLogin' && currentScreen !== 'carePortal' && (
           <nav className="shrink-0 bg-white border-t-2 border-gray-200 px-2 py-2 flex justify-around items-center">
             <NavButton
               icon={<Home className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}

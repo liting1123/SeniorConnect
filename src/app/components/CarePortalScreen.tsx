@@ -18,6 +18,7 @@ import {
   TriangleAlert
 } from 'lucide-react';
 import { useState } from 'react';
+import { getStoredUser } from '../services/backend';
 
 const seniors = [
   {
@@ -42,12 +43,10 @@ const seniors = [
 
 type Senior = (typeof seniors)[number];
 
-const currentUser = {
-  full_name: 'Mei Ling',
-  email: 'meiling@gmail.com',
-};
-
 export default function CarePortalScreen({ onBack }: { onBack: () => void }) {
+  const currentUser = getStoredUser();
+  const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Caregiver';
+  const caregiverEmail = currentUser?.email || '';
   const [searchName, setSearchName] = useState('');
   const [phone, setPhone] = useState('');
   const [selectedSenior, setSelectedSenior] = useState<Senior | null>(null);
@@ -80,8 +79,8 @@ export default function CarePortalScreen({ onBack }: { onBack: () => void }) {
           seniorName: selectedSenior.name,
           seniorPhone: selectedSenior.phone,
           seniorEmail: selectedSenior.email,
-          caregiverName: currentUser.full_name,
-          caregiverEmail: currentUser.email,
+          caregiverName,
+          caregiverEmail,
           relationship,
         }),
       });

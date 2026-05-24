@@ -28,6 +28,7 @@ Add these fields:
 | Name | `u_name` | String |
 | Points | `u_points` | Integer or String |
 | Last Check In At | `u_last_check_in_at` | Date/Time |
+| Game Reward Date | `u_game_reward_date` | String |
 
 If ServiceNow creates a different table name, copy that exact table name into `.env`.
 
@@ -46,6 +47,8 @@ Also confirm this line matches your real ServiceNow table name:
 ```env
 SERVICE_NOW_TABLE=u_senior_connect_user
 ```
+
+The game reward uses `u_game_reward_date` to allow only one game point per Singapore day.
 
 ## 3. Run The Project
 

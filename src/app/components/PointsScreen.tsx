@@ -9,9 +9,13 @@ import {
   User,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { type AppUser, getPoints, getStoredUser } from '../services/backend';
-
-const getLocalPointsKey = (uid: string) => `careconnect.points.${uid}`;
+import {
+  type AppUser,
+  getCachedUserPoints,
+  getPoints,
+  getStoredUser,
+  setCachedUserPoints,
+} from '../services/backend';
 
 export default function PointsScreen() {
   const [user, setUser] = useState<AppUser | null>(() => getStoredUser());
@@ -36,8 +40,7 @@ export default function PointsScreen() {
       return;
     }
 
-    const localPointsKey = getLocalPointsKey(user.uid);
-    setPoints(Number(localStorage.getItem(localPointsKey)) || 0);
+    setPoints(getCachedUserPoints(user));
 
     const handleLocalPointsUpdate = (event: Event) => {
       const { uid, points: nextPoints } = (event as CustomEvent<{ uid: string; points: number }>).detail || {};
@@ -52,11 +55,11 @@ export default function PointsScreen() {
     getPoints(user)
       .then((databasePoints) => {
         setPoints(databasePoints);
-        localStorage.setItem(localPointsKey, String(databasePoints));
+        setCachedUserPoints(user, databasePoints);
       })
       .catch((error) => {
         console.error('Unable to load points:', error);
-        setPoints(Number(localStorage.getItem(localPointsKey)) || 0);
+        setPoints(getCachedUserPoints(user));
       });
 
     return () => {

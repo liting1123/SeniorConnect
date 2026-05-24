@@ -2,7 +2,7 @@ import http from 'node:http';
 import { loadEnv } from './env.mjs';
 import {
   addCheckInPoints,
-  addUserPoints,
+  addGamePoint,
   createCaregiverConnection,
   createSosAlert,
   getServiceNowLoginConfig,
@@ -131,7 +131,7 @@ async function handleRequest(request, response) {
 
   if (request.method === 'POST' && route.action === 'game') {
     const body = await readJson(request);
-    const user = await addUserPoints({
+    const user = await addGamePoint({
       userId: route.uid,
       email: body.email,
       name: body.name,

@@ -5,6 +5,7 @@ type BackendUser = {
   name: string;
   points: number;
   lastCheckInAt: string | null;
+  gameRewardDate?: string | null;
 };
 
 type PointsResponse = {
@@ -33,6 +34,23 @@ const SESSION_KEY = 'careconnect.user';
 
 function getDisplayName(user: AppUser) {
   return user.displayName?.trim() || user.email?.split('@')[0] || 'User';
+}
+
+export function getUserStorageIdentity(user: AppUser) {
+  const identity = (user.email || user.uid || 'guest').trim().toLowerCase();
+  return identity.replace(/[^a-z0-9@._-]/g, '_');
+}
+
+export function getUserPointsKey(user: AppUser) {
+  return `points_${getUserStorageIdentity(user)}`;
+}
+
+export function getCachedUserPoints(user: AppUser) {
+  return Number(localStorage.getItem(getUserPointsKey(user))) || 0;
+}
+
+export function setCachedUserPoints(user: AppUser, points: number) {
+  localStorage.setItem(getUserPointsKey(user), String(points));
 }
 
 async function request<T>(user: AppUser, path: string, options: RequestInit = {}): Promise<T> {

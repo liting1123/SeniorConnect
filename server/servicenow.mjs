@@ -1,3 +1,7 @@
+import { loadEnv } from './env.mjs';
+
+loadEnv();
+
 const REQUIRED_FIELDS = [
   'SERVICE_NOW_INSTANCE_URL',
   'SERVICE_NOW_TABLE',
@@ -22,6 +26,7 @@ const CHECK_IN_WINDOWS = [
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
 const SOS_ALERT_TABLE = process.env.SERVICE_NOW_SOS_ALERT_TABLE || 'u_sos_alert';
+const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregiver_dash';
 
 const LOGIN_FIELD_MAP = {
   username: process.env.SERVICE_NOW_LOGIN_FIELD_USERNAME || 'u_username',
@@ -329,6 +334,41 @@ if (!record) {
   return user;
 }
 
+export async function registerWithServiceNow({ email, password, name }) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const rawPassword = String(password || '');
+
+  if (!normalizedEmail || !rawPassword) {
+    throw Object.assign(new Error('Email and password are required.'), { status: 400 });
+  }
+
+  const existingParams = new URLSearchParams({
+    sysparm_query: `${LOGIN_FIELD_MAP.email}=${normalizedEmail}^OR${LOGIN_FIELD_MAP.username}=${normalizedEmail}`,
+    sysparm_limit: '1',
+  });
+  const existingData = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${existingParams.toString()}`));
+
+  if (existingData?.result?.length) {
+    throw Object.assign(new Error('This caregiver email is already registered.'), { status: 409 });
+  }
+
+  const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Caregiver';
+  const payload = {
+    [LOGIN_FIELD_MAP.username]: normalizedEmail,
+    [LOGIN_FIELD_MAP.email]: normalizedEmail,
+    [LOGIN_FIELD_MAP.password]: rawPassword,
+    [LOGIN_FIELD_MAP.name]: displayName,
+    [LOGIN_FIELD_MAP.active]: true,
+  };
+
+  const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE), {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return toLoginUser(data?.result || {});
+}
+
 export async function createSosAlert({ location, message, seniorName, seniorPhone, status }) {
   const payload = {
     [SOS_ALERT_FIELD_MAP.location]: location || '',
@@ -347,20 +387,65 @@ export async function createSosAlert({ location, message, seniorName, seniorPhon
 }
 
 export async function createCaregiverConnection(data) {
-  const response = await serviceNowFetch('/api/now/table/u_caregivers_dash', {
+  const response = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE), {
     method: 'POST',
     body: JSON.stringify({
-      u_senior_name: data.seniorName,
-      u_senior_phone: data.seniorPhone,
-      u_senior_email: data.seniorEmail,
-      u_caregiver_name: data.caregiverName,
-      u_caregiver_email: data.caregiverEmail,
-      u_relationship: data.relationship,
-      u_status: 'connected',
+      [CAREGIVER_CONNECTION_FIELD_MAP.seniorName]: data.seniorName,
+      [CAREGIVER_CONNECTION_FIELD_MAP.seniorPhone]: data.seniorPhone,
+      [CAREGIVER_CONNECTION_FIELD_MAP.seniorEmail]: data.seniorEmail,
+      [CAREGIVER_CONNECTION_FIELD_MAP.caregiverName]: data.caregiverName,
+      [CAREGIVER_CONNECTION_FIELD_MAP.caregiverEmail]: data.caregiverEmail,
+      [CAREGIVER_CONNECTION_FIELD_MAP.relationship]: data.relationship,
+      [CAREGIVER_CONNECTION_FIELD_MAP.status]: 'connected',
     }),
   });
 
   return response;
+}
+
+function toCaregiverSeniorRecord(record = {}) {
+  return {
+    id: record.sys_id,
+    name: record[CAREGIVER_CONNECTION_FIELD_MAP.seniorName] || '',
+    phone: record[CAREGIVER_CONNECTION_FIELD_MAP.seniorPhone] || '',
+    email: record[CAREGIVER_CONNECTION_FIELD_MAP.seniorEmail] || '',
+    caregiverName: record[CAREGIVER_CONNECTION_FIELD_MAP.caregiverName] || '',
+    caregiverEmail: record[CAREGIVER_CONNECTION_FIELD_MAP.caregiverEmail] || '',
+    relationship: record[CAREGIVER_CONNECTION_FIELD_MAP.relationship] || '',
+    status: record[CAREGIVER_CONNECTION_FIELD_MAP.status] || '',
+  };
+}
+
+export async function getCaregiverSeniorConnections({ caregiverEmail, searchName, phone }) {
+  const normalizedEmail = String(caregiverEmail || '').trim();
+  const nameSearch = String(searchName || '').trim().toLowerCase();
+  const phoneSearch = String(phone || '').trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    throw Object.assign(new Error('Caregiver email is required.'), { status: 400 });
+  }
+
+  const queryParts = [];
+
+  if (phoneSearch) {
+    queryParts.push(`${CAREGIVER_CONNECTION_FIELD_MAP.seniorPhone}LIKE${phoneSearch}`);
+  } else {
+    queryParts.push(`${CAREGIVER_CONNECTION_FIELD_MAP.caregiverEmail}=${normalizedEmail}`);
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: queryParts.join('^'),
+    sysparm_limit: '100',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${params.toString()}`));
+  const seniors = (data?.result || []).map(toCaregiverSeniorRecord);
+
+  return seniors.filter((senior) => {
+    const matchesName = !nameSearch || senior.name.toLowerCase().includes(nameSearch);
+    const matchesPhone = !phoneSearch || senior.phone.toLowerCase().includes(phoneSearch);
+
+    return matchesName && matchesPhone;
+  });
 }
 
 export function getServiceNowLoginConfig() {

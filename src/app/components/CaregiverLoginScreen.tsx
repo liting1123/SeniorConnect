@@ -1,33 +1,54 @@
-import { ArrowLeft, Eye, HeartHandshake, Lock, Mail, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Eye, HeartHandshake, Lock, Mail, ShieldCheck, UserPlus } from 'lucide-react';
 import { useState } from 'react';
-import { login } from '../services/backend';
+import { login, registerCaregiver } from '../services/backend';
 
 export default function CaregiverLoginScreen({
   onBack,
   onLoginSuccess,
+  onRegister,
 }: {
   onBack: () => void;
   onLoginSuccess: () => void;
+  onRegister: () => void;
 }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'login' | 'register' | null>(null);
 
-  const handleLogin = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const authenticate = async (next: () => void, action: 'login' | 'register') => {
     setError('');
-    setIsLoggingIn(true);
+    setPendingAction(action);
 
     try {
       await login(email.trim(), password);
-      onLoginSuccess();
+      next();
     } catch (error) {
       console.error('Caregiver login failed:', error);
       setError(error instanceof Error ? error.message : 'Caregiver email or password is incorrect.');
     } finally {
-      setIsLoggingIn(false);
+      setPendingAction(null);
+    }
+  };
+
+  const handleLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await authenticate(onLoginSuccess, 'login');
+  };
+
+  const handleRegister = async () => {
+    setError('');
+    setPendingAction('register');
+
+    try {
+      await registerCaregiver(email.trim(), password);
+      onRegister();
+    } catch (error) {
+      console.error('Caregiver registration failed:', error);
+      setError(error instanceof Error ? error.message : 'Unable to create caregiver account.');
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -108,11 +129,21 @@ export default function CaregiverLoginScreen({
 
             <button
               type="submit"
-              disabled={isLoggingIn}
+              disabled={pendingAction !== null}
               className="flex w-full items-center justify-center gap-3 rounded-2xl bg-green-700 py-4 text-xl font-bold text-white transition-transform active:scale-95 disabled:bg-gray-400 disabled:active:scale-100 min-[390px]:py-5 min-[390px]:text-2xl"
             >
               <ShieldCheck className="h-5 w-5 min-[390px]:h-6 min-[390px]:w-6" />
-              {isLoggingIn ? 'Logging in...' : 'Log In'}
+              {pendingAction === 'login' ? 'Logging in...' : 'Log In'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRegister}
+              disabled={pendingAction !== null || !email.trim() || !password}
+              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-green-700 bg-white py-4 text-xl font-bold text-green-700 transition-colors active:bg-green-50 disabled:border-gray-300 disabled:text-gray-400 disabled:active:bg-white min-[390px]:py-5 min-[390px]:text-2xl"
+            >
+              <UserPlus className="h-5 w-5 min-[390px]:h-6 min-[390px]:w-6" />
+              {pendingAction === 'register' ? 'Opening register...' : 'Register'}
             </button>
           </form>
         </div>

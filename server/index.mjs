@@ -5,9 +5,11 @@ import {
   addGamePoint,
   createCaregiverConnection,
   createSosAlert,
+  getCaregiverSeniorConnections,
   getServiceNowLoginConfig,
   getUserById,
   loginWithServiceNow,
+  registerWithServiceNow,
   upsertUserProfile,
 } from './servicenow.mjs';
 
@@ -73,6 +75,17 @@ async function handleRequest(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/register' && request.method === 'POST') {
+    const body = await readJson(request);
+    const user = await registerWithServiceNow({
+      email: body.email,
+      password: body.password,
+      name: body.name,
+    });
+    sendJson(response, 200, { user, token: `servicenow:${user.id}` });
+    return;
+  }
+
   if (url.pathname === '/api/servicenow/sos-alert' && request.method === 'POST') {
     const body = await readJson(request);
     const alert = await createSosAlert({
@@ -99,6 +112,17 @@ async function handleRequest(request, response) {
     });
 
     sendJson(response, 200, { connection });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/caregiver-seniors' && request.method === 'GET') {
+    const seniors = await getCaregiverSeniorConnections({
+      caregiverEmail: url.searchParams.get('caregiverEmail'),
+      searchName: url.searchParams.get('searchName'),
+      phone: url.searchParams.get('phone'),
+    });
+
+    sendJson(response, 200, { seniors });
     return;
   }
 

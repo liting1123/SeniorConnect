@@ -50,7 +50,29 @@ SERVICE_NOW_TABLE=u_senior_connect_user
 
 The game reward uses `u_game_reward_date` to allow only one game point per Singapore day.
 
-## 3. Run The Project
+## 3. Caregiver Portal Search
+
+The Care Portal searches this ServiceNow table for seniors connected to the logged-in caregiver:
+
+```env
+SERVICE_NOW_CAREGIVER_CONNECTION_TABLE=u_caregiver_dash
+```
+
+Required fields:
+
+| Label | Column name |
+| --- | --- |
+| Caregiver Name | `u_caregiver_name` |
+| Caregiver Email | `u_caregiver_email` |
+| Senior Name | `u_senior_name` |
+| Senior Phone | `u_senior_phone` |
+| Senior Email | `u_senior_email` |
+| Relationship | `u_relationship` |
+| Status | `u_status` |
+
+When a caregiver types a senior name or phone number, the backend filters records where `u_caregiver_email` matches the logged-in caregiver email.
+
+## 4. Run The Project
 
 Use:
 
@@ -65,7 +87,7 @@ Frontend: http://localhost:5173
 Backend:  http://localhost:3001
 ```
 
-## 4. Test The Link
+## 5. Test The Link
 
 After logging in to the app, press the daily check-in button. The app should create or update a record in your ServiceNow table.
 

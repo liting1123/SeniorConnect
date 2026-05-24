@@ -118,6 +118,32 @@ export async function login(identifier: string, password: string) {
   return user;
 }
 
+export async function registerCaregiver(email: string, password: string) {
+  const response = await fetch('/api/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText);
+  }
+
+  const loginData = data as LoginResponse;
+  const user: AppUser = {
+    uid: loginData.user.id,
+    email: loginData.user.email || loginData.user.username || '',
+    displayName: loginData.user.name,
+    token: loginData.token,
+  };
+
+  localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  window.dispatchEvent(new Event('careconnect-user-updated'));
+
+  return user;
+}
+
 export async function getPoints(user: AppUser) {
   const data = await request<PointsResponse>(user, `/api/users/${user.uid}/points`);
   return Number(data.points) || 0;

@@ -11,11 +11,12 @@ import ProfileScreen from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
 import MedicationScreen from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
+import CaregiverDashboardScreen from './components/CaregiverDashboardScreen';
 import GameScreen from './components/GameScreen';
 import { addCheckIn, clearStoredUser, getStoredUser, setCachedUserPoints } from './services/backend';
 import { createSosAlert } from './services/serviceNow';
 
-type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'caregiverLogin' | 'carePortal';
+type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'caregiverLogin' | 'carePortal' | 'caregiverDashboard';
 
 export default function App() {
   const { t } = useTranslation();
@@ -93,7 +94,8 @@ export default function App() {
         return (
           <CaregiverLoginScreen
             onBack={() => setCurrentScreen('welcome')}
-            onLoginSuccess={() => setCurrentScreen('carePortal')}
+            onLoginSuccess={() => setCurrentScreen('caregiverDashboard')}
+            onRegister={() => setCurrentScreen('carePortal')}
           />
         );
       case 'language':
@@ -114,7 +116,14 @@ export default function App() {
       case 'game':
         return <GameScreen />;
       case 'carePortal':
-        return <CarePortalScreen onBack={() => setCurrentScreen('welcome')} />;
+        return (
+          <CarePortalScreen
+            onBack={() => setCurrentScreen('welcome')}
+            onRegistered={() => setCurrentScreen('caregiverDashboard')}
+          />
+        );
+      case 'caregiverDashboard':
+        return <CaregiverDashboardScreen onBack={() => setCurrentScreen('carePortal')} />;
       default:
         return (
           <HomePage
@@ -132,7 +141,7 @@ export default function App() {
           {renderScreen()}
         </div>
 
-        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'caregiverLogin' && currentScreen !== 'carePortal' && (
+        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'caregiverLogin' && currentScreen !== 'carePortal' && currentScreen !== 'caregiverDashboard' && (
           <nav className="shrink-0 bg-white border-t-2 border-gray-200 px-2 py-2 flex justify-around items-center">
             <NavButton
               icon={<Home className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}

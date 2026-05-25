@@ -1,5 +1,6 @@
 import { Bell, CheckCircle2, Gamepad2, HeartHandshake } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   addGamePoint,
   getStoredUser,
@@ -10,8 +11,8 @@ import {
 
 type CardData = {
   id: number;
-  title: string;
-  message: string;
+  titleKey: string;
+  messageKey: string;
   revealed: boolean;
 };
 
@@ -19,12 +20,12 @@ const requiredReveals = 3;
 const GAME_TIME_ZONE = 'Asia/Singapore';
 
 const initialCards: CardData[] = [
-  { id: 1, title: 'Hello', message: 'You are doing great today!', revealed: false },
-  { id: 2, title: 'Smile', message: 'A gentle smile makes the day brighter.', revealed: false },
-  { id: 3, title: 'Friend', message: 'A kind thought is waiting for you.', revealed: false },
-  { id: 4, title: 'Strong', message: 'You are capable and calm.', revealed: false },
-  { id: 5, title: 'Sunny', message: 'Little moments can feel warm and nice.', revealed: false },
-  { id: 6, title: 'Easy', message: 'Tap each card to reveal a friendly note.', revealed: false },
+  { id: 1, titleKey: 'cardHelloTitle', messageKey: 'cardHelloMessage', revealed: false },
+  { id: 2, titleKey: 'cardSmileTitle', messageKey: 'cardSmileMessage', revealed: false },
+  { id: 3, titleKey: 'cardFriendTitle', messageKey: 'cardFriendMessage', revealed: false },
+  { id: 4, titleKey: 'cardStrongTitle', messageKey: 'cardStrongMessage', revealed: false },
+  { id: 5, titleKey: 'cardSunnyTitle', messageKey: 'cardSunnyMessage', revealed: false },
+  { id: 6, titleKey: 'cardEasyTitle', messageKey: 'cardEasyMessage', revealed: false },
 ];
 
 type StoredGameState = {
@@ -83,6 +84,7 @@ function saveGameState(user: AppUser, cards: CardData[], rewardClaimed: boolean)
 }
 
 export default function GameScreen() {
+  const { t } = useTranslation();
   const [cards, setCards] = useState<CardData[]>(initialCards);
   const [confirmed, setConfirmed] = useState(false);
   const [isSavingPoint, setIsSavingPoint] = useState(false);
@@ -93,23 +95,23 @@ export default function GameScreen() {
 
   const status = useMemo(() => {
     if (isSavingPoint) {
-      return 'Saving your game point...';
+      return t('savingGamePoint');
     }
 
     if (confirmed) {
-      return '+1 point earned. Thank you for playing.';
+      return t('gamePointEarned');
     }
 
     if (revealedCount === 0) {
-      return 'Choose any card to begin.';
+      return t('chooseAnyCard');
     }
 
     if (revealedCount < requiredReveals) {
-      return `Nice! You have revealed ${revealedCount} of ${requiredReveals} cards.`;
+      return t('revealedCards', { count: revealedCount, required: requiredReveals });
     }
 
-    return "Great! You can now press I'm OK.";
-  }, [confirmed, isSavingPoint, revealedCount]);
+    return t('pressImOk');
+  }, [confirmed, isSavingPoint, revealedCount, t]);
 
   useEffect(() => {
     const user = getStoredUser();
@@ -143,7 +145,7 @@ export default function GameScreen() {
     const user = getStoredUser();
 
     if (!user) {
-      alert('Please log in again before playing.');
+      alert(t('loginAgainPlay'));
       return;
     }
 
@@ -164,7 +166,7 @@ export default function GameScreen() {
     } catch (error) {
       console.error('Game reward failed:', error);
       rewardStartedRef.current = false;
-      alert(error instanceof Error ? error.message : 'Unable to add your game point right now. Please try again.');
+      alert(error instanceof Error ? error.message : t('unableGamePoint'));
     } finally {
       setIsSavingPoint(false);
     }
@@ -204,10 +206,10 @@ export default function GameScreen() {
         <div className="flex h-14 items-center justify-between px-5 min-[390px]:h-16 min-[390px]:px-6">
           <div className="flex items-center gap-2 text-[#316342]">
             <Gamepad2 className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
-            <span className="text-xl font-bold min-[390px]:text-2xl">Friendly Game</span>
+            <span className="text-xl font-bold min-[390px]:text-2xl">{t('friendlyGame')}</span>
           </div>
           <button
-            aria-label="Notifications"
+            aria-label={t('notificationsLabel')}
             className="flex h-10 w-10 items-center justify-center rounded-full text-[#414942] transition-colors active:scale-95 active:bg-[#e4e2e1] min-[390px]:h-12 min-[390px]:w-12"
           >
             <Bell className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
@@ -221,10 +223,10 @@ export default function GameScreen() {
             <HeartHandshake className="h-8 w-8 min-[390px]:h-9 min-[390px]:w-9" />
           </div>
           <h1 className="text-3xl font-bold leading-10 text-[#316342] min-[390px]:text-4xl min-[390px]:leading-[48px]">
-            Tap a Friendly Note
+            {t('tapFriendlyNote')}
           </h1>
           <p className="mt-2 text-base leading-6 text-[#414942] min-[390px]:text-lg min-[390px]:leading-7">
-            Reveal 3 messages, then press <span className="font-bold">I'm OK</span>.
+            {t('revealMessages')}
           </p>
         </section>
 
@@ -233,7 +235,7 @@ export default function GameScreen() {
             <button
               key={card.id}
               type="button"
-              aria-label={`${card.title} card`}
+              aria-label={t('cardAriaLabel', { title: t(card.titleKey) })}
               onClick={() => handleCardClick(card.id)}
               disabled={rewardClaimed || isSavingPoint}
               className={`min-h-[136px] rounded-[24px] border-2 p-4 text-left shadow-sm transition active:scale-[0.98] min-[390px]:min-h-[152px] ${
@@ -246,12 +248,12 @@ export default function GameScreen() {
             >
               <div className="mb-2 flex items-center justify-between gap-2">
                 <h2 className="text-lg font-bold leading-6 text-[#1b1c1c] min-[390px]:text-xl">
-                  {card.title}
+                  {t(card.titleKey)}
                 </h2>
                 {card.revealed && <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-[#316342]" />}
               </div>
               <p className="text-sm leading-5 text-[#414942] min-[390px]:text-base min-[390px]:leading-6">
-                {card.revealed ? card.message : 'Tap to reveal'}
+                {card.revealed ? t(card.messageKey) : t('tapToReveal')}
               </p>
             </button>
           ))}
@@ -271,10 +273,10 @@ export default function GameScreen() {
             }`}
           >
             {isSavingPoint
-              ? 'Saving...'
+              ? t('saving')
               : rewardClaimed
-                ? '+1 Point Earned'
-                : "I'm OK"}
+                ? t('pointEarned')
+                : t('iAmOk')}
           </button>
 
           <p className="text-center text-base leading-6 text-[#414942] min-[390px]:text-lg min-[390px]:leading-7">

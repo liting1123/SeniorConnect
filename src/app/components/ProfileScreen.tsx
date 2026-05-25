@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronRight, User, Shield, HelpCircle, LogOut } from 'lucide-react';
+import { ArrowLeft, ChevronRight, User, Shield, HelpCircle, LogOut, Languages } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { type AppUser, getStoredUser } from '../services/backend';
@@ -6,7 +6,13 @@ import { type AppUser, getStoredUser } from '../services/backend';
 const PERSONAL_INFO_KEY = 'careconnect.personalInfo';
 const PROFILE_IMAGE_KEY = 'careconnect.profileImage';
 
-export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
+export default function ProfileScreen({
+  onChangeLanguage,
+  onLogout,
+}: {
+  onChangeLanguage: () => void;
+  onLogout: () => void;
+}) {
   const { t } = useTranslation();
   const [user, setUser] = useState<AppUser | null>(() => getStoredUser());
   const [showPersonalInfo, setShowPersonalInfo] = useState(false);
@@ -66,7 +72,7 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
       }),
     );
 
-    alert('Personal information saved.');
+    alert(t('personalInfoSaved'));
     setShowPersonalInfo(false);
   };
 
@@ -93,7 +99,7 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
             type="button"
             onClick={() => setShowPersonalInfo(false)}
             className="flex h-11 w-11 items-center justify-center rounded-full text-green-700 active:bg-green-50"
-            aria-label="Back to profile"
+            aria-label={t('backToProfile')}
           >
             <ArrowLeft className="h-6 w-6" />
           </button>
@@ -103,7 +109,7 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
         <main className="p-5 min-[390px]:p-8">
           <div className="mb-5 rounded-3xl bg-white p-5 shadow-sm">
             <h2 className="mb-5 text-2xl font-bold text-green-600">
-              Profile Photo
+              {t('profilePhoto')}
             </h2>
 
             <div className="flex flex-col items-center">
@@ -120,7 +126,7 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
               )}
 
               <label className="cursor-pointer rounded-full bg-green-500 px-6 py-3 text-lg font-semibold text-white shadow-sm active:scale-95">
-                Change Photo
+                {t('changePhoto')}
                 <input
                   type="file"
                   accept="image/*"
@@ -139,25 +145,25 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
 
           <div className="rounded-3xl bg-white p-5 shadow-sm">
             <h2 className="mb-5 text-2xl font-bold text-green-600">
-              Basic Information
+              {t('basicInformation')}
             </h2>
 
             <ProfileField
-              label="Phone Number"
+              label={t('phoneNumber')}
               value={phone}
               onChange={setPhone}
               type="tel"
             />
 
             <ProfileField
-              label="Email"
+              label={t('email')}
               value={personalEmail}
               onChange={setPersonalEmail}
               type="email"
             />
 
             <ProfileField
-              label="Address"
+              label={t('address')}
               value={address}
               onChange={setAddress}
               isLast
@@ -168,7 +174,7 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
               onClick={handleSavePersonalInfo}
               className="mt-5 w-full rounded-2xl bg-green-500 py-3 text-lg font-semibold text-white active:scale-95"
             >
-              Save Changes
+              {t('saveChanges')}
             </button>
           </div>
         </main>
@@ -204,6 +210,11 @@ export default function ProfileScreen({ onLogout }: { onLogout: () => void }) {
             icon={<User className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
             title={t('personalInfo')}
             onClick={() => setShowPersonalInfo(true)}
+          />
+          <SettingsItem
+            icon={<Languages className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            title={t('selectLanguage')}
+            onClick={onChangeLanguage}
           />
           <SettingsItem icon={<Shield className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('privacySecurity')} />
         </div>

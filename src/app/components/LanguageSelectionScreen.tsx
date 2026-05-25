@@ -1,10 +1,11 @@
 import { Check, ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { LANGUAGE_STORAGE_KEY, getSavedLanguage } from '../../i18n';
 
 export default function LanguageSelectionScreen({ onContinue }: { onContinue: () => void }) {
   const { t, i18n } = useTranslation();
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const [selectedLanguage, setSelectedLanguage] = useState(getSavedLanguage());
 
   const languages = [
     { id: 'en', name: t('english') },
@@ -15,6 +16,7 @@ export default function LanguageSelectionScreen({ onContinue }: { onContinue: ()
 
   const handleLanguageSelect = (langId: string) => {
     setSelectedLanguage(langId);
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, langId);
     i18n.changeLanguage(langId);
   };
 

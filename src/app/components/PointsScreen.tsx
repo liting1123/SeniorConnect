@@ -9,6 +9,7 @@ import {
   User,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   type AppUser,
   getCachedUserPoints,
@@ -18,6 +19,7 @@ import {
 } from '../services/backend';
 
 export default function PointsScreen() {
+  const { t } = useTranslation();
   const [user, setUser] = useState<AppUser | null>(() => getStoredUser());
   const [points, setPoints] = useState(0);
   const displayName = useMemo(() => {
@@ -73,10 +75,10 @@ export default function PointsScreen() {
         <div className="flex h-14 items-center justify-between px-5 min-[390px]:h-16 min-[390px]:px-6">
           <div className="flex items-center gap-2 text-[#316342]">
             <User className="h-6 w-6 fill-current min-[390px]:h-7 min-[390px]:w-7" />
-            <span className="text-xl font-bold min-[390px]:text-2xl">CareConnect</span>
+            <span className="text-xl font-bold min-[390px]:text-2xl">{t('careConnect')}</span>
           </div>
           <button
-            aria-label="Notifications"
+            aria-label={t('notificationsLabel')}
             className="flex h-10 w-10 items-center justify-center rounded-full text-[#414942] transition-colors active:scale-95 active:bg-[#e4e2e1] min-[390px]:h-12 min-[390px]:w-12"
           >
             <Bell className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
@@ -93,12 +95,12 @@ export default function PointsScreen() {
           <div className="mb-2 flex items-center justify-center gap-2">
             <Star className="h-8 w-8 fill-[#ff9742] text-[#ff9742] min-[390px]:h-10 min-[390px]:w-10" />
             <h1 className="text-[32px] font-bold leading-10 text-[#316342] min-[390px]:text-[40px] min-[390px]:leading-[52px]">
-              {points} Points
+              {t('pointsEarned', { count: points })}
             </h1>
           </div>
 
           <p className="text-base leading-6 text-[#414942] min-[390px]:text-lg min-[390px]:leading-7">
-            Great job, {displayName}! Keep staying active to earn more.
+            {t('pointsEncouragement', { name: displayName })}
           </p>
         </section>
 
@@ -106,8 +108,8 @@ export default function PointsScreen() {
           <div className="flex items-center gap-3 text-[#e1ffe5] min-[390px]:gap-4">
             <CalendarCheck className="h-8 w-8 fill-current min-[390px]:h-9 min-[390px]:w-9" />
             <div>
-              <h2 className="text-lg font-semibold leading-6 min-[390px]:text-xl">Daily Check-in</h2>
-              <p className="text-base leading-6 opacity-90 min-[390px]:text-lg min-[390px]:leading-7">Log in today</p>
+              <h2 className="text-lg font-semibold leading-6 min-[390px]:text-xl">{t('dailyCheckIn')}</h2>
+              <p className="text-base leading-6 opacity-90 min-[390px]:text-lg min-[390px]:leading-7">{t('logInToday')}</p>
             </div>
           </div>
           <div className="rounded-full bg-[#e1ffe5] px-3 py-2 text-lg font-semibold text-[#4a7c59] shadow-sm min-[390px]:px-4 min-[390px]:text-xl">
@@ -117,19 +119,23 @@ export default function PointsScreen() {
 
         <section>
           <h2 className="mb-3 text-xl font-semibold leading-7 text-[#1b1c1c] min-[390px]:mb-4 min-[390px]:text-2xl min-[390px]:leading-8">
-            Redeem Rewards
+            {t('redeemRewards')}
           </h2>
           <div className="flex flex-col gap-4">
             <RewardCard
               icon={<ShoppingCart className="h-8 w-8" />}
               title="$5 NTUC Voucher"
               cost={50}
+              pointsLabel={t('points')}
+              redeemLabel={t('redeem')}
               userPoints={points}
             />
             <RewardCard
               icon={<Car className="h-8 w-8" />}
               title="$10 Grab Voucher"
               cost={100}
+              pointsLabel={t('points')}
+              redeemLabel={t('redeem')}
               userPoints={points}
             />
           </div>
@@ -144,11 +150,15 @@ function RewardCard({
   title,
   cost,
   userPoints,
+  pointsLabel,
+  redeemLabel,
 }: {
   icon: React.ReactNode;
   title: string;
   cost: number;
   userPoints: number;
+  pointsLabel: string;
+  redeemLabel: string;
 }) {
   const canRedeem = userPoints >= cost;
 
@@ -170,7 +180,7 @@ function RewardCard({
           {title}
         </h3>
         <p className={`mt-1 text-base font-bold leading-5 ${canRedeem ? 'text-[#316342]' : 'text-gray-400'}`}>
-          {cost} Points
+          {cost} {pointsLabel}
         </p>
       </div>
       <button
@@ -182,7 +192,7 @@ function RewardCard({
         }`}
       >
         {canRedeem ? <CheckCircle2 className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-        REDEEM
+        {redeemLabel}
       </button>
     </div>
   );

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
+import { LANGUAGE_STORAGE_KEY } from '../i18n';
 import LoginScreen from './components/LoginScreen';
 import CaregiverLoginScreen from './components/CaregiverLoginScreen';
 import LanguageSelectionScreen from './components/LanguageSelectionScreen';
@@ -81,12 +82,16 @@ export default function App() {
     setCurrentScreen('welcome');
   };
 
+  const goToSeniorHome = () => {
+    setCurrentScreen(localStorage.getItem(LANGUAGE_STORAGE_KEY) ? 'home' : 'language');
+  };
+
   const renderScreen = () => {
     switch (currentScreen) {
       case 'welcome':
         return (
           <LoginScreen
-            onGetStarted={() => setCurrentScreen('language')}
+            onGetStarted={goToSeniorHome}
             onCaregiverLogin={() => setCurrentScreen('caregiverLogin')}
           />
         );
@@ -108,7 +113,12 @@ export default function App() {
           />
         );
       case 'profile':
-        return <ProfileScreen onLogout={handleLogout} />;
+        return (
+          <ProfileScreen
+            onChangeLanguage={() => setCurrentScreen('language')}
+            onLogout={handleLogout}
+          />
+        );
       case 'points':
         return <PointsScreen />;
       case 'medication':
@@ -163,7 +173,7 @@ export default function App() {
             />
             <NavButton
               icon={<Gamepad2 className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
-              label="Game"
+              label={t('game')}
               active={currentScreen === 'game'}
               onClick={() => setCurrentScreen('game')}
             />

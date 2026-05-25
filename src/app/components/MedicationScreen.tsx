@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Bell, CheckCircle, Clock, Pill, Utensils } from 'lucide-react';
 
 const medicines = [
@@ -6,16 +7,16 @@ const medicines = [
     id: 'atorvastatin',
     name: 'Atorvastatin',
     dose: '20mg',
-    schedule: '1 tablet - Daily',
-    instruction: 'After dinner',
+    scheduleKey: 'oneTabletDaily',
+    instructionKey: 'afterDinner',
     time: '5:45 PM',
   },
   {
     id: 'metformin',
     name: 'Metformin',
     dose: '500mg',
-    schedule: '1 tablet - Daily',
-    instruction: 'After breakfast',
+    scheduleKey: 'oneTabletDaily',
+    instructionKey: 'afterBreakfast',
     time: '8:00 AM',
   },
 ];
@@ -48,6 +49,7 @@ function getCurrentMinutes() {
 }
 
 export default function MedicationScreen() {
+  const { t } = useTranslation();
   const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
   const [dismissedReminderIds, setDismissedReminderIds] = useState<string[]>([]);
   const [activeReminderId, setActiveReminderId] = useState<string | null>(null);
@@ -106,13 +108,13 @@ export default function MedicationScreen() {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-3xl font-bold leading-tight text-[#07122e]">
-              Medicine Reminder
+              {t('medicineReminder')}
             </h1>
-            <p className="mt-2 text-lg text-gray-500">Take on time.</p>
+            <p className="mt-2 text-lg text-gray-500">{t('takeOnTime')}</p>
           </div>
 
           <button
-            aria-label="Notifications"
+            aria-label={t('notificationsLabel')}
             className="mt-2 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white text-[#f04a24] shadow-sm active:scale-95"
           >
             <Bell className="h-7 w-7" />
@@ -124,7 +126,7 @@ export default function MedicationScreen() {
             <Clock className="h-6 w-6 text-[#f04a24]" />
           </div>
           <p className="text-xl font-bold leading-tight text-[#07122e]">
-            Today's medicine
+            {t('todaysMedicine')}
           </p>
         </section>
 
@@ -136,6 +138,7 @@ export default function MedicationScreen() {
               isTaken={takenMedicineIds.includes(medicine.id)}
               medicine={medicine}
               onTaken={() => markMedicineDone(medicine.id)}
+              t={t}
             />
           ))}
         </div>
@@ -148,17 +151,17 @@ export default function MedicationScreen() {
               <Clock className="h-9 w-9" />
             </div>
             <h2 className="mt-4 text-3xl font-bold text-[#07122e]">
-              Medicine reminder
+              {t('medicineReminderPopup')}
             </h2>
             <p className="mt-3 text-xl leading-7 text-gray-600">
-              It is time to take {activeReminder.name} {activeReminder.dose}.
+              {t('timeToTakeMedicine', { name: activeReminder.name, dose: activeReminder.dose })}
             </p>
             <div className="mt-6 flex flex-col gap-3">
               <button
                 onClick={() => markMedicineDone(activeReminder.id)}
                 className="flex h-14 items-center justify-center rounded-full bg-[#18833b] text-xl font-bold text-white active:scale-95"
               >
-                Done
+                {t('done')}
               </button>
               <button
                 onClick={() => {
@@ -169,7 +172,7 @@ export default function MedicationScreen() {
                 }}
                 className="flex h-14 items-center justify-center rounded-full border-2 border-[#f04a24] bg-white text-xl font-bold text-[#f04a24] active:scale-95"
               >
-                Remind later
+                {t('remindLater')}
               </button>
             </div>
           </div>
@@ -184,6 +187,7 @@ function MedicineCard({
   isTaken,
   medicine,
   onTaken,
+  t,
 }: {
   currentMinutes: number;
   isTaken: boolean;
@@ -191,15 +195,21 @@ function MedicineCard({
     id: string;
     name: string;
     dose: string;
-    schedule: string;
-    instruction: string;
+    scheduleKey: string;
+    instructionKey: string;
     time: string;
   };
   onTaken: () => void;
+  t: (key: string, options?: Record<string, string | number>) => string;
 }) {
   const medicineMinutes = getMinutesFromTimeLabel(medicine.time);
   const status =
     isTaken ? 'Taken' : medicineMinutes !== null && currentMinutes > medicineMinutes ? 'Missed' : 'Not yet';
+  const statusLabel = {
+    Taken: t('taken'),
+    'Not yet': t('notYet'),
+    Missed: t('missed'),
+  }[status];
   const statusStyle = {
     Taken: {
       badge: 'bg-[#e9f6ed] text-[#18833b]',
@@ -226,7 +236,7 @@ function MedicineCard({
       <div className="mb-3 flex justify-end">
         <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold ${statusStyle.badge}`}>
           <CheckCircle className="h-4 w-4" />
-          {status}
+          {statusLabel}
         </div>
       </div>
 
@@ -248,7 +258,7 @@ function MedicineCard({
             {medicine.dose}
           </p>
 
-          <p className="mt-2 text-lg text-gray-500">{medicine.schedule}</p>
+          <p className="mt-2 text-lg text-gray-500">{t(medicine.scheduleKey)}</p>
 
           <div className="my-3 border-t border-gray-200" />
 
@@ -257,7 +267,7 @@ function MedicineCard({
               <Utensils className="h-5 w-5 text-[#f04a24]" />
             </div>
             <p className="text-lg font-semibold text-[#07122e]">
-              {medicine.instruction}
+              {t(medicine.instructionKey)}
             </p>
           </div>
         </div>
@@ -276,7 +286,7 @@ function MedicineCard({
           onClick={onTaken}
           className={`rounded-full px-4 py-2 text-base font-bold text-white transition-colors active:scale-95 ${statusStyle.button}`}
         >
-          {isTaken ? 'Done' : 'Taken'}
+          {isTaken ? t('done') : t('taken')}
         </button>
       </div>
     </section>

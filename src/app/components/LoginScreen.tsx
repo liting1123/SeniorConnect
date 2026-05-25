@@ -55,14 +55,14 @@ export default function LoginScreen({
           <form onSubmit={handleLogin} className="space-y-4 min-[390px]:space-y-6">
             {/* Email Input */}
             <div>
-              <label className="mb-2 block text-lg font-bold text-gray-900 min-[390px]:mb-3 min-[390px]:text-xl">Email</label>
+              <label className="mb-2 block text-lg font-bold text-gray-900 min-[390px]:mb-3 min-[390px]:text-xl">{t('email')}</label>
               <div className="relative">
                 <Mail className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 min-[390px]:h-6 min-[390px]:w-6" />
                 <input
                   type="text"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="Enter email"
+                  placeholder={t('enterEmail')}
                   required
                   className="w-full rounded-2xl border border-gray-200 bg-gray-50 py-4 pl-12 pr-5 text-lg placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 min-[390px]:py-5 min-[390px]:pl-14 min-[390px]:text-xl"
                 />
@@ -101,16 +101,9 @@ export default function LoginScreen({
               className="flex w-full items-center justify-center gap-3 rounded-2xl bg-green-700 py-4 text-xl font-bold text-white transition-transform active:scale-95 disabled:bg-gray-400 disabled:active:scale-100 min-[390px]:py-5 min-[390px]:text-2xl"
             >
               <Lock className="h-5 w-5 min-[390px]:h-6 min-[390px]:w-6" />
-              {isLoggingIn ? 'Logging in...' : t('logIn')}
+              {isLoggingIn ? `${t('logIn')}...` : t('logIn')}
             </button>
 
-            {/* Forgot Password */}
-            <button
-              type="button"
-              className="w-full text-lg font-bold text-gray-700 underline min-[390px]:text-xl"
-            >
-              {t('forgotPassword')}
-            </button>
           </form>
 
           {/* OR Divider */}

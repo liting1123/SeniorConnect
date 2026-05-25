@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bell, CheckCircle, Clock, Pill, Utensils } from 'lucide-react';
 
-const medicines = [
+export const medicines = [
   {
     id: 'atorvastatin',
     name: 'Atorvastatin',
@@ -21,7 +21,10 @@ const medicines = [
   },
 ];
 
-function getMinutesFromTimeLabel(timeLabel: string) {
+export type Medicine = (typeof medicines)[number];
+const MEDICINE_REMINDER_EARLY_MINUTES = 5;
+
+export function getMinutesFromTimeLabel(timeLabel: string) {
   const match = timeLabel.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
 
   if (!match) {
@@ -43,25 +46,42 @@ function getMinutesFromTimeLabel(timeLabel: string) {
   return hour * 60 + minute;
 }
 
-function getCurrentMinutes() {
+export function getCurrentMinutes() {
   const now = new Date();
   return now.getHours() * 60 + now.getMinutes();
 }
 
-export default function MedicationScreen() {
+export default function MedicationScreen({
+  takenMedicineIds,
+  onMedicineTaken,
+}: {
+  takenMedicineIds: string[];
+  onMedicineTaken: (medicineId: string) => void;
+}) {
   const { t } = useTranslation();
-  const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
-  const [dismissedReminderIds, setDismissedReminderIds] = useState<string[]>([]);
-  const [activeReminderId, setActiveReminderId] = useState<string | null>(null);
   const [currentMinutes, setCurrentMinutes] = useState(() => getCurrentMinutes());
+  const [activeReminderId, setActiveReminderId] = useState<string | null>(null);
+  const [snoozedMedicineUntil, setSnoozedMedicineUntil] = useState<Record<string, number>>({});
 
   const activeReminder = useMemo(() => {
     return medicines.find((medicine) => medicine.id === activeReminderId) || null;
   }, [activeReminderId]);
 
   const markMedicineDone = (medicineId: string) => {
-    setTakenMedicineIds((current) => (current.includes(medicineId) ? current : [...current, medicineId]));
-    setDismissedReminderIds((current) => (current.includes(medicineId) ? current : [...current, medicineId]));
+    onMedicineTaken(medicineId);
+    setSnoozedMedicineUntil((current) => {
+      const next = { ...current };
+      delete next[medicineId];
+      return next;
+    });
+    setActiveReminderId(null);
+  };
+
+  const snoozeMedicineReminder = (medicineId: string) => {
+    setSnoozedMedicineUntil((current) => ({
+      ...current,
+      [medicineId]: getCurrentMinutes() + 5,
+    }));
     setActiveReminderId(null);
   };
 
@@ -74,12 +94,13 @@ export default function MedicationScreen() {
       const currentMinutes = getCurrentMinutes();
       const dueMedicine = medicines.find((medicine) => {
         const medicineMinutes = getMinutesFromTimeLabel(medicine.time);
+        const snoozedUntil = snoozedMedicineUntil[medicine.id] ?? 0;
 
         return (
           medicineMinutes !== null &&
-          currentMinutes >= medicineMinutes &&
-          !takenMedicineIds.includes(medicine.id) &&
-          !dismissedReminderIds.includes(medicine.id)
+          currentMinutes >= medicineMinutes - MEDICINE_REMINDER_EARLY_MINUTES &&
+          currentMinutes >= snoozedUntil &&
+          !takenMedicineIds.includes(medicine.id)
         );
       });
 
@@ -92,7 +113,7 @@ export default function MedicationScreen() {
     const timer = window.setInterval(checkForDueMedicine, 30000);
 
     return () => window.clearInterval(timer);
-  }, [activeReminderId, dismissedReminderIds, takenMedicineIds]);
+  }, [activeReminderId, snoozedMedicineUntil, takenMedicineIds]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -164,12 +185,7 @@ export default function MedicationScreen() {
                 {t('done')}
               </button>
               <button
-                onClick={() => {
-                  setDismissedReminderIds((current) =>
-                    current.includes(activeReminder.id) ? current : [...current, activeReminder.id],
-                  );
-                  setActiveReminderId(null);
-                }}
+                onClick={() => snoozeMedicineReminder(activeReminder.id)}
                 className="flex h-14 items-center justify-center rounded-full border-2 border-[#f04a24] bg-white text-xl font-bold text-[#f04a24] active:scale-95"
               >
                 {t('remindLater')}

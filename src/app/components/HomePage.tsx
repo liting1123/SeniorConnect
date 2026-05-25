@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import imgUserProfile from '../../imports/image-2.png';
 
 const svgPaths = {
   pad21740:
@@ -40,16 +39,7 @@ export default function HomePage({
               </div>
             </div>
 
-            <div className="bg-[#dcd9d9] relative rounded-[9999px] shrink-0 size-11 min-[390px]:size-12">
-              <div className="content-stretch flex flex-col items-start justify-center overflow-clip p-[2px] relative rounded-[inherit] size-full">
-                <div className="flex-[1_0_0] min-h-px relative w-full">
-                  <div className="absolute bg-clip-padding border-0 border-[transparent] border-solid inset-0 overflow-hidden pointer-events-none">
-                    <img alt="" className="absolute left-0 max-w-none size-full top-0 object-cover" src={imgUserProfile} />
-                  </div>
-                </div>
-              </div>
-              <div aria-hidden="true" className="absolute border-2 border-[#f0eded] border-solid inset-0 pointer-events-none rounded-[9999px] shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]" />
-            </div>
+            <div className="shrink-0 size-9 min-[390px]:size-10" aria-hidden="true" />
           </div>
         </div>
       </div>

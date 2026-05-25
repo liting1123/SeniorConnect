@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Clock, Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { LANGUAGE_STORAGE_KEY } from '../i18n';
@@ -10,7 +10,7 @@ import HomePage from './components/HomePage';
 import SOSConfirmationScreen from './components/SOSConfirmation';
 import ProfileScreen from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
-import MedicationScreen from './components/MedicationScreen';
+import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel, medicines } from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
 import CaregiverDashboardScreen from './components/CaregiverDashboardScreen';
 import GameScreen from './components/GameScreen';
@@ -18,12 +18,75 @@ import { addCheckIn, clearStoredUser, getStoredUser, setCachedUserPoints } from 
 import { createSosAlert } from './services/serviceNow';
 
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'caregiverLogin' | 'carePortal' | 'caregiverDashboard';
+const MEDICINE_REMINDER_EARLY_MINUTES = 5;
 
 export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
   const [isSendingSOS, setIsSendingSOS] = useState(false);
+  const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
+  const [activeMedicineReminderId, setActiveMedicineReminderId] = useState<string | null>(null);
+  const [snoozedMedicineUntil, setSnoozedMedicineUntil] = useState<Record<string, number>>({});
+
+  const activeMedicineReminder = useMemo(() => {
+    return medicines.find((medicine) => medicine.id === activeMedicineReminderId) || null;
+  }, [activeMedicineReminderId]);
+
+  const markMedicineTaken = (medicineId: string) => {
+    setTakenMedicineIds((current) => (current.includes(medicineId) ? current : [...current, medicineId]));
+    setSnoozedMedicineUntil((current) => {
+      const next = { ...current };
+      delete next[medicineId];
+      return next;
+    });
+    setActiveMedicineReminderId(null);
+  };
+
+  const snoozeMedicineReminder = (medicineId: string) => {
+    setSnoozedMedicineUntil((current) => ({
+      ...current,
+      [medicineId]: getCurrentMinutes() + 5,
+    }));
+    setActiveMedicineReminderId(null);
+  };
+
+  useEffect(() => {
+    const checkForDueMedicine = () => {
+      if (
+        activeMedicineReminderId ||
+        currentScreen === 'welcome' ||
+        currentScreen === 'language' ||
+        currentScreen === 'caregiverLogin' ||
+        currentScreen === 'carePortal' ||
+        currentScreen === 'caregiverDashboard'
+      ) {
+        return;
+      }
+
+      const currentMinutes = getCurrentMinutes();
+      const dueMedicine = medicines.find((medicine) => {
+        const medicineMinutes = getMinutesFromTimeLabel(medicine.time);
+        const snoozedUntil = snoozedMedicineUntil[medicine.id] ?? 0;
+
+        return (
+          medicineMinutes !== null &&
+          currentMinutes >= medicineMinutes - MEDICINE_REMINDER_EARLY_MINUTES &&
+          currentMinutes >= snoozedUntil &&
+          !takenMedicineIds.includes(medicine.id)
+        );
+      });
+
+      if (dueMedicine) {
+        setActiveMedicineReminderId(dueMedicine.id);
+      }
+    };
+
+    checkForDueMedicine();
+    const timer = window.setInterval(checkForDueMedicine, 30000);
+
+    return () => window.clearInterval(timer);
+  }, [activeMedicineReminderId, currentScreen, snoozedMedicineUntil, takenMedicineIds]);
 
   const handleSOSConfirm = async () => {
     if (isSendingSOS) {
@@ -122,7 +185,7 @@ export default function App() {
       case 'points':
         return <PointsScreen />;
       case 'medication':
-        return <MedicationScreen />;
+        return <MedicationScreen takenMedicineIds={takenMedicineIds} onMedicineTaken={markMedicineTaken} />;
       case 'game':
         return <GameScreen />;
       case 'carePortal':
@@ -192,6 +255,39 @@ export default function App() {
               onConfirm={handleSOSConfirm}
               onCancel={() => setShowSOSConfirmation(false)}
             />
+          </div>
+        )}
+
+        {activeMedicineReminder && !showSOSConfirmation && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+            <div className="w-full rounded-[28px] bg-white p-6 text-center shadow-2xl">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#fff0e8] text-[#f04a24]">
+                <Clock className="h-9 w-9" />
+              </div>
+              <h2 className="mt-4 text-3xl font-bold text-[#07122e]">
+                {t('medicineReminderPopup')}
+              </h2>
+              <p className="mt-3 text-xl leading-7 text-gray-600">
+                {t('timeToTakeMedicine', {
+                  name: activeMedicineReminder.name,
+                  dose: activeMedicineReminder.dose,
+                })}
+              </p>
+              <div className="mt-6 flex flex-col gap-3">
+                <button
+                  onClick={() => markMedicineTaken(activeMedicineReminder.id)}
+                  className="flex h-14 items-center justify-center rounded-full bg-[#18833b] text-xl font-bold text-white active:scale-95"
+                >
+                  {t('done')}
+                </button>
+                <button
+                  onClick={() => snoozeMedicineReminder(activeMedicineReminder.id)}
+                  className="flex h-14 items-center justify-center rounded-full border-2 border-[#f04a24] bg-white text-xl font-bold text-[#f04a24] active:scale-95"
+                >
+                  {t('remindLater')}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { pathToFileURL } from 'node:url';
 import { loadEnv } from './env.mjs';
 import {
   addCheckInPoints,
@@ -51,7 +52,7 @@ function getUidFromPath(pathname) {
   return match ? { uid: decodeURIComponent(match[1]), action: match[2] || null } : null;
 }
 
-async function handleRequest(request, response) {
+export async function handleRequest(request, response) {
   if (request.method === 'OPTIONS') {
     sendJson(response, 204, {});
     return;
@@ -179,7 +180,7 @@ async function handleRequest(request, response) {
   sendJson(response, 405, { error: 'Method not allowed' });
 }
 
-const server = http.createServer((request, response) => {
+export function handleRequestWithErrors(request, response) {
   handleRequest(request, response).catch((error) => {
     console.error(error);
     sendJson(response, error.status || 500, {
@@ -187,8 +188,12 @@ const server = http.createServer((request, response) => {
       details: error.details,
     });
   });
-});
+}
 
-server.listen(PORT, () => {
-  console.log(`ServiceNow API server running at http://localhost:${PORT}`);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const server = http.createServer(handleRequestWithErrors);
+
+  server.listen(PORT, () => {
+    console.log(`ServiceNow API server running at http://localhost:${PORT}`);
+  });
+}

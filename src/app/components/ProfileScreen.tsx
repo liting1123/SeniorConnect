@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { type AppUser, getStoredUser } from '../services/backend';
 
-const PERSONAL_INFO_KEY = 'careconnect.personalInfo';
+export const PERSONAL_INFO_KEY = 'careconnect.personalInfo';
 const PROFILE_IMAGE_KEY = 'careconnect.profileImage';
 
 export default function ProfileScreen({

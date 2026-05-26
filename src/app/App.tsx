@@ -8,7 +8,7 @@ import CaregiverLoginScreen from './components/CaregiverLoginScreen';
 import LanguageSelectionScreen from './components/LanguageSelectionScreen';
 import HomePage from './components/HomePage';
 import SOSConfirmationScreen from './components/SOSConfirmation';
-import ProfileScreen from './components/ProfileScreen';
+import ProfileScreen, { PERSONAL_INFO_KEY } from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
 import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel, medicines } from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
@@ -19,6 +19,25 @@ import { createSosAlert } from './services/serviceNow';
 
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'caregiverLogin' | 'carePortal' | 'caregiverDashboard';
 const MEDICINE_REMINDER_EARLY_MINUTES = 5;
+
+function getSavedPersonalInfo() {
+  const savedInfo = localStorage.getItem(PERSONAL_INFO_KEY);
+
+  if (!savedInfo) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(savedInfo) as {
+      phone?: string;
+      email?: string;
+      address?: string;
+    };
+  } catch {
+    localStorage.removeItem(PERSONAL_INFO_KEY);
+    return {};
+  }
+}
 
 export default function App() {
   const { t } = useTranslation();
@@ -93,12 +112,13 @@ export default function App() {
 
     try {
       const user = getStoredUser();
+      const personalInfo = getSavedPersonalInfo();
 
       await createSosAlert({
-        location: 'Block 123 Woodlands',
+        location: personalInfo.address || 'Block 123 Woodlands',
         message: 'SOS alert triggered',
         seniorName: user?.displayName || 'Tan HA HA',
-        seniorPhone: '91234567',
+        seniorPhone: personalInfo.phone || '91234567',
         status: 'New',
       });
 

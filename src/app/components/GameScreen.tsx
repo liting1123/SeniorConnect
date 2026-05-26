@@ -166,7 +166,7 @@ export default function GameScreen() {
     } catch (error) {
       console.error('Game reward failed:', error);
       rewardStartedRef.current = false;
-      alert(error instanceof Error ? error.message : t('unableGamePoint'));
+      alert(error instanceof Error && error.message ? error.message : t('unableGamePoint'));
     } finally {
       setIsSavingPoint(false);
     }

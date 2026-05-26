@@ -66,7 +66,7 @@ async function request<T>(user: AppUser, path: string, options: RequestInit = {}
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(data?.error || response.statusText);
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
   }
 
   return data as T;
@@ -101,7 +101,7 @@ export async function login(identifier: string, password: string) {
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(data?.error || response.statusText);
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
   }
 
   const loginData = data as LoginResponse;
@@ -127,7 +127,7 @@ export async function registerCaregiver(email: string, password: string) {
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(data?.error || response.statusText);
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
   }
 
   const loginData = data as LoginResponse;

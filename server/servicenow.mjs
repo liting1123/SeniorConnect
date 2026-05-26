@@ -76,6 +76,35 @@ function getAuthHeader(username, password) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 }
 
+function getResponsePreview(text) {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 300);
+}
+
+function parseServiceNowJson(text, response) {
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    const contentType = response.headers.get('content-type') || '';
+    const returnedHtml = contentType.includes('text/html') || /^\s*</.test(text);
+    const message = returnedHtml
+      ? 'ServiceNow returned HTML instead of JSON. Check SERVICE_NOW_INSTANCE_URL, SERVICE_NOW_USERNAME, and SERVICE_NOW_PASSWORD; the instance may be redirecting to a login page.'
+      : 'ServiceNow returned invalid JSON.';
+
+    throw Object.assign(new Error(message), {
+      status: response.ok ? 502 : response.status,
+      details: {
+        status: response.status,
+        contentType,
+        bodyPreview: getResponsePreview(text),
+      },
+    });
+  }
+}
+
 async function serviceNowFetch(path, options = {}) {
   const config = getConfig();
   const response = await fetch(`${config.instanceUrl}${path}`, {
@@ -89,7 +118,7 @@ async function serviceNowFetch(path, options = {}) {
   });
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  const data = parseServiceNowJson(text, response);
 
   if (!response.ok) {
     const message = data?.error?.message || data?.error?.detail || response.statusText;

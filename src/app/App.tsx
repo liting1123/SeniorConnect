@@ -55,11 +55,7 @@ export default function App() {
     const checkForDueMedicine = () => {
       if (
         activeMedicineReminderId ||
-        currentScreen === 'welcome' ||
-        currentScreen === 'language' ||
-        currentScreen === 'caregiverLogin' ||
-        currentScreen === 'carePortal' ||
-        currentScreen === 'caregiverDashboard'
+        currentScreen !== 'medication'
       ) {
         return;
       }
@@ -258,7 +254,7 @@ export default function App() {
           </div>
         )}
 
-        {activeMedicineReminder && !showSOSConfirmation && (
+        {currentScreen === 'medication' && activeMedicineReminder && !showSOSConfirmation && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
             <div className="w-full rounded-[28px] bg-white p-6 text-center shadow-2xl">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#fff0e8] text-[#f04a24]">

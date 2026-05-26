@@ -26,7 +26,7 @@ const CHECK_IN_WINDOWS = [
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
 const SOS_ALERT_TABLE = process.env.SERVICE_NOW_SOS_ALERT_TABLE || 'u_sos_alert';
-const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregiver_dash';
+const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregivers_dash';
 
 const LOGIN_FIELD_MAP = {
   username: process.env.SERVICE_NOW_LOGIN_FIELD_USERNAME || 'u_username',

@@ -1,7 +1,11 @@
-import {ArrowLeft,Bell,CheckCircle,ChevronDown,Circle,Clock, Handshake,Info, LayoutDashboard, MapPin, Phone,
-  Search, ShieldAlert, SlidersHorizontal, User, Users, TriangleAlert
+import {ArrowLeft,Bell,CheckCircle,ChevronDown,ChevronRight,Circle,Clock, Handshake,HelpCircle,Info, Languages,LayoutDashboard,LogOut, MapPin, Phone,
+  Search, Shield, ShieldAlert, SlidersHorizontal, User, Users, TriangleAlert
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { clearStoredUser, getStoredUser } from '../services/backend';
+
+const CARE_PORTAL_PERSONAL_INFO_KEY = 'careconnect.carePortalPersonalInfo';
+const CARE_PORTAL_PROFILE_IMAGE_KEY = 'careconnect.carePortalProfileImage';
 
 const seniors = [
   {
@@ -193,20 +197,20 @@ export default function CarePortalScreen({ onBack, onRegistered }: { onBack: () 
 
 function CaregiverDashboard({ onBack }: { onBack: () => void }) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'alerts' | 'profile'>('dashboard');
+  const currentUser = getStoredUser();
+  const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Caregiver';
+  const caregiverEmail = currentUser?.email || '';
+
+  const handleLogout = () => {
+    clearStoredUser();
+    onBack();
+  };
 
   return (
     <div className="h-full overflow-y-auto bg-[#fbf9f8] pb-24 text-[#1b1c1c]">
       <header className="sticky top-0 z-10 bg-[#fbf9f8] shadow-sm">
         <div className="flex h-14 items-center justify-between px-4 min-[390px]:h-16 min-[390px]:px-6">
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onBack}
-              className="flex h-10 w-10 items-center justify-center rounded-full text-[#174b2c] transition-transform active:scale-95 min-[390px]:h-12 min-[390px]:w-12"
-              aria-label="Back"
-            >
-              <ArrowLeft className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
-            </button>
             <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#9dd3aa] bg-[#e1ffe5] text-[#174b2c] min-[390px]:h-12 min-[390px]:w-12">
               <User className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
             </div>
@@ -228,7 +232,13 @@ function CaregiverDashboard({ onBack }: { onBack: () => void }) {
       <main className="px-5 py-6 min-[390px]:px-6">
         {activeTab === 'dashboard' && <CaregiverDashboardHome />}
         {activeTab === 'alerts' && <CaregiverAlerts />}
-        {activeTab === 'profile' && <CaregiverProfile />}
+        {activeTab === 'profile' && (
+          <CaregiverProfile
+            caregiverName={caregiverName}
+            caregiverEmail={caregiverEmail}
+            onLogout={handleLogout}
+          />
+        )}
       </main>
 
       <nav className="absolute bottom-0 left-0 right-0 z-20 flex h-20 items-center justify-around rounded-t-[32px] border-t border-[#c1c9bf] bg-[#efeded] px-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]">
@@ -506,25 +516,250 @@ function AlertHistoryItem({
   );
 }
 
-function CaregiverProfile() {
-  return (
-    <div className="flex flex-col gap-5">
-      <section>
-        <h1 className="text-3xl font-bold leading-10 text-[#1b1c1c]">Profile</h1>
-        <p className="mt-1 text-base leading-6 text-[#414942]">Caregiver account details</p>
-      </section>
-      <section className="rounded-[28px] border border-[#c1c9bf]/40 bg-white p-5 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#e1ffe5] text-[#174b2c]">
-            <User className="h-8 w-8" />
+function CaregiverProfile({
+  caregiverName,
+  caregiverEmail,
+  onLogout,
+}: {
+  caregiverName: string;
+  caregiverEmail: string;
+  onLogout: () => void;
+}) {
+  const [showPersonalInfo, setShowPersonalInfo] = useState(false);
+  const [phone, setPhone] = useState('91234567');
+  const [personalEmail, setPersonalEmail] = useState(caregiverEmail);
+  const [address, setAddress] = useState('Block 123 Woodlands');
+  const [profileImage, setProfileImage] = useState(() => localStorage.getItem(CARE_PORTAL_PROFILE_IMAGE_KEY) || '');
+
+  useEffect(() => {
+    const savedInfo = localStorage.getItem(CARE_PORTAL_PERSONAL_INFO_KEY);
+
+    if (savedInfo) {
+      try {
+        const parsedInfo = JSON.parse(savedInfo) as {
+          phone?: string;
+          email?: string;
+          address?: string;
+        };
+
+        setPhone(parsedInfo.phone || '91234567');
+        setPersonalEmail(parsedInfo.email || caregiverEmail);
+        setAddress(parsedInfo.address || 'Block 123 Woodlands');
+        return;
+      } catch {
+        localStorage.removeItem(CARE_PORTAL_PERSONAL_INFO_KEY);
+      }
+    }
+
+    setPersonalEmail(caregiverEmail);
+  }, [caregiverEmail]);
+
+  const handleSavePersonalInfo = () => {
+    localStorage.setItem(
+      CARE_PORTAL_PERSONAL_INFO_KEY,
+      JSON.stringify({
+        phone,
+        email: personalEmail,
+        address,
+      }),
+    );
+
+    alert('Personal information saved.');
+    setShowPersonalInfo(false);
+  };
+
+  const handleProfileImageChange = (file: File) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const imageDataUrl = typeof reader.result === 'string' ? reader.result : '';
+
+      if (imageDataUrl) {
+        setProfileImage(imageDataUrl);
+        localStorage.setItem(CARE_PORTAL_PROFILE_IMAGE_KEY, imageDataUrl);
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  if (showPersonalInfo) {
+    return (
+      <div className="-mx-5 -my-6 min-h-full bg-gray-50 min-[390px]:-mx-6">
+        <div className="sticky top-0 z-10 flex h-16 items-center gap-3 bg-gray-50 px-5 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setShowPersonalInfo(false)}
+            className="flex h-11 w-11 items-center justify-center rounded-full text-green-700 active:bg-green-50"
+            aria-label="Back to profile"
+          >
+            <ArrowLeft className="h-6 w-6" />
+          </button>
+          <h1 className="text-2xl font-bold text-gray-900">Personal Information</h1>
+        </div>
+
+        <div className="p-5 min-[390px]:p-8">
+          <div className="mb-5 rounded-3xl bg-white p-5 shadow-sm">
+            <h2 className="mb-5 text-2xl font-bold text-green-600">Profile Photo</h2>
+
+            <div className="flex flex-col items-center">
+              {profileImage ? (
+                <img
+                  src={profileImage}
+                  alt="Profile"
+                  className="mb-4 h-32 w-32 rounded-full object-cover"
+                />
+              ) : (
+                <div className="mb-4 flex h-32 w-32 items-center justify-center rounded-full bg-green-50 text-green-700">
+                  <User className="h-16 w-16" />
+                </div>
+              )}
+
+              <label className="cursor-pointer rounded-full bg-green-500 px-6 py-3 text-lg font-semibold text-white shadow-sm active:scale-95">
+                Change Photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+
+                    if (file) {
+                      handleProfileImageChange(file);
+                    }
+                  }}
+                  className="sr-only"
+                />
+              </label>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold text-[#1b1c1c]">Mei Ling</h2>
-            <p className="text-base text-[#414942]">Registered caregiver</p>
+
+          <div className="rounded-3xl bg-white p-5 shadow-sm">
+            <h2 className="mb-5 text-2xl font-bold text-green-600">Basic Information</h2>
+
+            <ProfileField label="Phone Number" value={phone} onChange={setPhone} type="tel" />
+            <ProfileField label="Email" value={personalEmail} onChange={setPersonalEmail} type="email" />
+            <ProfileField label="Address" value={address} onChange={setAddress} isLast />
+
+            <button
+              type="button"
+              onClick={handleSavePersonalInfo}
+              className="mt-5 w-full rounded-2xl bg-green-500 py-3 text-lg font-semibold text-white active:scale-95"
+            >
+              Save Changes
+            </button>
           </div>
         </div>
-      </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="-mx-5 -my-6 min-h-full bg-gray-50 min-[390px]:-mx-6">
+      <div className="bg-gradient-to-br from-green-400 to-green-600 px-5 pb-5 pt-6 text-white min-[390px]:px-7 min-[390px]:pb-7 min-[390px]:pt-8">
+        <div className="mb-4 flex items-center gap-4 min-[390px]:gap-5">
+          {profileImage ? (
+            <img
+              src={profileImage}
+              alt="Profile"
+              className="h-16 w-16 rounded-full bg-white object-cover min-[390px]:h-20 min-[390px]:w-20"
+            />
+          ) : (
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-[#316342] min-[390px]:h-20 min-[390px]:w-20">
+              <User className="h-8 w-8 min-[390px]:h-10 min-[390px]:w-10" />
+            </div>
+          )}
+          <div className="min-w-0">
+            <h2 className="truncate text-2xl font-bold min-[390px]:text-3xl">{caregiverName}</h2>
+            <p className="mt-1 truncate text-sm text-green-100 min-[390px]:text-base">
+              {caregiverEmail || 'Registered caregiver'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-5 p-5 min-[390px]:space-y-6 min-[390px]:p-8">
+        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <SettingsItem
+            icon={<User className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            title="Personal Information"
+            onClick={() => setShowPersonalInfo(true)}
+          />
+          <SettingsItem
+            icon={<Languages className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            title="Select Language"
+          />
+          <SettingsItem
+            icon={<Shield className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            title="Privacy & Security"
+          />
+        </div>
+
+        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <SettingsItem
+            icon={<HelpCircle className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            title="Help & Support"
+          />
+          <SettingsItem
+            icon={<LogOut className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            title="Log Out"
+            textColor="text-red-500"
+            onClick={onLogout}
+          />
+        </div>
+      </div>
     </div>
+  );
+}
+
+function ProfileField({
+  isLast = false,
+  label,
+  onChange,
+  type = 'text',
+  value,
+}: {
+  isLast?: boolean;
+  label: string;
+  onChange: (value: string) => void;
+  type?: string;
+  value: string;
+}) {
+  return (
+    <label className={`block py-4 ${isLast ? '' : 'border-b border-gray-200'}`}>
+      <span className="mb-1 block text-sm text-gray-500">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-transparent text-xl font-semibold text-gray-900 outline-none"
+      />
+    </label>
+  );
+}
+
+function SettingsItem({
+  icon,
+  title,
+  textColor = 'text-gray-900',
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  textColor?: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-4 border-b border-gray-100 px-5 py-4 transition-colors last:border-b-0 active:bg-gray-50 min-[390px]:gap-6 min-[390px]:px-8 min-[390px]:py-6"
+    >
+      <div className="text-gray-600">{icon}</div>
+      <span className={`flex-1 text-left text-xl font-bold min-[390px]:text-2xl ${textColor}`}>
+        {title}
+      </span>
+      <ChevronRight className="h-7 w-7 text-gray-400 min-[390px]:h-8 min-[390px]:w-8" />
+    </button>
   );
 }
 

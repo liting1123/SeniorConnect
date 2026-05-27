@@ -18,6 +18,7 @@ export type AppUser = {
   email: string;
   displayName: string;
   token: string;
+  role: string;
 };
 
 type LoginResponse = {
@@ -27,6 +28,7 @@ type LoginResponse = {
     username?: string;
     email: string;
     name: string;
+    role?: string;
   };
 };
 
@@ -110,6 +112,7 @@ export async function login(identifier: string, password: string) {
     email: loginData.user.email || loginData.user.username || '',
     displayName: loginData.user.name,
     token: loginData.token,
+    role: loginData.user.role || 'elderly',
   };
 
   localStorage.setItem(SESSION_KEY, JSON.stringify(user));
@@ -136,6 +139,7 @@ export async function registerCaregiver(email: string, password: string) {
     email: loginData.user.email || loginData.user.username || '',
     displayName: loginData.user.name,
     token: loginData.token,
+    role: loginData.user.role || 'caregiver',
   };
 
   localStorage.setItem(SESSION_KEY, JSON.stringify(user));

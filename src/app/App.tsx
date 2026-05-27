@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { LANGUAGE_STORAGE_KEY } from '../i18n';
 import LoginScreen from './components/LoginScreen';
-import CaregiverLoginScreen from './components/CaregiverLoginScreen';
 import LanguageSelectionScreen from './components/LanguageSelectionScreen';
 import HomePage from './components/HomePage';
 import SOSConfirmationScreen from './components/SOSConfirmation';
@@ -14,10 +13,10 @@ import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel, medicines
 import CarePortalScreen from './components/CarePortalScreen';
 import CaregiverDashboardScreen from './components/CaregiverDashboardScreen';
 import GameScreen from './components/GameScreen';
-import { addCheckIn, clearStoredUser, getStoredUser, setCachedUserPoints } from './services/backend';
+import { type AppUser, addCheckIn, clearStoredUser, getStoredUser, setCachedUserPoints } from './services/backend';
 import { createSosAlert } from './services/serviceNow';
 
-type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'caregiverLogin' | 'carePortal' | 'caregiverDashboard';
+type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
 const MEDICINE_REMINDER_EARLY_MINUTES = 5;
 
 function getSavedPersonalInfo() {
@@ -165,21 +164,29 @@ export default function App() {
     setCurrentScreen(localStorage.getItem(LANGUAGE_STORAGE_KEY) ? 'home' : 'language');
   };
 
+  const handleLoginSuccess = (user: AppUser) => {
+    const role = user.role.trim().toLowerCase();
+
+    if (role === 'caregiver') {
+      setCurrentScreen('caregiverDashboard');
+      return;
+    }
+
+    if (role === 'familymember' || role === 'family_member' || role === 'family') {
+      setCurrentScreen('carePortal');
+      return;
+    }
+
+    goToSeniorHome();
+  };
+
   const renderScreen = () => {
     switch (currentScreen) {
       case 'welcome':
         return (
           <LoginScreen
-            onGetStarted={goToSeniorHome}
-            onCaregiverLogin={() => setCurrentScreen('caregiverLogin')}
-          />
-        );
-      case 'caregiverLogin':
-        return (
-          <CaregiverLoginScreen
-            onBack={() => setCurrentScreen('welcome')}
-            onLoginSuccess={() => setCurrentScreen('caregiverDashboard')}
-            onRegister={() => setCurrentScreen('carePortal')}
+            onGetStarted={handleLoginSuccess}
+            onFamilyRegister={() => setCurrentScreen('carePortal')}
           />
         );
       case 'language':
@@ -212,7 +219,13 @@ export default function App() {
           />
         );
       case 'caregiverDashboard':
-        return <CaregiverDashboardScreen onBack={() => setCurrentScreen('carePortal')} />;
+        return (
+          <CaregiverDashboardScreen
+            onBack={() => setCurrentScreen('carePortal')}
+            onChangeLanguage={() => setCurrentScreen('language')}
+            onLogout={handleLogout}
+          />
+        );
       default:
         return (
           <HomePage
@@ -230,7 +243,7 @@ export default function App() {
           {renderScreen()}
         </div>
 
-        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'caregiverLogin' && currentScreen !== 'carePortal' && currentScreen !== 'caregiverDashboard' && (
+        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && currentScreen !== 'caregiverDashboard' && (
           <nav className="shrink-0 bg-white border-t-2 border-gray-200 px-2 py-2 flex justify-around items-center">
             <NavButton
               icon={<Home className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}

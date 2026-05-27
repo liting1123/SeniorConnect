@@ -33,6 +33,7 @@ const LOGIN_FIELD_MAP = {
   email: process.env.SERVICE_NOW_LOGIN_FIELD_EMAIL || 'u_email',
   password: process.env.SERVICE_NOW_LOGIN_FIELD_PASSWORD || 'u_password',
   name: process.env.SERVICE_NOW_LOGIN_FIELD_NAME || 'u_name',
+  role: process.env.SERVICE_NOW_LOGIN_FIELD_ROLE || 'u_role',
   active: process.env.SERVICE_NOW_LOGIN_FIELD_ACTIVE || 'u_active',
 };
 
@@ -45,8 +46,10 @@ const SOS_ALERT_FIELD_MAP = {
 };
 
 const CAREGIVER_CONNECTION_FIELD_MAP = {
+  caregiverUsername: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_CAREGIVER_USERNAME || 'u_username',
   caregiverName: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_CAREGIVER_NAME || 'u_caregiver_name',
   caregiverEmail: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_CAREGIVER_EMAIL || 'u_caregiver_email',
+  caregiverPassword: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_CAREGIVER_PASSWORD || 'u_password',
   seniorName: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_SENIOR_NAME || 'u_senior_name',
   seniorPhone: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_SENIOR_PHONE || 'u_senior_phone',
   seniorEmail: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_SENIOR_EMAIL || 'u_senior_email',
@@ -321,46 +324,106 @@ function toLoginUser(record = {}) {
       record[LOGIN_FIELD_MAP.username] ||
       record[LOGIN_FIELD_MAP.email]?.split('@')[0] ||
       'User',
+    role: String(record[LOGIN_FIELD_MAP.role] || '').trim().toLowerCase() || 'elderly',
   };
 }
 
-export async function loginWithServiceNow({ identifier, email, password }) {
-  const normalizedIdentifier = String(identifier || email || '').trim();
-  const rawPassword = String(password || '');
+function normalizeLoginValue(value) {
+  return String(value || '').trim().toLowerCase();
+}
 
-  if (!normalizedIdentifier || !rawPassword) {
-    throw Object.assign(new Error('Email/username and password are required.'), { status: 400 });
-  }
+function toCaregiverLoginUser(record = {}) {
+  const email = record[CAREGIVER_CONNECTION_FIELD_MAP.caregiverEmail] || '';
+  const username = record[CAREGIVER_CONNECTION_FIELD_MAP.caregiverUsername] || email;
 
-  // Allow login with either email or username
+  return {
+    id: record.sys_id,
+    username,
+    email,
+    name:
+      record[CAREGIVER_CONNECTION_FIELD_MAP.caregiverName] ||
+      username ||
+      email?.split('@')[0] ||
+      'Caregiver',
+    role: 'caregiver',
+  };
+}
+
+async function findSeniorLoginUser(normalizedIdentifier, rawPassword) {
   const query = `(${LOGIN_FIELD_MAP.email}=${normalizedIdentifier}^OR${LOGIN_FIELD_MAP.username}=${normalizedIdentifier})`;
   const params = new URLSearchParams({
     sysparm_query: query,
     sysparm_limit: '10',
   });
   const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${params.toString()}`));
-  const record = data?.result?.find(user =>
-  (
-    user[LOGIN_FIELD_MAP.email] === normalizedIdentifier ||
-    user[LOGIN_FIELD_MAP.username] === normalizedIdentifier
-  ) &&
-  String(user[LOGIN_FIELD_MAP.password] || '') === String(rawPassword)
-);
+  const record = data?.result?.find((user) => {
+    return (
+      (
+        user[LOGIN_FIELD_MAP.email] === normalizedIdentifier ||
+        user[LOGIN_FIELD_MAP.username] === normalizedIdentifier
+      ) &&
+      String(user[LOGIN_FIELD_MAP.password] || '') === String(rawPassword)
+    );
+  });
 
-if (!record) {
-  throw Object.assign(
-    new Error('Email/username or password is incorrect.'),
-    { status: 401 }
-  );
-}
+  if (!record) {
+    return null;
+  }
+
   const activeValue = record[LOGIN_FIELD_MAP.active];
 
   if (activeValue !== undefined && activeValue !== '' && String(activeValue).toLowerCase() === 'false') {
     throw Object.assign(new Error('This account is inactive.'), { status: 403 });
   }
 
-  const user = toLoginUser(record);
-  return user;
+  return toLoginUser(record);
+}
+
+async function findCaregiverLoginUser(normalizedIdentifier, rawPassword) {
+  const query = `(${CAREGIVER_CONNECTION_FIELD_MAP.caregiverEmail}=${normalizedIdentifier}^OR${CAREGIVER_CONNECTION_FIELD_MAP.caregiverUsername}=${normalizedIdentifier})`;
+  const params = new URLSearchParams({
+    sysparm_query: query,
+    sysparm_limit: '10',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${params.toString()}`));
+  const record = data?.result?.find((user) => {
+    return (
+      (
+        user[CAREGIVER_CONNECTION_FIELD_MAP.caregiverEmail] === normalizedIdentifier ||
+        user[CAREGIVER_CONNECTION_FIELD_MAP.caregiverUsername] === normalizedIdentifier
+      ) &&
+      String(user[CAREGIVER_CONNECTION_FIELD_MAP.caregiverPassword] || '') === String(rawPassword)
+    );
+  });
+
+  return record ? toCaregiverLoginUser(record) : null;
+}
+
+export async function loginWithServiceNow({ identifier, email, password }) {
+  const normalizedIdentifier = String(identifier || email || '').trim();
+  const comparableIdentifier = normalizeLoginValue(normalizedIdentifier);
+  const rawPassword = String(password || '');
+
+  if (!normalizedIdentifier || !rawPassword) {
+    throw Object.assign(new Error('Email/username and password are required.'), { status: 400 });
+  }
+
+  const seniorUser = await findSeniorLoginUser(comparableIdentifier, rawPassword);
+
+  if (seniorUser) {
+    return seniorUser;
+  }
+
+  const caregiverUser = await findCaregiverLoginUser(comparableIdentifier, rawPassword);
+
+  if (caregiverUser) {
+    return caregiverUser;
+  }
+
+  throw Object.assign(
+    new Error('Email/username or password is incorrect.'),
+    { status: 401 },
+  );
 }
 
 export async function registerWithServiceNow({ email, password, name }) {
@@ -387,6 +450,7 @@ export async function registerWithServiceNow({ email, password, name }) {
     [LOGIN_FIELD_MAP.email]: normalizedEmail,
     [LOGIN_FIELD_MAP.password]: rawPassword,
     [LOGIN_FIELD_MAP.name]: displayName,
+    [LOGIN_FIELD_MAP.role]: 'caregiver',
     [LOGIN_FIELD_MAP.active]: true,
   };
 
@@ -484,5 +548,11 @@ export function getServiceNowLoginConfig() {
     emailField: LOGIN_FIELD_MAP.email,
     passwordField: LOGIN_FIELD_MAP.password,
     nameField: LOGIN_FIELD_MAP.name,
+    roleField: LOGIN_FIELD_MAP.role,
+    caregiverTable: CAREGIVER_CONNECTION_TABLE,
+    caregiverUsernameField: CAREGIVER_CONNECTION_FIELD_MAP.caregiverUsername,
+    caregiverEmailField: CAREGIVER_CONNECTION_FIELD_MAP.caregiverEmail,
+    caregiverPasswordField: CAREGIVER_CONNECTION_FIELD_MAP.caregiverPassword,
+    caregiverNameField: CAREGIVER_CONNECTION_FIELD_MAP.caregiverName,
   };
 }

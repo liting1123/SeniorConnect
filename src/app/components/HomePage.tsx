@@ -12,9 +12,11 @@ const svgPaths = {
 export default function HomePage({
   onSOSClick,
   onCheckIn,
+  isCheckingIn = false,
 }: {
   onSOSClick?: () => void;
   onCheckIn?: () => void;
+  isCheckingIn?: boolean;
 }) {
   const { t } = useTranslation();
 
@@ -65,7 +67,8 @@ export default function HomePage({
             <div className="content-stretch flex flex-col items-start pb-4 relative shrink-0 w-full min-[390px]:pb-6">
               <button
                 onClick={onCheckIn}
-                className="bg-[#4a7c59] content-stretch flex flex-col items-center justify-center py-5 relative rounded-[28px] shrink-0 w-full active:scale-95 transition-transform min-[390px]:rounded-[32px] min-[390px]:py-8"
+                disabled={isCheckingIn}
+                className="bg-[#4a7c59] content-stretch flex flex-col items-center justify-center py-5 relative rounded-[28px] shrink-0 w-full active:scale-95 transition-transform disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 min-[390px]:rounded-[32px] min-[390px]:py-8"
               >
                 <div className="absolute bg-[rgba(255,255,255,0)] inset-[0_0_-0.25px_0] rounded-[32px] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)]" />
                 <div className="content-stretch flex flex-col items-start pb-2 relative shrink-0 min-[390px]:pb-3">
@@ -79,7 +82,7 @@ export default function HomePage({
                 </div>
                 <div className="content-stretch flex flex-col items-center relative shrink-0">
                   <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#e1ffe5] text-[32px] text-center tracking-[1px] whitespace-nowrap min-[390px]:text-[40px]">
-                    <p className="leading-10 min-[390px]:leading-[60px]">{t('iAmOk')}</p>
+                    <p className="leading-10 min-[390px]:leading-[60px]">{isCheckingIn ? 'Checking...' : t('iAmOk')}</p>
                   </div>
                 </div>
               </button>

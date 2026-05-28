@@ -1,9 +1,11 @@
 import {
+  Activity,
   ArrowLeft,
   Bell,
   CheckCircle,
   ChevronRight,
   Clock,
+  Heart,
   Handshake,
   HelpCircle,
   Info,
@@ -12,6 +14,7 @@ import {
   LogOut,
   MapPin,
   Phone,
+  Pill,
   ShieldAlert,
   Shield,
   SlidersHorizontal,
@@ -29,6 +32,7 @@ type Senior = {
   name: string;
   phone: string;
   email: string;
+  location?: string;
   relationship?: string;
   status?: string;
 };
@@ -45,6 +49,7 @@ export default function CaregiverDashboardScreen({
   const [activeTab, setActiveTab] = useState<'dashboard' | 'alerts' | 'profile'>('dashboard');
   const currentUser = getStoredUser();
   const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Caregiver';
+  const caregiverId = currentUser?.uid || '';
   const caregiverEmail = currentUser?.email || '';
   const [seniors, setSeniors] = useState<Senior[]>([]);
   const [isLoadingSeniors, setIsLoadingSeniors] = useState(false);
@@ -63,7 +68,7 @@ export default function CaregiverDashboardScreen({
       setSeniorError('');
 
       try {
-        const params = new URLSearchParams({ caregiverEmail });
+        const params = new URLSearchParams({ caregiverId, caregiverEmail });
         const response = await fetch(`/api/servicenow/caregiver-seniors?${params.toString()}`, {
           signal: controller.signal,
         });
@@ -94,28 +99,31 @@ export default function CaregiverDashboardScreen({
     return () => {
       controller.abort();
     };
-  }, [caregiverEmail]);
+  }, [caregiverEmail, caregiverId]);
 
   const alertCount = seniors.filter((senior) => isAlertStatus(senior.status)).length;
 
   return (
-    <div className="h-full overflow-y-auto bg-[#fbf9f8] pb-24 text-[#1b1c1c]">
-      <header className="sticky top-0 z-10 bg-[#fbf9f8] shadow-sm">
-        <div className="flex h-14 items-center justify-between px-4 min-[390px]:h-16 min-[390px]:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#9dd3aa] bg-[#e1ffe5] text-[#174b2c] min-[390px]:h-12 min-[390px]:w-12">
-              <User className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
+    <div className="h-full overflow-y-auto bg-[#f4f6f8] pb-24 text-[#101418]">
+      <header className="sticky top-0 z-10 bg-[#f4f6f8] shadow-sm">
+        <div className="flex h-[88px] items-center justify-between px-5">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full border-2 border-[#b8d5df] bg-[#dcecef] text-[#0f5f75] shadow-sm">
+              <User className="h-8 w-8" />
             </div>
+            <h1 className="truncate text-[28px] font-bold leading-8 tracking-normal text-black">
+              Caregiver Dashboard
+            </h1>
           </div>
 
           <button
             type="button"
-            className="relative flex h-10 w-10 items-center justify-center rounded-full text-[#414942] transition-transform active:scale-95 min-[390px]:h-12 min-[390px]:w-12"
+            className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full text-black transition-transform active:scale-95"
             aria-label="Notifications"
           >
-            <Bell className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
+            <Bell className="h-8 w-8" />
             {alertCount > 0 && (
-              <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-[#fbf9f8] bg-[#ba1a1a] text-[10px] font-bold text-white">
+              <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[#f4f6f8] bg-[#c8171d] text-[11px] font-bold text-white">
                 {alertCount}
               </span>
             )}
@@ -123,7 +131,7 @@ export default function CaregiverDashboardScreen({
         </div>
       </header>
 
-      <main className="px-5 py-6 min-[390px]:px-6">
+      <main className="px-5 py-5">
         {activeTab === 'dashboard' && (
           <CaregiverDashboardHome
             caregiverName={caregiverName}
@@ -143,7 +151,7 @@ export default function CaregiverDashboardScreen({
         )}
       </main>
 
-      <nav className="absolute bottom-0 left-0 right-0 z-20 flex h-20 items-center justify-around rounded-t-[32px] border-t border-[#c1c9bf] bg-[#efeded] px-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)]">
+      <nav className="absolute bottom-0 left-0 right-0 z-20 flex h-24 items-center justify-around bg-[#f4f6f8] px-5 pb-3 pt-2 shadow-[0_-8px_20px_rgba(0,0,0,0.04)]">
         <DashboardNavItem
           active={activeTab === 'dashboard'}
           icon={<LayoutDashboard className="h-6 w-6" />}
@@ -176,6 +184,26 @@ function getSeniorStatus(senior: Senior) {
   return senior.status?.trim() || 'Connected';
 }
 
+function getTimeGreeting() {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-SG', {
+      hour: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Singapore',
+    }).format(new Date()),
+  );
+
+  if (hour < 12) {
+    return 'Good Morning';
+  }
+
+  if (hour < 18) {
+    return 'Good Afternoon';
+  }
+
+  return 'Good Evening';
+}
+
 function CaregiverDashboardHome({
   caregiverName,
   seniors,
@@ -189,59 +217,90 @@ function CaregiverDashboardHome({
 }) {
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status));
   const alertSenior = alertSeniors[0];
+  const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status));
+  const featuredSeniors = [...alertSeniors, ...stableSeniors];
+  const recentAlertTitle = alertSenior
+    ? `${alertSenior.name}'s status needs attention`
+    : 'All residents stable';
 
   return (
-    <div className="flex flex-col gap-6 min-[390px]:gap-8">
-      <section>
-        <h1 className="text-2xl font-bold leading-8 text-[#1b1c1c] min-[390px]:text-3xl min-[390px]:leading-10">
-          Good Morning, {caregiverName}
-        </h1>
-        <p className="mt-1 text-base leading-6 text-[#414942] min-[390px]:text-lg min-[390px]:leading-7">
-          Here's what's happening with your seniors today.
+    <div className="flex flex-col gap-6">
+      <section className="-mx-5 -mt-5">
+        <div className="flex h-16 items-center justify-between bg-[#c8171d] px-6 text-white">
+          <div className="flex min-w-0 items-center gap-3">
+            <TriangleAlert className="h-8 w-8 flex-shrink-0" />
+            <p className="truncate text-lg font-bold uppercase tracking-wide">
+              {alertSenior ? `Active SOS: ${alertSenior.name}` : 'No Active SOS'}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="flex h-9 flex-shrink-0 items-center justify-center rounded-full bg-white px-4 text-base font-bold uppercase text-[#c8171d] shadow-sm active:scale-95"
+          >
+            Acknowledge
+          </button>
+        </div>
+      </section>
+
+      <section className="flex items-center justify-between gap-4">
+        <h2 className="text-[30px] font-bold leading-9 text-black">Monitored Residents</h2>
+        <p className="shrink-0 text-right text-base font-bold text-[#71717a]">
+          {seniors.length} Residents Active
         </p>
       </section>
 
-      <section className="rounded-[28px] border border-[#ffdad6] bg-[#ffdad6]/30 p-4 shadow-sm min-[390px]:rounded-[32px] min-[390px]:p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <ShieldAlert className="h-8 w-8 text-[#ba1a1a] min-[390px]:h-9 min-[390px]:w-9" />
-            <div>
-              <p className="text-base font-semibold text-[#414942] min-[390px]:text-lg">Needs Attention</p>
-              <p className="text-lg font-bold text-[#ba1a1a] min-[390px]:text-xl">
-                {alertSenior?.name || 'No urgent seniors'}
-              </p>
-            </div>
-          </div>
-          <p className="text-4xl font-bold text-[#ba1a1a] min-[390px]:text-5xl">{alertSeniors.length}</p>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-[#1b1c1c] min-[390px]:text-3xl">My Seniors</h2>
-        </div>
-
+      <section className="flex flex-col gap-5">
         {isLoading ? (
-          <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
+          <p className="rounded-[18px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
             Loading seniors from ServiceNow...
           </p>
         ) : error ? (
-          <p className="rounded-[28px] bg-red-50 p-5 text-base font-semibold text-red-700">{error}</p>
-        ) : seniors.length > 0 ? (
-          seniors.map((senior) => (
+          <p className="rounded-[18px] bg-red-50 p-5 text-base font-semibold text-red-700">{error}</p>
+        ) : featuredSeniors.length > 0 ? (
+          featuredSeniors.map((senior) => (
             <SeniorCard
               key={senior.id}
               name={senior.name}
               status={getSeniorStatus(senior)}
-              lastCheckIn={senior.relationship || senior.email || senior.phone || 'Connected senior'}
+              location={senior.location || 'Unknown'}
               tone={isAlertStatus(senior.status) ? 'alert' : 'good'}
             />
           ))
         ) : (
-          <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-            No seniors found for this caregiver account.
-          </p>
+          <div className="rounded-[18px] border border-[#d8dbe0] bg-white p-6 text-center shadow-sm">
+            <p className="text-lg font-bold text-[#30343a]">No seniors found for this caregiver account.</p>
+            <p className="mt-2 text-sm font-semibold leading-5 text-[#71717a]">
+              {caregiverName} is not linked to a resident profile yet.
+            </p>
+          </div>
         )}
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="text-[30px] font-bold leading-9 text-black">Recent Alerts</h2>
+        <div className="rounded-[22px] bg-[#2875e0] p-6 text-white shadow-sm">
+          <p className="text-base font-medium uppercase text-white/90">Critical Update</p>
+          <h3 className="mt-3 text-2xl font-bold leading-8">{recentAlertTitle}</h3>
+          <p className="mt-4 flex items-center gap-2 text-base font-bold">
+            <Clock className="h-5 w-5" />
+            {alertSenior ? '2 mins ago' : 'Just now'}
+          </p>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-4">
+        <DashboardMetricCard
+          icon={<Activity className="h-10 w-10" />}
+          title={alertSenior ? 'Review' : 'Active'}
+          subtitle={alertSenior ? `${alertSenior.name}'s activity` : 'Resident activity'}
+          tone="blue"
+        />
+        <DashboardMetricCard
+          icon={<Heart className="h-10 w-10" />}
+          title={alertSenior ? 'Attention' : 'Normal'}
+          subtitle="Sleep quality"
+          tone="green"
+        />
       </section>
     </div>
   );
@@ -650,49 +709,131 @@ function SettingsItem({
   );
 }
 
+function getInitials(name: string) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+
+  return initials || 'SR';
+}
+
 function SeniorCard({
   name,
   status,
-  lastCheckIn,
+  location,
   tone,
 }: {
   name: string;
   status: string;
-  lastCheckIn: string;
+  location: string;
   tone: 'good' | 'alert';
 }) {
   const isAlert = tone === 'alert';
 
   return (
-    <div
-      className={`flex items-center gap-3 rounded-[28px] border p-4 shadow-sm min-[390px]:gap-4 min-[390px]:rounded-[32px] min-[390px]:p-5 ${
-        isAlert ? 'border-[#ffdad6] bg-[#ffdad6]/20' : 'border-[#c1c9bf]/40 bg-white'
-      }`}
-    >
-      <div className="relative flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-[#e1ffe5] text-[#174b2c] min-[390px]:h-20 min-[390px]:w-20">
-        <User className="h-8 w-8 min-[390px]:h-10 min-[390px]:w-10" />
-        <span className={`absolute bottom-0 right-0 h-4 w-4 rounded-full border-2 border-white ${isAlert ? 'bg-[#ba1a1a]' : 'bg-green-500'}`} />
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="truncate text-lg font-bold text-[#1b1c1c] min-[390px]:text-xl">{name}</p>
-          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${isAlert ? 'bg-[#ba1a1a] text-white' : 'bg-[#174b2c]/10 text-[#174b2c]'}`}>
-            {status}
-          </span>
+    <div className={`rounded-[18px] border bg-white p-5 shadow-sm ${isAlert ? 'border-2 border-[#c8171d]' : 'border-[#d0d3d8]'}`}>
+      <div className="flex items-start gap-4">
+        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${isAlert ? 'bg-[#14353d] text-white' : 'bg-[#dcecef] text-[#17353d]'}`}>
+          {getInitials(name)}
         </div>
-        <p className={`mt-1 text-sm font-medium min-[390px]:text-base ${isAlert ? 'text-[#ba1a1a]' : 'text-[#414942]'}`}>
-          {lastCheckIn}
-        </p>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="truncate text-[28px] font-bold leading-8 text-black">{name}</h3>
+              <p className={`mt-3 flex items-center gap-2 text-lg font-bold ${isAlert ? 'text-[#c8171d]' : 'text-[#30343a]'}`}>
+                {isAlert ? (
+                  <TriangleAlert className="h-5 w-5 flex-shrink-0" />
+                ) : (
+                  <CheckCircle className="h-5 w-5 flex-shrink-0 text-[#12c759]" />
+                )}
+                <span className="truncate">{isAlert ? 'No check-in today' : 'Checked in today'}</span>
+              </p>
+            </div>
+            <span className={`shrink-0 rounded-[12px] px-3 py-2 text-base font-bold uppercase ${isAlert ? 'bg-[#ffdada] text-[#a90000]' : 'bg-[#e2e5e9] text-[#30343a]'}`}>
+              {isAlert ? 'SOS Active' : status || 'Stable'}
+            </span>
+          </div>
+        </div>
       </div>
 
-      <button
-        type="button"
-        aria-label={`Call ${name}`}
-        className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#174b2c] text-white shadow-md transition-transform active:scale-90 min-[390px]:h-14 min-[390px]:w-14"
-      >
-        <Phone className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
-      </button>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <ResidentInfoTile
+          icon={<Pill className="h-8 w-8" />}
+          iconColor={isAlert ? 'text-[#c8171d]' : 'text-[#12b962]'}
+          label="Medication"
+          value={isAlert ? 'Missed' : 'Taken'}
+        />
+        <ResidentInfoTile
+          icon={<MapPin className="h-8 w-8" />}
+          iconColor="text-[#075fc7]"
+          label="Location"
+          value={location || 'Unknown'}
+        />
+      </div>
+
+      <div className="mt-5 grid grid-cols-[1fr_128px] gap-3">
+        <button
+          type="button"
+          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${isAlert ? 'border-[#075fc7] bg-[#075fc7] text-white' : 'border-[#075fc7] bg-white text-[#075fc7]'}`}
+        >
+          <Phone className="h-6 w-6" />
+          {isAlert ? 'Call Emergency' : 'Call'}
+        </button>
+        <button
+          type="button"
+          className="flex h-16 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-lg font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98]"
+        >
+          Profile
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ResidentInfoTile({
+  icon,
+  iconColor,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  iconColor: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex min-h-[76px] items-center gap-3 rounded-[12px] bg-[#f0f2f5] px-4">
+      <div className={iconColor}>{icon}</div>
+      <div className="min-w-0">
+        <p className="text-base font-semibold text-[#71717a]">{label}</p>
+        <p className="truncate text-lg font-bold leading-6 text-black">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function DashboardMetricCard({
+  icon,
+  title,
+  subtitle,
+  tone,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  tone: 'blue' | 'green';
+}) {
+  return (
+    <div className="flex min-h-[196px] flex-col justify-between rounded-[20px] bg-[#e9ecef] p-6">
+      <div className={tone === 'blue' ? 'text-[#075fc7]' : 'text-[#12b962]'}>{icon}</div>
+      <div>
+        <h3 className="text-[28px] font-bold leading-8 text-black">{title}</h3>
+        <p className="mt-1 text-lg font-bold text-[#71717a]">{subtitle}</p>
+      </div>
     </div>
   );
 }
@@ -714,13 +855,13 @@ function DashboardNavItem({
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex min-w-[84px] flex-col items-center justify-center gap-1 rounded-2xl px-3 py-2 transition-transform active:scale-95 ${
-        active ? 'bg-[#fd8a2a] text-[#632f00]' : 'text-[#414942]'
+      className={`relative flex min-w-[96px] flex-col items-center justify-center gap-1 rounded-[18px] px-4 py-3 transition-transform active:scale-95 ${
+        active ? 'bg-[#2875e0] text-white shadow-sm' : 'text-[#3f4147]'
       }`}
     >
       {icon}
-      <span className="text-xs font-bold">{label}</span>
-      {hasAlert && <span className="absolute right-5 top-2 h-2 w-2 rounded-full bg-[#ba1a1a]" />}
+      <span className="text-sm font-bold">{label}</span>
+      {hasAlert && <span className="absolute right-5 top-3 h-2.5 w-2.5 rounded-full bg-[#c8171d]" />}
     </button>
   );
 }

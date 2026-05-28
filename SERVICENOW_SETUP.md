@@ -50,27 +50,24 @@ SERVICE_NOW_TABLE=u_senior_connect_user
 
 The game reward uses `u_game_reward_date` to allow only one game point per Singapore day.
 
-## 3. Caregiver Portal Search
+## 3. Caregiver Profiles
 
 The Care Portal searches this ServiceNow table for seniors connected to the logged-in caregiver:
 
 ```env
-SERVICE_NOW_CAREGIVER_CONNECTION_TABLE=u_caregiver_dash
+SERVICE_NOW_CAREGIVER_CONNECTION_TABLE=u_caregiver_profiles
 ```
 
 Required fields:
 
 | Label | Column name |
 | --- | --- |
-| Caregiver Name | `u_caregiver_name` |
-| Caregiver Email | `u_caregiver_email` |
-| Senior Name | `u_senior_name` |
-| Senior Phone | `u_senior_phone` |
-| Senior Email | `u_senior_email` |
+| Caregiver User | `u_user` |
+| Senior Profile | `u_senior` |
 | Relationship | `u_relationship` |
-| Status | `u_status` |
+| Is NOK | `u_is_nok` |
 
-When a caregiver types a senior name or phone number, the backend filters records where `u_caregiver_email` matches the logged-in caregiver email.
+When a caregiver views the dashboard, the backend finds their `u_user` record, then filters `u_caregiver_profiles` where `u_user` matches that record.
 
 ## 4. Run The Project
 

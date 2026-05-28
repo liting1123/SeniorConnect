@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Clock, Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -43,6 +43,8 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
   const [isSendingSOS, setIsSendingSOS] = useState(false);
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const isCheckingInRef = useRef(false);
   const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
   const [activeMedicineReminderId, setActiveMedicineReminderId] = useState<string | null>(null);
   const [snoozedMedicineUntil, setSnoozedMedicineUntil] = useState<Record<string, number>>({});
@@ -132,6 +134,10 @@ export default function App() {
   };
 
   const handleCheckIn = async () => {
+    if (isCheckingInRef.current) {
+      return;
+    }
+
     const user = getStoredUser();
 
     if (!user) {
@@ -139,6 +145,9 @@ export default function App() {
       setCurrentScreen('welcome');
       return;
     }
+
+    isCheckingInRef.current = true;
+    setIsCheckingIn(true);
 
     try {
       const nextPoints = await addCheckIn(user);
@@ -152,6 +161,9 @@ export default function App() {
     } catch (error) {
       console.error('Check-in failed:', error);
       alert(error instanceof Error ? error.message : 'Unable to check in right now. Please try again later.');
+    } finally {
+      isCheckingInRef.current = false;
+      setIsCheckingIn(false);
     }
   };
 
@@ -196,6 +208,7 @@ export default function App() {
           <HomePage
             onSOSClick={() => setShowSOSConfirmation(true)}
             onCheckIn={handleCheckIn}
+            isCheckingIn={isCheckingIn}
           />
         );
       case 'profile':
@@ -231,6 +244,7 @@ export default function App() {
           <HomePage
             onSOSClick={() => setShowSOSConfirmation(true)}
             onCheckIn={handleCheckIn}
+            isCheckingIn={isCheckingIn}
           />
         );
     }

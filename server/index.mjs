@@ -104,8 +104,13 @@ export async function handleRequest(request, response) {
   if (url.pathname === '/api/servicenow/connect-senior' && request.method === 'POST') {
     const body = await readJson(request);
     const connection = await createCaregiverConnection({
+      caregiverId: body.caregiverId,
       caregiverName: body.caregiverName,
       caregiverEmail: body.caregiverEmail,
+      caregiverUsername: body.caregiverUsername,
+      seniorId: body.seniorId,
+      seniorUserId: body.seniorUserId,
+      seniorUsername: body.seniorUsername,
       seniorName: body.seniorName,
       seniorPhone: body.seniorPhone,
       seniorEmail: body.seniorEmail,
@@ -118,6 +123,7 @@ export async function handleRequest(request, response) {
 
   if (url.pathname === '/api/servicenow/caregiver-seniors' && request.method === 'GET') {
     const seniors = await getCaregiverSeniorConnections({
+      caregiverId: url.searchParams.get('caregiverId'),
       caregiverEmail: url.searchParams.get('caregiverEmail'),
       searchName: url.searchParams.get('searchName'),
       phone: url.searchParams.get('phone'),

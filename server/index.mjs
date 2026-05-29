@@ -6,11 +6,15 @@ import {
   addGamePoint,
   createCaregiverConnection,
   createSosAlert,
+  deleteMedicineForUser,
   getCaregiverSeniorConnections,
+  getMedicinesForUser,
   getServiceNowLoginConfig,
   getUserById,
   loginWithServiceNow,
   registerWithServiceNow,
+  saveMedicineForUser,
+  searchSeniorProfiles,
   upsertUserProfile,
 } from './servicenow.mjs';
 
@@ -23,7 +27,7 @@ function sendJson(response, status, body) {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': process.env.CLIENT_ORIGIN || 'http://localhost:5173',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   });
   response.end(JSON.stringify(body));
 }
@@ -48,7 +52,7 @@ function requireAuth(request) {
 }
 
 function getUidFromPath(pathname) {
-  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|game|profile))?$/);
+  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|game|profile|medicines))?$/);
   return match ? { uid: decodeURIComponent(match[1]), action: match[2] || null } : null;
 }
 
@@ -71,6 +75,7 @@ export async function handleRequest(request, response) {
       identifier: body.identifier,
       email: body.email,
       password: body.password,
+      loginType: body.loginType,
     });
     sendJson(response, 200, { user, token: `servicenow:${user.id}` });
     return;
@@ -82,6 +87,19 @@ export async function handleRequest(request, response) {
       email: body.email,
       password: body.password,
       name: body.name,
+      role: body.role || 'caregiver',
+    });
+    sendJson(response, 200, { user, token: `servicenow:${user.id}` });
+    return;
+  }
+
+  if (url.pathname === '/api/register-family' && request.method === 'POST') {
+    const body = await readJson(request);
+    const user = await registerWithServiceNow({
+      email: body.email,
+      password: body.password,
+      name: body.name,
+      role: 'Family',
     });
     sendJson(response, 200, { user, token: `servicenow:${user.id}` });
     return;
@@ -133,6 +151,16 @@ export async function handleRequest(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/servicenow/seniors-search' && request.method === 'GET') {
+    const seniors = await searchSeniorProfiles({
+      searchName: url.searchParams.get('searchName'),
+      phone: url.searchParams.get('phone'),
+    });
+
+    sendJson(response, 200, { seniors });
+    return;
+  }
+
   const route = getUidFromPath(url.pathname);
 
   if (!route) {
@@ -145,6 +173,26 @@ export async function handleRequest(request, response) {
   if (request.method === 'GET' && route.action === 'points') {
     const user = await getUserById(route.uid);
     sendJson(response, 200, { points: user?.points || 0, user });
+    return;
+  }
+
+  if (request.method === 'GET' && route.action === 'medicines') {
+    const medicines = await getMedicinesForUser(route.uid);
+    sendJson(response, 200, { medicines });
+    return;
+  }
+
+  if ((request.method === 'POST' || request.method === 'PATCH') && route.action === 'medicines') {
+    const body = await readJson(request);
+    const medicine = await saveMedicineForUser(route.uid, body);
+    sendJson(response, 200, { medicine });
+    return;
+  }
+
+  if (request.method === 'DELETE' && route.action === 'medicines') {
+    const body = await readJson(request);
+    const deletedMedicine = await deleteMedicineForUser(route.uid, body.id);
+    sendJson(response, 200, { medicine: deletedMedicine });
     return;
   }
 

@@ -2,30 +2,21 @@ import {ArrowLeft,Bell,CheckCircle,ChevronDown,ChevronRight,Circle,Clock, Handsh
   Search, Shield, ShieldAlert, SlidersHorizontal, User, Users, TriangleAlert
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { clearStoredUser, getStoredUser } from '../services/backend';
+import { clearStoredUser, getStoredUser, updateStoredUserRole } from '../services/backend';
 
 const CARE_PORTAL_PERSONAL_INFO_KEY = 'careconnect.carePortalPersonalInfo';
 const CARE_PORTAL_PROFILE_IMAGE_KEY = 'careconnect.carePortalProfileImage';
 
-const seniors = [
-  {
-    id: 1,
-    name: 'John Tan',
-    phone: '91234567',
-  },
-  {
-    id: 2,
-    name: 'Mary Lim',
-    phone: '98765432',
-  },
-  {
-    id: 3,
-    name: 'David Lee',
-    phone: '92345678',
-  },
-];
+type Senior = {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+};
 
-type Senior = (typeof seniors)[number];
+function getRoleFromRelationship(relationship: string) {
+  return /next-of-kin|nok/i.test(relationship) ? 'NOK' : 'Family';
+}
 
 export default function CarePortalScreen({ onBack, onRegistered }: { onBack: () => void; onRegistered?: () => void }) {
   const [searchName, setSearchName] = useState('');
@@ -34,21 +25,114 @@ export default function CarePortalScreen({ onBack, onRegistered }: { onBack: () 
   const [relationship, setRelationship] = useState('Next-of-Kin');
   const [confirmed, setConfirmed] = useState(false);
   const [registered, setRegistered] = useState(false);
-  const filteredSeniors = seniors.filter((senior) =>
-    senior.name.toLowerCase().includes(searchName.trim().toLowerCase()),
-  );
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isSearchingSeniors, setIsSearchingSeniors] = useState(false);
+  const [error, setError] = useState('');
+  const [seniorResults, setSeniorResults] = useState<Senior[]>([]);
+
+  useEffect(() => {
+    const trimmedName = searchName.trim();
+    const trimmedPhone = phone.trim();
+
+    if (selectedSenior && (trimmedName || trimmedPhone === selectedSenior.phone)) {
+      return;
+    }
+
+    if (trimmedName.length < 2 && trimmedPhone.length < 3) {
+      setSeniorResults([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setIsSearchingSeniors(true);
+      setError('');
+
+      try {
+        const params = new URLSearchParams();
+
+        if (trimmedName) {
+          params.set('searchName', trimmedName);
+        }
+
+        if (trimmedPhone) {
+          params.set('phone', trimmedPhone);
+        }
+
+        const response = await fetch(`/api/servicenow/seniors-search?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          throw new Error(data?.error || 'Unable to search seniors.');
+        }
+
+        setSeniorResults(data?.seniors || []);
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          console.error('Senior search failed:', error);
+          setError(error instanceof Error ? error.message : 'Unable to search seniors.');
+        }
+      } finally {
+        setIsSearchingSeniors(false);
+      }
+    }, 350);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [phone, searchName, selectedSenior]);
 
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
     if (!selectedSenior) {
       return;
     }
 
-    setRegistered(true);
-    if (onRegistered) {
-      onRegistered();
+    const currentUser = getStoredUser();
+
+    if (!currentUser) {
+      setError('Please register or log in again before linking a senior.');
+      return;
+    }
+
+    setError('');
+    setIsRegistering(true);
+
+    try {
+      const response = await fetch('/api/servicenow/connect-senior', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caregiverId: currentUser.uid,
+          caregiverName: currentUser.displayName,
+          caregiverEmail: currentUser.email,
+          seniorId: selectedSenior.id,
+          seniorName: selectedSenior.name,
+          seniorPhone: selectedSenior.phone,
+          relationship,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to link this senior.');
+      }
+
+      updateStoredUserRole(getRoleFromRelationship(relationship));
+      setRegistered(true);
+      if (onRegistered) {
+        onRegistered();
+      }
+    } catch (error) {
+      console.error('Senior link failed:', error);
+      setError(error instanceof Error ? error.message : 'Unable to link this senior.');
+    } finally {
+      setIsRegistering(false);
     }
   };
 
@@ -89,13 +173,18 @@ export default function CarePortalScreen({ onBack, onRegistered }: { onBack: () 
             label="Search by Name"
             placeholder="Search by name"
             value={searchName}
-            onChange={setSearchName}
+            onChange={(value) => {
+              setSearchName(value);
+              setSelectedSenior(null);
+            }}
           />
 
           {searchName && (
             <div className="overflow-hidden rounded-2xl bg-white shadow-md">
-              {filteredSeniors.length > 0 ? (
-                filteredSeniors.map((senior) => (
+              {isSearchingSeniors ? (
+                <p className="p-4 text-base text-[#717971]">Searching seniors...</p>
+              ) : seniorResults.length > 0 ? (
+                seniorResults.map((senior) => (
                   <button
                     key={senior.id}
                     type="button"
@@ -103,6 +192,7 @@ export default function CarePortalScreen({ onBack, onRegistered }: { onBack: () 
                       setSelectedSenior(senior);
                       setSearchName('');
                       setPhone(senior.phone);
+                      setSeniorResults([]);
                     }}
                     className="flex w-full flex-col border-b border-gray-100 p-4 text-left transition-colors last:border-b-0 active:bg-gray-100"
                   >
@@ -111,7 +201,7 @@ export default function CarePortalScreen({ onBack, onRegistered }: { onBack: () 
                   </button>
                 ))
               ) : (
-                <p className="p-4 text-base text-[#717971]">No senior found</p>
+                <p className="p-4 text-base text-[#717971]">No senior found in ServiceNow</p>
               )}
             </div>
           )}
@@ -128,8 +218,37 @@ export default function CarePortalScreen({ onBack, onRegistered }: { onBack: () 
             placeholder="Enter senior's phone number"
             type="tel"
             value={phone}
-            onChange={setPhone}
+            onChange={(value) => {
+              setPhone(value);
+              setSelectedSenior(null);
+            }}
           />
+
+          {!searchName && phone.trim().length >= 3 && (
+            <div className="overflow-hidden rounded-2xl bg-white shadow-md">
+              {isSearchingSeniors ? (
+                <p className="p-4 text-base text-[#717971]">Searching seniors...</p>
+              ) : seniorResults.length > 0 ? (
+                seniorResults.map((senior) => (
+                  <button
+                    key={senior.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSenior(senior);
+                      setPhone(senior.phone);
+                      setSeniorResults([]);
+                    }}
+                    className="flex w-full flex-col border-b border-gray-100 p-4 text-left transition-colors last:border-b-0 active:bg-gray-100"
+                  >
+                    <span className="text-lg font-bold text-[#1b1c1c]">{senior.name}</span>
+                    <span className="text-base text-[#717971]">{senior.phone}</span>
+                  </button>
+                ))
+              ) : (
+                <p className="p-4 text-base text-[#717971]">No senior found in ServiceNow</p>
+              )}
+            </div>
+          )}
 
           {selectedSenior && (
             <div className="rounded-2xl bg-green-50 p-4">
@@ -185,11 +304,12 @@ export default function CarePortalScreen({ onBack, onRegistered }: { onBack: () 
 
         <button
           type="submit"
-          disabled={!confirmed || !selectedSenior}
+          disabled={!confirmed || !selectedSenior || isRegistering}
           className="flex h-14 w-full items-center justify-center gap-3 rounded-full bg-[#174b2c] text-lg font-bold text-white shadow-md transition-transform active:scale-95 disabled:bg-gray-300 disabled:text-gray-600 disabled:active:scale-100 min-[390px]:h-16 min-[390px]:text-xl"
         >
-          Complete
+          {isRegistering ? 'Linking...' : 'Complete'}
         </button>
+        {error && <p className="text-center text-base font-bold text-red-600">{error}</p>}
       </form>
     </div>
   );

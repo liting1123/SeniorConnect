@@ -1,13 +1,13 @@
 import { Eye, EyeOff, LogIn, Lock, Mail, UserPlus } from 'lucide-react';
 import { useState } from 'react';
-import { type AppUser, login } from '../services/backend';
+import { type AppUser, login, registerFamilyMember } from '../services/backend';
 
 export default function LoginScreen({
   onGetStarted,
   onFamilyRegister,
 }: {
   onGetStarted: (user: AppUser) => void;
-  onFamilyRegister: () => void;
+  onFamilyRegister: (user: AppUser) => void;
 }) {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -22,7 +22,7 @@ export default function LoginScreen({
     setIsLoggingIn(true);
 
     try {
-      const user = await login(identifier.trim(), password);
+      const user = await login(identifier.trim(), password, selectedLoginType);
       onGetStarted(user);
     } catch (error) {
       console.error('Login failed:', error);
@@ -36,14 +36,24 @@ export default function LoginScreen({
     setError('Forgot password is not connected yet.');
   };
 
-  const handleFamilyRegister = () => {
+  const handleFamilyRegister = async () => {
     if (!identifier.trim() || !password) {
       setError('Please enter your email and password before registering.');
       return;
     }
 
     setError('');
-    onFamilyRegister();
+    setIsLoggingIn(true);
+
+    try {
+      const user = await registerFamilyMember(identifier.trim(), password);
+      onFamilyRegister(user);
+    } catch (error) {
+      console.error('Family registration failed:', error);
+      setError(error instanceof Error ? error.message : 'Unable to register family member.');
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   return (
@@ -158,10 +168,11 @@ export default function LoginScreen({
               <button
                 type="button"
                 onClick={handleFamilyRegister}
+                disabled={isLoggingIn}
                 className="mt-4 flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-[#2f7328] bg-white py-5 text-[20px] font-semibold text-[#2f7328] transition-all hover:bg-[#f1f8ef] active:scale-95"
               >
                 <UserPlus className="h-6 w-6" />
-                Register
+                {isLoggingIn ? 'Registering...' : 'Register'}
               </button>
             )}
 

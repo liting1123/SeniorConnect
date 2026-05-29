@@ -13,6 +13,7 @@ const FIELD_MAP = {
   userId: process.env.SERVICE_NOW_FIELD_USER_ID || 'sys_id',
   email: process.env.SERVICE_NOW_FIELD_EMAIL || 'u_email',
   name: process.env.SERVICE_NOW_FIELD_NAME || 'u_name',
+  phone: process.env.SERVICE_NOW_FIELD_PHONE || 'u_phone',
   points: process.env.SERVICE_NOW_FIELD_POINTS || 'u_points',
   lastCheckInAt: process.env.SERVICE_NOW_FIELD_LAST_CHECK_IN_AT || 'u_last_check_in_at',
   gameRewardDate: process.env.SERVICE_NOW_FIELD_GAME_REWARD_DATE || 'u_game_reward_date',
@@ -28,6 +29,7 @@ const DEFAULT_CHECK_IN_WINDOWS = [
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
 const SOS_ALERT_TABLE = process.env.SERVICE_NOW_SOS_ALERT_TABLE || 'u_sos_alert';
 const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregiver_profiles';
+const MEDICINE_TABLE = process.env.SERVICE_NOW_MEDICINE_TABLE || 'u_medicine';
 
 const LOGIN_FIELD_MAP = {
   username: process.env.SERVICE_NOW_LOGIN_FIELD_USERNAME || 'u_username',
@@ -52,6 +54,17 @@ const CAREGIVER_CONNECTION_FIELD_MAP = {
   senior: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_SENIOR || 'u_senior',
   relationship: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_RELATIONSHIP || 'u_relationship',
   isNok: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_IS_NOK || 'u_is_nok',
+};
+
+const MEDICINE_FIELD_MAP = {
+  senior: process.env.SERVICE_NOW_MEDICINE_FIELD_SENIOR || 'u_senior',
+  name: process.env.SERVICE_NOW_MEDICINE_FIELD_NAME || 'u_medication_name',
+  dose: process.env.SERVICE_NOW_MEDICINE_FIELD_DOSE || 'u_dosage',
+  time: process.env.SERVICE_NOW_MEDICINE_FIELD_TIME || 'u_time',
+  frequency: process.env.SERVICE_NOW_MEDICINE_FIELD_FREQUENCY || 'u_frequency',
+  status: process.env.SERVICE_NOW_MEDICINE_FIELD_STATUS || 'u_status',
+  notes: process.env.SERVICE_NOW_MEDICINE_FIELD_NOTES || 'u_notes',
+  isExtra: process.env.SERVICE_NOW_MEDICINE_FIELD_IS_EXTRA || 'u_is_extra',
 };
 
 function getConfig() {
@@ -149,6 +162,7 @@ function toUserRecord(record = {}) {
     userId: record[FIELD_MAP.userId] || '',
     email: record[FIELD_MAP.email] || '',
     name: record[FIELD_MAP.name] || '',
+    phone: record[FIELD_MAP.phone] || '',
     points: Number(record[FIELD_MAP.points]) || 0,
     lastCheckInAt: record[FIELD_MAP.lastCheckInAt] || null,
     gameRewardDate: record[FIELD_MAP.gameRewardDate] || null,
@@ -414,6 +428,21 @@ async function updateLoginTimestamp(record) {
   return data?.result || record;
 }
 
+async function updateLoginRole(userId, role) {
+  if (!userId || !role) {
+    return null;
+  }
+
+  const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(userId)}`), {
+    method: 'PATCH',
+    body: JSON.stringify({
+      [LOGIN_FIELD_MAP.role]: role,
+    }),
+  });
+
+  return data?.result || null;
+}
+
 async function findSeniorLoginUser(normalizedIdentifier, rawPassword) {
   const query = `(${LOGIN_FIELD_MAP.email}=${normalizedIdentifier}^OR${LOGIN_FIELD_MAP.username}=${normalizedIdentifier})`;
   const params = new URLSearchParams({
@@ -458,7 +487,47 @@ async function findLoginRecordByIdentifier(normalizedIdentifier) {
   return data?.result?.[0] || null;
 }
 
-export async function loginWithServiceNow({ identifier, email, password }) {
+function normalizeRoleName(role) {
+  return String(role || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+async function hasSeniorConnections(userId) {
+  if (!userId) {
+    return false;
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.user}=${userId}`,
+    sysparm_limit: '1',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${params.toString()}`));
+
+  return Boolean(data?.result?.length);
+}
+
+async function validateLoginType(user, loginType) {
+  const requestedType = String(loginType || 'care').trim().toLowerCase();
+  const role = normalizeRoleName(user?.role);
+  const isFamilyRole =
+    role === 'family' ||
+    role === 'familymember' ||
+    role === 'nok' ||
+    role === 'nextofkin' ||
+    role === 'nextofkins';
+  const isLinkedToSenior = await hasSeniorConnections(user?.id);
+
+  if (requestedType === 'family' && !isFamilyRole && !isLinkedToSenior) {
+    throw Object.assign(new Error('Please use the Seniors & Caregivers login for this account.'), { status: 403 });
+  }
+
+  if (requestedType === 'care' && (isFamilyRole || isLinkedToSenior)) {
+    throw Object.assign(new Error('Please use the Family Members login for this account.'), { status: 403 });
+  }
+
+  return user;
+}
+
+export async function loginWithServiceNow({ identifier, email, password, loginType }) {
   const normalizedIdentifier = String(identifier || email || '').trim();
   const comparableIdentifier = normalizeLoginValue(normalizedIdentifier);
   const rawPassword = String(password || '');
@@ -470,7 +539,7 @@ export async function loginWithServiceNow({ identifier, email, password }) {
   const seniorUser = await findSeniorLoginUser(comparableIdentifier, rawPassword);
 
   if (seniorUser) {
-    return seniorUser;
+    return await validateLoginType(seniorUser, loginType);
   }
 
   throw Object.assign(
@@ -479,7 +548,7 @@ export async function loginWithServiceNow({ identifier, email, password }) {
   );
 }
 
-export async function registerWithServiceNow({ email, password, name }) {
+export async function registerWithServiceNow({ email, password, name, role = 'caregiver' }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const rawPassword = String(password || '');
 
@@ -494,16 +563,16 @@ export async function registerWithServiceNow({ email, password, name }) {
   const existingData = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${existingParams.toString()}`));
 
   if (existingData?.result?.length) {
-    throw Object.assign(new Error('This caregiver email is already registered.'), { status: 409 });
+    throw Object.assign(new Error('This email is already registered.'), { status: 409 });
   }
 
-  const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Caregiver';
+  const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'User';
   const payload = {
     [LOGIN_FIELD_MAP.username]: normalizedEmail,
     [LOGIN_FIELD_MAP.email]: normalizedEmail,
     [LOGIN_FIELD_MAP.password]: rawPassword,
     [LOGIN_FIELD_MAP.name]: displayName,
-    [LOGIN_FIELD_MAP.role]: 'caregiver',
+    [LOGIN_FIELD_MAP.role]: role,
     [LOGIN_FIELD_MAP.active]: true,
   };
 
@@ -513,6 +582,10 @@ export async function registerWithServiceNow({ email, password, name }) {
   });
 
   return toLoginUser(data?.result || {});
+}
+
+function getFamilyRoleFromRelationship(relationship = '') {
+  return /next-of-kin|nok/i.test(relationship) ? 'NOK' : 'Family';
 }
 
 export async function createSosAlert({ location, message, seniorName, seniorPhone, status }) {
@@ -561,6 +634,67 @@ async function findSeniorProfileByUserId(userId) {
   return data?.result?.[0] || null;
 }
 
+async function findSeniorProfileByNameOrPhone({ seniorName, seniorPhone }) {
+  const queryParts = [];
+  const normalizedName = String(seniorName || '').trim();
+  const normalizedPhone = String(seniorPhone || '').trim();
+
+  if (normalizedName) {
+    queryParts.push(`${FIELD_MAP.name}=${normalizedName}`);
+  }
+
+  if (normalizedPhone) {
+    queryParts.push(`${FIELD_MAP.phone}=${normalizedPhone}`);
+  }
+
+  if (queryParts.length === 0) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: queryParts.join('^OR'),
+    sysparm_limit: '1',
+  });
+  const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
+
+  return data?.result?.[0] || null;
+}
+
+function toSeniorSearchRecord(record = {}) {
+  return {
+    id: record.sys_id,
+    name: record[FIELD_MAP.name] || 'Senior',
+    phone: record[FIELD_MAP.phone] || '',
+    email: record[FIELD_MAP.email] || '',
+  };
+}
+
+export async function searchSeniorProfiles({ searchName, phone }) {
+  const normalizedName = String(searchName || '').trim();
+  const normalizedPhone = String(phone || '').trim();
+  const queryParts = [];
+
+  if (normalizedName) {
+    queryParts.push(`${FIELD_MAP.name}LIKE${normalizedName}`);
+  }
+
+  if (normalizedPhone) {
+    queryParts.push(`${FIELD_MAP.phone}LIKE${normalizedPhone}`);
+  }
+
+  if (queryParts.length === 0) {
+    return [];
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: queryParts.join('^OR'),
+    sysparm_limit: '20',
+  });
+  const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
+
+  return (data?.result || []).map(toSeniorSearchRecord);
+}
+
 function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser = {}) {
   return {
     id: connection.sys_id,
@@ -570,7 +704,7 @@ function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser
       seniorUser[LOGIN_FIELD_MAP.username] ||
       seniorUser[LOGIN_FIELD_MAP.email]?.split('@')[0] ||
       'Senior',
-    phone: seniorProfile.u_phone || seniorUser.u_phone || '',
+    phone: seniorProfile[FIELD_MAP.phone] || seniorUser.u_phone || '',
     email: seniorProfile[FIELD_MAP.email] || seniorUser[LOGIN_FIELD_MAP.email] || '',
     location: seniorProfile[FIELD_MAP.locationZones] || '',
     caregiverName: '',
@@ -580,12 +714,63 @@ function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser
   };
 }
 
+function getDisplayValue(value) {
+  if (!value) {
+    return '';
+  }
+
+  if (typeof value === 'object') {
+    return value.display_value || value.value || value.sys_id || '';
+  }
+
+  return String(value);
+}
+
+function toMedicineRecord(record = {}) {
+  const rawTime = getDisplayValue(record[MEDICINE_FIELD_MAP.time]);
+  const isExtraValue = record[MEDICINE_FIELD_MAP.isExtra];
+
+  return {
+    id: record.sys_id,
+    name: getDisplayValue(record[MEDICINE_FIELD_MAP.name]),
+    dose: getDisplayValue(record[MEDICINE_FIELD_MAP.dose]),
+    time: formatMedicineTime(rawTime),
+    frequency: getDisplayValue(record[MEDICINE_FIELD_MAP.frequency]),
+    status: getDisplayValue(record[MEDICINE_FIELD_MAP.status]),
+    notes: getDisplayValue(record[MEDICINE_FIELD_MAP.notes]),
+    isExtra: String(isExtraValue || '').toLowerCase() === 'true' || isExtraValue === true,
+  };
+}
+
+function formatMedicineTime(value) {
+  const time = String(value || '').trim();
+  const match = time.match(/(?:^|\s)([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?:\s|$)/);
+
+  if (!match || /am|pm/i.test(time)) {
+    return time;
+  }
+
+  const hour24 = Number(match[1]);
+  const minute = match[2];
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+
+  return `${hour12}:${minute} ${period}`;
+}
+
 export async function createCaregiverConnection(data) {
   const caregiverIdentifier = normalizeLoginValue(data.caregiverEmail || data.caregiverUsername);
   const seniorIdentifier = normalizeLoginValue(data.seniorEmail || data.seniorUsername);
   const caregiverUser = data.caregiverId ? { sys_id: data.caregiverId } : await findLoginRecordByIdentifier(caregiverIdentifier);
   const seniorUser = data.seniorUserId ? { sys_id: data.seniorUserId } : await findLoginRecordByIdentifier(seniorIdentifier);
-  const seniorProfile = data.seniorId ? { sys_id: data.seniorId } : await findSeniorProfileByUserId(seniorUser?.sys_id);
+  const seniorProfile = data.seniorId
+    ? { sys_id: data.seniorId }
+    : seniorUser?.sys_id
+      ? await findSeniorProfileByUserId(seniorUser.sys_id)
+      : await findSeniorProfileByNameOrPhone({
+          seniorName: data.seniorName,
+          seniorPhone: data.seniorPhone,
+        });
 
   if (!caregiverUser?.sys_id) {
     throw Object.assign(new Error('Caregiver user was not found.'), { status: 404 });
@@ -595,15 +780,18 @@ export async function createCaregiverConnection(data) {
     throw Object.assign(new Error('Senior profile was not found.'), { status: 404 });
   }
 
+  const relationshipRole = getFamilyRoleFromRelationship(data.relationship);
   const response = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE), {
     method: 'POST',
     body: JSON.stringify({
       [CAREGIVER_CONNECTION_FIELD_MAP.user]: caregiverUser.sys_id,
       [CAREGIVER_CONNECTION_FIELD_MAP.senior]: seniorProfile.sys_id,
       [CAREGIVER_CONNECTION_FIELD_MAP.relationship]: data.relationship || '',
-      [CAREGIVER_CONNECTION_FIELD_MAP.isNok]: /next-of-kin|nok/i.test(data.relationship || ''),
+      [CAREGIVER_CONNECTION_FIELD_MAP.isNok]: relationshipRole === 'NOK',
     }),
   });
+
+  await updateLoginRole(caregiverUser.sys_id, relationshipRole);
 
   return response;
 }
@@ -647,6 +835,95 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
 
     return matchesName && matchesPhone;
   });
+}
+
+export async function getMedicinesForUser(userId) {
+  const seniorProfile = await findSeniorProfileByUserId(userId);
+
+  if (!seniorProfile?.sys_id) {
+    return [];
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: `${MEDICINE_FIELD_MAP.senior}=${seniorProfile.sys_id}`,
+    sysparm_limit: '100',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `?${params.toString()}`));
+
+  return (data?.result || []).map(toMedicineRecord);
+}
+
+export async function saveMedicineForUser(userId, medicine = {}) {
+  const seniorProfile = await findSeniorProfileByUserId(userId);
+
+  if (!seniorProfile?.sys_id) {
+    throw Object.assign(new Error('Senior profile was not found.'), { status: 404 });
+  }
+
+  const existingRecord = medicine.id ? await getMedicineForSenior(seniorProfile.sys_id, medicine.id) : null;
+  const isExistingExtra = existingRecord
+    ? String(existingRecord[MEDICINE_FIELD_MAP.isExtra] || '').toLowerCase() === 'true' ||
+      existingRecord[MEDICINE_FIELD_MAP.isExtra] === true
+    : false;
+
+  if (medicine.id && !isExistingExtra) {
+    return toMedicineRecord(existingRecord);
+  }
+
+  const payload = {
+        [MEDICINE_FIELD_MAP.senior]: seniorProfile.sys_id,
+        [MEDICINE_FIELD_MAP.name]: medicine.name || '',
+        [MEDICINE_FIELD_MAP.dose]: medicine.dose || '',
+        [MEDICINE_FIELD_MAP.time]: medicine.time || '',
+        [MEDICINE_FIELD_MAP.frequency]: medicine.frequency || '',
+        [MEDICINE_FIELD_MAP.status]: medicine.status || '',
+        [MEDICINE_FIELD_MAP.notes]: medicine.notes || '',
+        [MEDICINE_FIELD_MAP.isExtra]: true,
+      };
+
+  const path = medicine.id
+    ? getNamedTablePath(MEDICINE_TABLE, `/${encodeURIComponent(existingRecord.sys_id)}`)
+    : getNamedTablePath(MEDICINE_TABLE);
+  const data = await serviceNowFetch(path, {
+    method: medicine.id ? 'PATCH' : 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return toMedicineRecord(data?.result || {});
+}
+
+async function getMedicineForSenior(seniorProfileId, medicineId) {
+  const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `/${encodeURIComponent(medicineId)}`));
+  const record = data?.result || null;
+  const recordSeniorId = getReferenceValue(record?.[MEDICINE_FIELD_MAP.senior]);
+
+  if (!record || recordSeniorId !== seniorProfileId) {
+    throw Object.assign(new Error('Medicine record was not found for this senior.'), { status: 404 });
+  }
+
+  return record;
+}
+
+export async function deleteMedicineForUser(userId, medicineId) {
+  const seniorProfile = await findSeniorProfileByUserId(userId);
+
+  if (!seniorProfile?.sys_id) {
+    throw Object.assign(new Error('Senior profile was not found.'), { status: 404 });
+  }
+
+  const existingRecord = await getMedicineForSenior(seniorProfile.sys_id, medicineId);
+  const isExtra = String(existingRecord[MEDICINE_FIELD_MAP.isExtra] || '').toLowerCase() === 'true' ||
+    existingRecord[MEDICINE_FIELD_MAP.isExtra] === true;
+
+  if (!isExtra) {
+    throw Object.assign(new Error('This medicine is fixed by the database and cannot be removed.'), { status: 403 });
+  }
+
+  await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `/${encodeURIComponent(existingRecord.sys_id)}`), {
+    method: 'DELETE',
+  });
+
+  return { id: existingRecord.sys_id };
 }
 
 export function getServiceNowLoginConfig() {

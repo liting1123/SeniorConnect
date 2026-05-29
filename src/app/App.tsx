@@ -9,11 +9,22 @@ import HomePage from './components/HomePage';
 import SOSConfirmationScreen from './components/SOSConfirmation';
 import ProfileScreen, { PERSONAL_INFO_KEY } from './components/ProfileScreen';
 import PointsScreen from './components/PointsScreen';
-import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel, medicines } from './components/MedicationScreen';
+import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel } from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
 import CaregiverDashboardScreen from './components/CaregiverDashboardScreen';
 import GameScreen from './components/GameScreen';
-import { type AppUser, addCheckIn, clearStoredUser, getStoredUser, setCachedUserPoints } from './services/backend';
+import {
+  type AppUser,
+  type Medicine,
+  addCheckIn,
+  clearStoredUser,
+  deleteMedicine,
+  getMedicines,
+  getStoredUser,
+  getUserStorageIdentity,
+  saveMedicine,
+  setCachedUserPoints,
+} from './services/backend';
 import { createSosAlert } from './services/serviceNow';
 
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
@@ -38,6 +49,43 @@ function getSavedPersonalInfo() {
   }
 }
 
+function getMedicineNameOverridesKey(user: AppUser) {
+  return `medicine_names_${getUserStorageIdentity(user)}`;
+}
+
+function getMedicineNameOverrides(user: AppUser) {
+  const rawOverrides = localStorage.getItem(getMedicineNameOverridesKey(user));
+
+  if (!rawOverrides) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(rawOverrides) as Record<string, string>;
+  } catch {
+    localStorage.removeItem(getMedicineNameOverridesKey(user));
+    return {};
+  }
+}
+
+function applyMedicineNameOverrides(medicines: Medicine[], user: AppUser) {
+  const overrides = getMedicineNameOverrides(user);
+
+  return medicines.map((medicine) => ({
+    ...medicine,
+    name: overrides[medicine.id] || medicine.name,
+  }));
+}
+
+function saveMedicineNameOverride(user: AppUser, medicineId: string, name: string) {
+  const overrides = {
+    ...getMedicineNameOverrides(user),
+    [medicineId]: name,
+  };
+
+  localStorage.setItem(getMedicineNameOverridesKey(user), JSON.stringify(overrides));
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
@@ -46,35 +94,125 @@ export default function App() {
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const isCheckingInRef = useRef(false);
   const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
+  const takenMedicineIdsRef = useRef<string[]>([]);
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const hasLoadedMedicinesRef = useRef(false);
   const [activeMedicineReminderId, setActiveMedicineReminderId] = useState<string | null>(null);
+  const activeMedicineReminderIdRef = useRef<string | null>(null);
   const [snoozedMedicineUntil, setSnoozedMedicineUntil] = useState<Record<string, number>>({});
+  const snoozedMedicineUntilRef = useRef<Record<string, number>>({});
 
   const activeMedicineReminder = useMemo(() => {
     return medicines.find((medicine) => medicine.id === activeMedicineReminderId) || null;
   }, [activeMedicineReminderId]);
 
   const markMedicineTaken = (medicineId: string) => {
-    setTakenMedicineIds((current) => (current.includes(medicineId) ? current : [...current, medicineId]));
+    if (!takenMedicineIdsRef.current.includes(medicineId)) {
+      takenMedicineIdsRef.current = [...takenMedicineIdsRef.current, medicineId];
+    }
+    activeMedicineReminderIdRef.current = null;
+    setTakenMedicineIds(takenMedicineIdsRef.current);
     setSnoozedMedicineUntil((current) => {
       const next = { ...current };
       delete next[medicineId];
+      snoozedMedicineUntilRef.current = next;
       return next;
     });
     setActiveMedicineReminderId(null);
   };
 
   const snoozeMedicineReminder = (medicineId: string) => {
+    const nextSnoozedMedicineUntil = {
+      ...snoozedMedicineUntilRef.current,
+      [medicineId]: getCurrentMinutes() + 5,
+    };
+
+    snoozedMedicineUntilRef.current = nextSnoozedMedicineUntil;
+    activeMedicineReminderIdRef.current = null;
     setSnoozedMedicineUntil((current) => ({
       ...current,
-      [medicineId]: getCurrentMinutes() + 5,
+      [medicineId]: nextSnoozedMedicineUntil[medicineId],
     }));
     setActiveMedicineReminderId(null);
   };
 
+  const handleSaveMedicine = async (medicine: Partial<Medicine> & { name: string }) => {
+    const user = getStoredUser();
+
+    if (!user) {
+      alert('Please log in again before editing medicines.');
+      setCurrentScreen('welcome');
+      return;
+    }
+
+    if (medicine.id && medicine.isExtra === false) {
+      saveMedicineNameOverride(user, medicine.id, medicine.name);
+      setMedicines((current) => current.map((item) => (
+        item.id === medicine.id ? { ...item, name: medicine.name } : item
+      )));
+      return;
+    }
+
+    const savedMedicine = await saveMedicine(user, medicine);
+    setMedicines((current) => {
+      const savedId = savedMedicine.id || medicine.id;
+      const updatedMedicine = {
+        ...savedMedicine,
+        id: savedId || savedMedicine.id,
+        name: medicine.name || savedMedicine.name,
+      };
+      const exists = current.some((item) => item.id === savedId);
+
+      if (exists) {
+        return current.map((item) => (item.id === savedId ? { ...item, ...updatedMedicine } : item));
+      }
+
+      return [...current, updatedMedicine];
+    });
+  };
+
+  const handleDeleteMedicine = async (medicineId: string) => {
+    const user = getStoredUser();
+
+    if (!user) {
+      alert('Please log in again before removing medicines.');
+      setCurrentScreen('welcome');
+      return;
+    }
+
+    await deleteMedicine(user, medicineId);
+    setMedicines((current) => current.filter((medicine) => medicine.id !== medicineId));
+  };
+
+  useEffect(() => {
+    const user = getStoredUser();
+
+    if (!user || user.role.trim().toLowerCase() === 'caregiver' || hasLoadedMedicinesRef.current) {
+      return;
+    }
+
+    let isMounted = true;
+
+    getMedicines(user)
+      .then((serviceNowMedicines) => {
+        if (isMounted && serviceNowMedicines.length > 0) {
+          hasLoadedMedicinesRef.current = true;
+          setMedicines(applyMedicineNameOverrides(serviceNowMedicines, user));
+        }
+      })
+      .catch((error) => {
+        console.error('Unable to load medicines:', error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentScreen]);
+
   useEffect(() => {
     const checkForDueMedicine = () => {
       if (
-        activeMedicineReminderId ||
+        activeMedicineReminderIdRef.current ||
         currentScreen !== 'medication'
       ) {
         return;
@@ -83,17 +221,18 @@ export default function App() {
       const currentMinutes = getCurrentMinutes();
       const dueMedicine = medicines.find((medicine) => {
         const medicineMinutes = getMinutesFromTimeLabel(medicine.time);
-        const snoozedUntil = snoozedMedicineUntil[medicine.id] ?? 0;
+        const snoozedUntil = snoozedMedicineUntilRef.current[medicine.id] ?? 0;
 
         return (
           medicineMinutes !== null &&
           currentMinutes >= medicineMinutes - MEDICINE_REMINDER_EARLY_MINUTES &&
           currentMinutes >= snoozedUntil &&
-          !takenMedicineIds.includes(medicine.id)
+          !takenMedicineIdsRef.current.includes(medicine.id)
         );
       });
 
       if (dueMedicine) {
+        activeMedicineReminderIdRef.current = dueMedicine.id;
         setActiveMedicineReminderId(dueMedicine.id);
       }
     };
@@ -102,7 +241,7 @@ export default function App() {
     const timer = window.setInterval(checkForDueMedicine, 30000);
 
     return () => window.clearInterval(timer);
-  }, [activeMedicineReminderId, currentScreen, snoozedMedicineUntil, takenMedicineIds]);
+  }, [currentScreen, medicines]);
 
   const handleSOSConfirm = async () => {
     if (isSendingSOS) {
@@ -176,17 +315,33 @@ export default function App() {
     setCurrentScreen(localStorage.getItem(LANGUAGE_STORAGE_KEY) ? 'home' : 'language');
   };
 
-  const handleLoginSuccess = (user: AppUser) => {
+  const handleLoginSuccess = async (user: AppUser) => {
     const role = user.role.trim().toLowerCase();
 
-    if (role === 'caregiver') {
+    if (role === 'caregiver' || role === 'nok') {
       setCurrentScreen('caregiverDashboard');
       return;
     }
 
     if (role === 'familymember' || role === 'family_member' || role === 'family') {
-      setCurrentScreen('carePortal');
+      setCurrentScreen('caregiverDashboard');
       return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        caregiverId: user.uid,
+        caregiverEmail: user.email,
+      });
+      const response = await fetch(`/api/servicenow/caregiver-seniors?${params.toString()}`);
+      const data = await response.json().catch(() => null);
+
+      if (response.ok && Array.isArray(data?.seniors) && data.seniors.length > 0) {
+        setCurrentScreen('caregiverDashboard');
+        return;
+      }
+    } catch (error) {
+      console.error('Unable to check linked seniors:', error);
     }
 
     goToSeniorHome();
@@ -221,7 +376,15 @@ export default function App() {
       case 'points':
         return <PointsScreen />;
       case 'medication':
-        return <MedicationScreen takenMedicineIds={takenMedicineIds} onMedicineTaken={markMedicineTaken} />;
+        return (
+          <MedicationScreen
+            medicines={medicines}
+            takenMedicineIds={takenMedicineIds}
+            onMedicineTaken={markMedicineTaken}
+            onSaveMedicine={handleSaveMedicine}
+            onDeleteMedicine={handleDeleteMedicine}
+          />
+        );
       case 'game':
         return <GameScreen />;
       case 'carePortal':

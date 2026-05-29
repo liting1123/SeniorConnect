@@ -13,6 +13,21 @@ type PointsResponse = {
   user?: BackendUser | null;
 };
 
+export type Medicine = {
+  id: string;
+  name: string;
+  dose: string;
+  time: string;
+  frequency: string;
+  status: string;
+  notes: string;
+  isExtra: boolean;
+};
+
+export type MedicineInput = Partial<Medicine> & {
+  name: string;
+};
+
 export type AppUser = {
   uid: string;
   email: string;
@@ -94,11 +109,25 @@ export function clearStoredUser() {
   window.dispatchEvent(new Event('careconnect-user-updated'));
 }
 
-export async function login(identifier: string, password: string) {
+export function updateStoredUserRole(role: string) {
+  const user = getStoredUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const updatedUser = { ...user, role };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
+  window.dispatchEvent(new Event('careconnect-user-updated'));
+
+  return updatedUser;
+}
+
+export async function login(identifier: string, password: string, loginType: 'care' | 'family' = 'care') {
   const response = await fetch('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identifier, password }),
+    body: JSON.stringify({ identifier, password, loginType }),
   });
   const data = await response.json().catch(() => null);
 
@@ -148,9 +177,57 @@ export async function registerCaregiver(email: string, password: string) {
   return user;
 }
 
+export async function registerFamilyMember(email: string, password: string) {
+  const response = await fetch('/api/register-family', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  const loginData = data as LoginResponse;
+  const user: AppUser = {
+    uid: loginData.user.id,
+    email: loginData.user.email || loginData.user.username || '',
+    displayName: loginData.user.name,
+    token: loginData.token,
+    role: loginData.user.role || 'Family',
+  };
+
+  localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  window.dispatchEvent(new Event('careconnect-user-updated'));
+
+  return user;
+}
+
 export async function getPoints(user: AppUser) {
   const data = await request<PointsResponse>(user, `/api/users/${user.uid}/points`);
   return Number(data.points) || 0;
+}
+
+export async function getMedicines(user: AppUser) {
+  const data = await request<{ medicines: Medicine[] }>(user, `/api/users/${user.uid}/medicines`);
+  return data.medicines || [];
+}
+
+export async function saveMedicine(user: AppUser, medicine: MedicineInput) {
+  const data = await request<{ medicine: Medicine }>(user, `/api/users/${user.uid}/medicines`, {
+    method: medicine.id ? 'PATCH' : 'POST',
+    body: JSON.stringify(medicine),
+  });
+
+  return data.medicine;
+}
+
+export async function deleteMedicine(user: AppUser, medicineId: string) {
+  await request<{ medicine: Pick<Medicine, 'id'> }>(user, `/api/users/${user.uid}/medicines`, {
+    method: 'DELETE',
+    body: JSON.stringify({ id: medicineId }),
+  });
 }
 
 export async function addCheckIn(user: AppUser) {

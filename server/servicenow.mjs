@@ -20,9 +20,9 @@ const FIELD_MAP = {
 };
 
 const CHECK_IN_TIME_ZONE = process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore';
-const CHECK_IN_WINDOWS = [
-  { id: 'morning', label: 'morning', startHour: 5, endHour: 9 },
-  { id: 'evening', label: 'evening', startHour: 16, endHour: 18 },
+const DEFAULT_CHECK_IN_WINDOWS = [
+  { id: 'morning', label: 'morning', startTime: '05:00', endTime: '09:00' },
+  { id: 'evening', label: 'evening', startTime: '16:00', endTime: '18:00' },
 ];
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
@@ -168,14 +168,52 @@ function getSingaporeParts(value = new Date()) {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
+    minute: '2-digit',
     hour12: false,
   }).formatToParts(date);
   const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const hour = Number(partMap.hour);
+  const minute = Number(partMap.minute);
 
   return {
     dateKey: `${partMap.year}-${partMap.month}-${partMap.day}`,
-    hour: Number(partMap.hour),
+    minuteOfDay: hour * 60 + minute,
   };
+}
+
+function parseCheckInTime(value, fallback) {
+  const time = String(value || fallback).trim();
+  const match = time.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+
+  if (!match) {
+    return parseCheckInTime(fallback, '00:00');
+  }
+
+  return {
+    label: `${match[1].padStart(2, '0')}:${match[2]}`,
+    minuteOfDay: Number(match[1]) * 60 + Number(match[2]),
+  };
+}
+
+function formatCheckInTime(time, isEnd = false) {
+  const minuteOfDay = isEnd ? time.minuteOfDay - 1 : time.minuteOfDay;
+  const normalizedMinute = ((minuteOfDay % 1440) + 1440) % 1440;
+  const hour24 = Math.floor(normalizedMinute / 60);
+  const minute = normalizedMinute % 60;
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+
+  return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
+}
+
+function getCheckInWindows() {
+  return DEFAULT_CHECK_IN_WINDOWS.map((window) => {
+    const envPrefix = `CHECK_IN_${window.id.toUpperCase()}`;
+    const start = parseCheckInTime(process.env[`${envPrefix}_START`], window.startTime);
+    const end = parseCheckInTime(process.env[`${envPrefix}_END`], window.endTime);
+
+    return { ...window, start, end };
+  });
 }
 
 function getCheckInWindow(value = new Date()) {
@@ -185,15 +223,19 @@ function getCheckInWindow(value = new Date()) {
     return null;
   }
 
-  const window = CHECK_IN_WINDOWS.find(({ startHour, endHour }) => {
-    return parts.hour >= startHour && parts.hour < endHour;
+  const window = getCheckInWindows().find(({ start, end }) => {
+    return parts.minuteOfDay >= start.minuteOfDay && parts.minuteOfDay < end.minuteOfDay;
   });
 
   return window ? { ...window, dateKey: parts.dateKey } : null;
 }
 
 function getWindowSummary() {
-  return 'Morning check-in is 5:00 AM-8:59 AM. Evening check-in is 4:00 PM-5:59 PM.';
+  return getCheckInWindows()
+    .map((window) => {
+      return `${window.label[0].toUpperCase()}${window.label.slice(1)} check-in is ${formatCheckInTime(window.start)}-${formatCheckInTime(window.end, true)}.`;
+    })
+    .join(' ');
 }
 
 function getSingaporeDateKey(value = new Date()) {
@@ -304,7 +346,7 @@ export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 })
     method: 'PATCH',
     body: JSON.stringify({
       [FIELD_MAP.points]: String(nextPoints),
-      [FIELD_MAP.lastCheckInAt]: new Date().toISOString(),
+      [FIELD_MAP.lastCheckInAt]: getServiceNowDateTime(),
     }),
   });
 

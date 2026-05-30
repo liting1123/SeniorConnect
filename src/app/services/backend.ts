@@ -3,6 +3,8 @@ type BackendUser = {
   userId: string;
   email: string;
   name: string;
+  phone?: string;
+  locationZones?: string;
   points: number;
   lastCheckInAt: string | null;
   gameRewardDate?: string | null;
@@ -10,6 +12,10 @@ type BackendUser = {
 
 type PointsResponse = {
   points: number;
+  user?: BackendUser | null;
+};
+
+type UserProfileResponse = {
   user?: BackendUser | null;
 };
 
@@ -207,6 +213,11 @@ export async function registerFamilyMember(email: string, password: string) {
 export async function getPoints(user: AppUser) {
   const data = await request<PointsResponse>(user, `/api/users/${user.uid}/points`);
   return Number(data.points) || 0;
+}
+
+export async function getSeniorProfile(user: AppUser) {
+  const data = await request<UserProfileResponse>(user, `/api/users/${user.uid}/profile`);
+  return data.user || null;
 }
 
 export async function getMedicines(user: AppUser) {

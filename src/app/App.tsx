@@ -20,6 +20,7 @@ import {
   clearStoredUser,
   deleteMedicine,
   getMedicines,
+  getSeniorProfile,
   getStoredUser,
   getUserStorageIdentity,
   saveMedicine,
@@ -28,6 +29,7 @@ import {
 import { createSosAlert } from './services/serviceNow';
 
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
+type LanguageReturnScreen = 'home' | 'caregiverDashboard';
 const MEDICINE_REMINDER_EARLY_MINUTES = 5;
 
 function getSavedPersonalInfo() {
@@ -89,6 +91,7 @@ function saveMedicineNameOverride(user: AppUser, medicineId: string, name: strin
 export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
+  const [languageReturnScreen, setLanguageReturnScreen] = useState<LanguageReturnScreen>('home');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
   const [isSendingSOS, setIsSendingSOS] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
@@ -253,12 +256,19 @@ export default function App() {
     try {
       const user = getStoredUser();
       const personalInfo = getSavedPersonalInfo();
+      const seniorProfile = user ? await getSeniorProfile(user).catch((error) => {
+        console.error('Unable to load senior profile for SOS:', error);
+        return null;
+      }) : null;
+      const seniorName = seniorProfile?.name || user?.displayName || user?.email?.split('@')[0] || 'Senior';
+      const seniorPhone = seniorProfile?.phone || personalInfo.phone || '';
+      const location = seniorProfile?.locationZones || personalInfo.address || 'Unknown location';
 
       await createSosAlert({
-        location: personalInfo.address || 'Block 123 Woodlands',
+        location,
         message: 'SOS alert triggered',
-        seniorName: user?.displayName || 'Tan HA HA',
-        seniorPhone: personalInfo.phone || '91234567',
+        seniorName,
+        seniorPhone,
         status: 'New',
       });
 
@@ -312,7 +322,18 @@ export default function App() {
   };
 
   const goToSeniorHome = () => {
-    setCurrentScreen(localStorage.getItem(LANGUAGE_STORAGE_KEY) ? 'home' : 'language');
+    if (localStorage.getItem(LANGUAGE_STORAGE_KEY)) {
+      setCurrentScreen('home');
+      return;
+    }
+
+    setLanguageReturnScreen('home');
+    setCurrentScreen('language');
+  };
+
+  const openLanguageSelection = (returnScreen: LanguageReturnScreen) => {
+    setLanguageReturnScreen(returnScreen);
+    setCurrentScreen('language');
   };
 
   const handleLoginSuccess = async (user: AppUser) => {
@@ -357,7 +378,7 @@ export default function App() {
           />
         );
       case 'language':
-        return <LanguageSelectionScreen onContinue={() => setCurrentScreen('home')} />;
+        return <LanguageSelectionScreen onContinue={() => setCurrentScreen(languageReturnScreen)} />;
       case 'home':
         return (
           <HomePage
@@ -369,7 +390,7 @@ export default function App() {
       case 'profile':
         return (
           <ProfileScreen
-            onChangeLanguage={() => setCurrentScreen('language')}
+            onChangeLanguage={() => openLanguageSelection('home')}
             onLogout={handleLogout}
           />
         );
@@ -398,7 +419,7 @@ export default function App() {
         return (
           <CaregiverDashboardScreen
             onBack={() => setCurrentScreen('carePortal')}
-            onChangeLanguage={() => setCurrentScreen('language')}
+            onChangeLanguage={() => openLanguageSelection('caregiverDashboard')}
             onLogout={handleLogout}
           />
         );

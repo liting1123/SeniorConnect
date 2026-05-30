@@ -89,34 +89,20 @@ export default function SOSConfirmationScreen({ onConfirm, onCancel }: SOSConfir
               <div className="content-stretch flex flex-col gap-[16px] items-start max-w-[384px] relative shrink-0 w-full">
                 <button
                   onClick={onConfirm}
-                  className="bg-[#ba1a1a] content-stretch drop-shadow-[0px_8px_10px_rgba(186,26,26,0.15)] flex gap-[7.99px] items-center justify-center min-h-[56px] pb-[16px] pt-[15.5px] relative rounded-[9999px] shrink-0 w-full active:scale-95 transition-transform"
+                  className="bg-[#ba1a1a] content-stretch drop-shadow-[0px_8px_10px_rgba(186,26,26,0.15)] flex items-center justify-center min-h-[76px] relative rounded-[9999px] shrink-0 w-full active:scale-95 transition-transform"
                 >
-                  <div className="h-[16px] relative shrink-0 w-[19px]">
-                    <svg className="absolute block inset-0 size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 19 16">
-                      <g id="Container">
-                        <path d={svgPaths.p8d35f80} fill="white" id="Icon" />
-                      </g>
-                    </svg>
-                  </div>
-                  <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[20px] text-center text-white tracking-[0.4px] whitespace-nowrap">
-                    <p className="leading-[24px]">{t('SOS')}</p>
+                  <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[30px] text-center text-white tracking-[0.4px] whitespace-nowrap">
+                    <p className="leading-[36px]">YES</p>
                   </div>
                 </button>
 
                 <button
                   onClick={onCancel}
-                  className="bg-[#fbf9f8] content-stretch flex gap-[8px] items-center justify-center min-h-[56px] pb-[16px] pt-[15.5px] px-[2px] relative rounded-[9999px] shrink-0 w-full active:scale-95 transition-transform"
+                  className="bg-[#fbf9f8] content-stretch flex items-center justify-center min-h-[76px] px-[2px] relative rounded-[9999px] shrink-0 w-full active:scale-95 transition-transform"
                 >
                   <div aria-hidden="true" className="absolute border-2 border-[#c1c9bf] border-solid inset-0 pointer-events-none rounded-[9999px]" />
-                  <div className="relative shrink-0 size-[20px]">
-                    <svg className="absolute block inset-0 size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 20 20">
-                      <g id="Container">
-                        <path d={svgPaths.p28843fc0} fill="#1B1C1C" id="Icon" />
-                      </g>
-                    </svg>
-                  </div>
-                  <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[20px] text-center tracking-[0.4px] whitespace-nowrap">
-                    <p className="leading-[24px]">{t('cancelSOS')}</p>
+                  <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[30px] text-center tracking-[0.4px] whitespace-nowrap">
+                    <p className="leading-[36px]">NO</p>
                   </div>
                 </button>
               </div>

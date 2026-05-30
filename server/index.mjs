@@ -15,6 +15,7 @@ import {
   registerWithServiceNow,
   saveMedicineForUser,
   searchSeniorProfiles,
+  updateSosAlertStatus,
   upsertUserProfile,
 } from './servicenow.mjs';
 
@@ -119,6 +120,17 @@ export async function handleRequest(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/servicenow/sos-alert' && request.method === 'PATCH') {
+    const body = await readJson(request);
+    const alert = await updateSosAlertStatus({
+      alertId: body.alertId,
+      status: body.status,
+    });
+
+    sendJson(response, 200, { alert });
+    return;
+  }
+
   if (url.pathname === '/api/servicenow/connect-senior' && request.method === 'POST') {
     const body = await readJson(request);
     const connection = await createCaregiverConnection({
@@ -173,6 +185,12 @@ export async function handleRequest(request, response) {
   if (request.method === 'GET' && route.action === 'points') {
     const user = await getUserById(route.uid);
     sendJson(response, 200, { points: user?.points || 0, user });
+    return;
+  }
+
+  if (request.method === 'GET' && route.action === 'profile') {
+    const user = await getUserById(route.uid);
+    sendJson(response, 200, { user });
     return;
   }
 

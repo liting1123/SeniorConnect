@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getStoredUser } from '../services/backend';
+import { updateSosAlertStatus } from '../services/serviceNow';
 
 const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
 const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
@@ -35,6 +36,10 @@ type Senior = {
   location?: string;
   relationship?: string;
   status?: string;
+  alertId?: string;
+  alertMessage?: string;
+  alertStatus?: string;
+  alertTime?: string;
 };
 
 export default function CaregiverDashboardScreen({
@@ -54,6 +59,29 @@ export default function CaregiverDashboardScreen({
   const [seniors, setSeniors] = useState<Senior[]>([]);
   const [isLoadingSeniors, setIsLoadingSeniors] = useState(false);
   const [seniorError, setSeniorError] = useState('');
+  const [resolvedAlertIds, setResolvedAlertIds] = useState<string[]>([]);
+  const [resolvingAlertIds, setResolvingAlertIds] = useState<string[]>([]);
+  const resolveAlert = async (seniorId: string) => {
+    const senior = seniors.find((item) => item.id === seniorId);
+
+    if (senior?.alertId && !resolvingAlertIds.includes(senior.alertId)) {
+      setResolvingAlertIds((current) => [...current, senior.alertId as string]);
+
+      try {
+        await updateSosAlertStatus(senior.alertId, 'Resolved');
+      } catch (error) {
+        console.error('Unable to resolve SOS alert:', error);
+        alert(error instanceof Error ? error.message : 'Unable to resolve SOS alert.');
+        return;
+      } finally {
+        setResolvingAlertIds((current) => current.filter((id) => id !== senior.alertId));
+      }
+    }
+
+    setResolvedAlertIds((current) => (
+      current.includes(seniorId) ? current : [...current, seniorId]
+    ));
+  };
 
   useEffect(() => {
     if (!caregiverEmail) {
@@ -101,7 +129,9 @@ export default function CaregiverDashboardScreen({
     };
   }, [caregiverEmail, caregiverId]);
 
-  const alertCount = seniors.filter((senior) => isAlertStatus(senior.status)).length;
+  const alertCount = seniors.filter((senior) => (
+    isAlertStatus(senior.status) && !resolvedAlertIds.includes(senior.id)
+  )).length;
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f6f8] pb-24 text-[#101418]">
@@ -138,9 +168,19 @@ export default function CaregiverDashboardScreen({
             seniors={seniors}
             isLoading={isLoadingSeniors}
             error={seniorError}
+            resolvedAlertIds={resolvedAlertIds}
+            resolvingAlertIds={resolvingAlertIds}
+            onResolveAlert={resolveAlert}
           />
         )}
-        {activeTab === 'alerts' && <CaregiverAlerts seniors={seniors} />}
+        {activeTab === 'alerts' && (
+          <CaregiverAlerts
+            seniors={seniors}
+            resolvedAlertIds={resolvedAlertIds}
+            resolvingAlertIds={resolvingAlertIds}
+            onResolveAlert={resolveAlert}
+          />
+        )}
         {activeTab === 'profile' && (
           <CaregiverProfile
             caregiverName={caregiverName}
@@ -204,19 +244,44 @@ function getTimeGreeting() {
   return 'Good Evening';
 }
 
+function formatAlertTime(value = '') {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value.replace(' ', 'T'));
+
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  return new Intl.DateTimeFormat('en-SG', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Asia/Singapore',
+  }).format(date);
+}
+
 function CaregiverDashboardHome({
   caregiverName,
   seniors,
   isLoading,
   error,
+  resolvedAlertIds,
+  resolvingAlertIds,
+  onResolveAlert,
 }: {
   caregiverName: string;
   seniors: Senior[];
   isLoading: boolean;
   error: string;
+  resolvedAlertIds: string[];
+  resolvingAlertIds: string[];
+  onResolveAlert: (seniorId: string) => void | Promise<void>;
 }) {
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status));
-  const alertSenior = alertSeniors[0];
+  const activeAlertSeniors = alertSeniors.filter((senior) => !resolvedAlertIds.includes(senior.id));
+  const alertSenior = activeAlertSeniors[0];
   const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status));
   const featuredSeniors = [...alertSeniors, ...stableSeniors];
   const recentAlertTitle = alertSenior
@@ -235,9 +300,15 @@ function CaregiverDashboardHome({
           </div>
           <button
             type="button"
-            className="flex h-9 flex-shrink-0 items-center justify-center rounded-full bg-white px-4 text-base font-bold uppercase text-[#c8171d] shadow-sm active:scale-95"
+            onClick={() => {
+              if (alertSenior) {
+                onResolveAlert(alertSenior.id);
+              }
+            }}
+            disabled={!alertSenior || (alertSenior.alertId ? resolvingAlertIds.includes(alertSenior.alertId) : false)}
+            className="flex h-9 flex-shrink-0 items-center justify-center rounded-full bg-white px-4 text-base font-bold uppercase text-[#c8171d] shadow-sm active:scale-95 disabled:opacity-60"
           >
-            Acknowledge
+            {alertSenior?.alertId && resolvingAlertIds.includes(alertSenior.alertId) ? 'Resolving' : 'Acknowledge'}
           </button>
         </div>
       </section>
@@ -263,7 +334,7 @@ function CaregiverDashboardHome({
               name={senior.name}
               status={getSeniorStatus(senior)}
               location={senior.location || 'Unknown'}
-              tone={isAlertStatus(senior.status) ? 'alert' : 'good'}
+              tone={resolvedAlertIds.includes(senior.id) ? 'resolved' : isAlertStatus(senior.status) ? 'alert' : 'good'}
             />
           ))
         ) : (
@@ -306,7 +377,17 @@ function CaregiverDashboardHome({
   );
 }
 
-function CaregiverAlerts({ seniors }: { seniors: Senior[] }) {
+function CaregiverAlerts({
+  seniors,
+  resolvedAlertIds,
+  resolvingAlertIds,
+  onResolveAlert,
+}: {
+  seniors: Senior[];
+  resolvedAlertIds: string[];
+  resolvingAlertIds: string[];
+  onResolveAlert: (seniorId: string) => void | Promise<void>;
+}) {
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status));
 
   return (
@@ -335,6 +416,12 @@ function CaregiverAlerts({ seniors }: { seniors: Senior[] }) {
               kind={/sos|urgent/i.test(senior.status || '') ? 'sos' : 'missed'}
               title={senior.name}
               label={senior.status || 'Needs Attention'}
+              location={senior.location}
+              message={senior.alertMessage}
+              time={formatAlertTime(senior.alertTime)}
+              isResolved={resolvedAlertIds.includes(senior.id)}
+              isResolving={senior.alertId ? resolvingAlertIds.includes(senior.alertId) : false}
+              onResolve={() => onResolveAlert(senior.id)}
               icon={/sos|urgent/i.test(senior.status || '') ? <ShieldAlert className="h-8 w-8" /> : <Bell className="h-8 w-8" />}
             />
           ))
@@ -364,33 +451,54 @@ function AlertCard({
   kind,
   title,
   label,
+  location,
+  message,
   time,
+  isResolved,
+  isResolving,
+  onResolve,
   icon,
 }: {
   kind: 'sos' | 'missed';
   title: string;
   label: string;
+  location?: string;
+  message?: string;
   time?: string;
+  isResolved: boolean;
+  isResolving: boolean;
+  onResolve: () => void | Promise<void>;
   icon: React.ReactNode;
 }) {
   const isSos = kind === 'sos';
+  const cardClassName = isResolved
+    ? 'border-[#18833b] bg-[#e9f8ed] text-[#12351f]'
+    : isSos
+      ? 'border-[#831318] bg-[#a42d2d] text-[#ffc1bc]'
+      : 'border-[#954a00] bg-[#ffdcc6] text-[#301400]';
+  const iconClassName = isResolved
+    ? 'bg-[#18833b] text-white'
+    : isSos
+      ? 'bg-[#831318] text-white'
+      : 'bg-[#954a00] text-white';
+  const labelClassName = isResolved
+    ? 'text-[#18833b]'
+    : isSos
+      ? 'text-[#ffc1bc]'
+      : 'text-[#713700]';
 
   return (
     <div
-      className={`rounded-[28px] border-l-8 p-5 shadow-sm min-[390px]:rounded-[32px] ${
-        isSos
-          ? 'border-[#831318] bg-[#a42d2d] text-[#ffc1bc]'
-          : 'border-[#954a00] bg-[#ffdcc6] text-[#301400]'
-      }`}
+      className={`rounded-[28px] border-l-8 p-5 shadow-sm min-[390px]:rounded-[32px] ${cardClassName}`}
     >
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className={`flex h-12 w-12 items-center justify-center rounded-full ${isSos ? 'bg-[#831318] text-white' : 'bg-[#954a00] text-white'}`}>
-            {icon}
+          <div className={`flex h-12 w-12 items-center justify-center rounded-full ${iconClassName}`}>
+            {isResolved ? <CheckCircle className="h-8 w-8" /> : icon}
           </div>
           <div>
-            <p className={`text-sm font-bold uppercase tracking-wide ${isSos ? 'text-[#ffc1bc]' : 'text-[#713700]'}`}>
-              {label}
+            <p className={`text-sm font-bold uppercase tracking-wide ${labelClassName}`}>
+              {isResolved ? 'Resolved' : label}
             </p>
             <h2 className="text-2xl font-bold text-current">{title}</h2>
           </div>
@@ -398,10 +506,12 @@ function AlertCard({
         {time && <span className="rounded-full bg-white/15 px-3 py-1 text-sm font-bold text-current">{time}</span>}
       </div>
 
-      {isSos ? (
-        <div className="mb-5 flex items-center gap-2 rounded-2xl bg-white/10 p-3">
-          <MapPin className="h-5 w-5 flex-shrink-0 text-[#ffdad7]" />
-          <span className="text-base font-semibold text-[#ffdad7]">Location details from alert record</span>
+      {isSos || isResolved ? (
+        <div className={`mb-5 flex items-center gap-2 rounded-2xl p-3 ${isResolved ? 'bg-white text-[#18833b]' : 'bg-white/10'}`}>
+          <MapPin className={`h-5 w-5 flex-shrink-0 ${isResolved ? 'text-[#18833b]' : 'text-[#ffdad7]'}`} />
+          <span className={`text-base font-semibold ${isResolved ? 'text-[#18833b]' : 'text-[#ffdad7]'}`}>
+            {isResolved ? 'This alert has been resolved.' : location || message || 'Location details unavailable'}
+          </span>
         </div>
       ) : (
         <div className="mb-5 flex items-center gap-2">
@@ -412,30 +522,47 @@ function AlertCard({
 
       <div className="grid grid-cols-2 gap-3">
         <AlertActionButton icon={<Phone className="h-5 w-5" />} label="Call" variant={isSos ? 'light' : 'warning'} />
-        <AlertActionButton icon={<CheckCircle className="h-5 w-5" />} label="Resolve" variant={isSos ? 'danger' : 'light'} />
+        <AlertActionButton
+          icon={<CheckCircle className="h-5 w-5" />}
+          label={isResolving ? 'Resolving...' : isResolved ? 'Resolved' : 'Resolve'}
+          variant={isResolved ? 'success' : isSos ? 'danger' : 'light'}
+          disabled={isResolving || isResolved}
+          onClick={onResolve}
+        />
       </div>
     </div>
   );
 }
 
 function AlertActionButton({
+  disabled = false,
   icon,
   label,
+  onClick,
   variant,
 }: {
+  disabled?: boolean;
   icon: React.ReactNode;
   label: string;
-  variant: 'light' | 'danger' | 'warning';
+  onClick?: () => void;
+  variant: 'light' | 'danger' | 'warning' | 'success';
 }) {
   const className =
-    variant === 'danger'
+    variant === 'success'
+      ? 'bg-[#18833b] text-white'
+      : variant === 'danger'
       ? 'bg-[#831318] text-white'
       : variant === 'warning'
         ? 'bg-[#954a00] text-white'
         : 'bg-white text-[#831318]';
 
   return (
-    <button type="button" className={`flex h-14 items-center justify-center gap-2 rounded-full text-base font-bold shadow-sm transition-transform active:scale-95 ${className}`}>
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex h-14 items-center justify-center gap-2 rounded-full text-base font-bold shadow-sm transition-transform active:scale-95 disabled:opacity-70 disabled:active:scale-100 ${className}`}
+    >
       {icon}
       <span>{label}</span>
     </button>
@@ -729,14 +856,36 @@ function SeniorCard({
   name: string;
   status: string;
   location: string;
-  tone: 'good' | 'alert';
+  tone: 'good' | 'alert' | 'resolved';
 }) {
   const isAlert = tone === 'alert';
+  const isResolved = tone === 'resolved';
+  const borderClassName = isResolved
+    ? 'border-2 border-[#18833b]'
+    : isAlert
+      ? 'border-2 border-[#c8171d]'
+      : 'border-[#d0d3d8]';
+  const avatarClassName = isResolved
+    ? 'bg-[#18833b] text-white'
+    : isAlert
+      ? 'bg-[#14353d] text-white'
+      : 'bg-[#dcecef] text-[#17353d]';
+  const statusTextClassName = isResolved
+    ? 'text-[#18833b]'
+    : isAlert
+      ? 'text-[#c8171d]'
+      : 'text-[#30343a]';
+  const badgeClassName = isResolved
+    ? 'bg-[#dff5e6] text-[#18833b]'
+    : isAlert
+      ? 'bg-[#ffdada] text-[#a90000]'
+      : 'bg-[#e2e5e9] text-[#30343a]';
+  const tileIconColor = isResolved ? 'text-[#18833b]' : isAlert ? 'text-[#c8171d]' : 'text-[#12b962]';
 
   return (
-    <div className={`rounded-[18px] border bg-white p-5 shadow-sm ${isAlert ? 'border-2 border-[#c8171d]' : 'border-[#d0d3d8]'}`}>
+    <div className={`rounded-[18px] border bg-white p-5 shadow-sm ${borderClassName}`}>
       <div className="flex items-start gap-4">
-        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${isAlert ? 'bg-[#14353d] text-white' : 'bg-[#dcecef] text-[#17353d]'}`}>
+        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${avatarClassName}`}>
           {getInitials(name)}
         </div>
 
@@ -744,17 +893,19 @@ function SeniorCard({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="truncate text-[28px] font-bold leading-8 text-black">{name}</h3>
-              <p className={`mt-3 flex items-center gap-2 text-lg font-bold ${isAlert ? 'text-[#c8171d]' : 'text-[#30343a]'}`}>
-                {isAlert ? (
+              <p className={`mt-3 flex items-center gap-2 text-lg font-bold ${statusTextClassName}`}>
+                {isResolved ? (
+                  <CheckCircle className="h-5 w-5 flex-shrink-0 text-[#18833b]" />
+                ) : isAlert ? (
                   <TriangleAlert className="h-5 w-5 flex-shrink-0" />
                 ) : (
                   <CheckCircle className="h-5 w-5 flex-shrink-0 text-[#12c759]" />
                 )}
-                <span className="truncate">{isAlert ? 'No check-in today' : 'Checked in today'}</span>
+                <span className="truncate">{isResolved ? 'Resolved' : isAlert ? 'No check-in today' : 'Checked in today'}</span>
               </p>
             </div>
-            <span className={`shrink-0 rounded-[12px] px-3 py-2 text-base font-bold uppercase ${isAlert ? 'bg-[#ffdada] text-[#a90000]' : 'bg-[#e2e5e9] text-[#30343a]'}`}>
-              {isAlert ? 'SOS Active' : status || 'Stable'}
+            <span className={`shrink-0 rounded-[12px] px-3 py-2 text-base font-bold uppercase ${badgeClassName}`}>
+              {isResolved ? 'Resolved' : isAlert ? 'SOS Active' : status || 'Stable'}
             </span>
           </div>
         </div>
@@ -763,9 +914,9 @@ function SeniorCard({
       <div className="mt-4 grid grid-cols-2 gap-3">
         <ResidentInfoTile
           icon={<Pill className="h-8 w-8" />}
-          iconColor={isAlert ? 'text-[#c8171d]' : 'text-[#12b962]'}
+          iconColor={tileIconColor}
           label="Medication"
-          value={isAlert ? 'Missed' : 'Taken'}
+          value={isResolved ? 'Resolved' : isAlert ? 'Missed' : 'Taken'}
         />
         <ResidentInfoTile
           icon={<MapPin className="h-8 w-8" />}
@@ -778,10 +929,10 @@ function SeniorCard({
       <div className="mt-5 grid grid-cols-[1fr_128px] gap-3">
         <button
           type="button"
-          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${isAlert ? 'border-[#075fc7] bg-[#075fc7] text-white' : 'border-[#075fc7] bg-white text-[#075fc7]'}`}
+          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${isAlert ? 'border-[#075fc7] bg-[#075fc7] text-white' : isResolved ? 'border-[#18833b] bg-[#18833b] text-white' : 'border-[#075fc7] bg-white text-[#075fc7]'}`}
         >
           <Phone className="h-6 w-6" />
-          {isAlert ? 'Call Emergency' : 'Call'}
+          {isAlert ? 'Call Emergency' : isResolved ? 'Resolved' : 'Call'}
         </button>
         <button
           type="button"

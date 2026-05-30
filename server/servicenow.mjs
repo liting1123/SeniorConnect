@@ -21,9 +21,9 @@ const FIELD_MAP = {
 };
 
 const CHECK_IN_TIME_ZONE = process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore';
-const DEFAULT_CHECK_IN_WINDOWS = [
-  { id: 'morning', label: 'morning', startTime: '05:00', endTime: '09:00' },
-  { id: 'evening', label: 'evening', startTime: '16:00', endTime: '18:00' },
+const CHECK_IN_WINDOWS = [
+  { id: 'morning', label: 'morning', startHour: 5, endHour: 9 },
+  { id: 'evening', label: 'evening', startHour: 16, endHour: 18 },
 ];
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
@@ -163,6 +163,7 @@ function toUserRecord(record = {}) {
     email: record[FIELD_MAP.email] || '',
     name: record[FIELD_MAP.name] || '',
     phone: record[FIELD_MAP.phone] || '',
+    locationZones: record[FIELD_MAP.locationZones] || '',
     points: Number(record[FIELD_MAP.points]) || 0,
     lastCheckInAt: record[FIELD_MAP.lastCheckInAt] || null,
     gameRewardDate: record[FIELD_MAP.gameRewardDate] || null,
@@ -182,52 +183,14 @@ function getSingaporeParts(value = new Date()) {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
-    minute: '2-digit',
     hour12: false,
   }).formatToParts(date);
   const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const hour = Number(partMap.hour);
-  const minute = Number(partMap.minute);
 
   return {
     dateKey: `${partMap.year}-${partMap.month}-${partMap.day}`,
-    minuteOfDay: hour * 60 + minute,
+    hour: Number(partMap.hour),
   };
-}
-
-function parseCheckInTime(value, fallback) {
-  const time = String(value || fallback).trim();
-  const match = time.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
-
-  if (!match) {
-    return parseCheckInTime(fallback, '00:00');
-  }
-
-  return {
-    label: `${match[1].padStart(2, '0')}:${match[2]}`,
-    minuteOfDay: Number(match[1]) * 60 + Number(match[2]),
-  };
-}
-
-function formatCheckInTime(time, isEnd = false) {
-  const minuteOfDay = isEnd ? time.minuteOfDay - 1 : time.minuteOfDay;
-  const normalizedMinute = ((minuteOfDay % 1440) + 1440) % 1440;
-  const hour24 = Math.floor(normalizedMinute / 60);
-  const minute = normalizedMinute % 60;
-  const period = hour24 >= 12 ? 'PM' : 'AM';
-  const hour12 = hour24 % 12 || 12;
-
-  return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
-}
-
-function getCheckInWindows() {
-  return DEFAULT_CHECK_IN_WINDOWS.map((window) => {
-    const envPrefix = `CHECK_IN_${window.id.toUpperCase()}`;
-    const start = parseCheckInTime(process.env[`${envPrefix}_START`], window.startTime);
-    const end = parseCheckInTime(process.env[`${envPrefix}_END`], window.endTime);
-
-    return { ...window, start, end };
-  });
 }
 
 function getCheckInWindow(value = new Date()) {
@@ -237,19 +200,15 @@ function getCheckInWindow(value = new Date()) {
     return null;
   }
 
-  const window = getCheckInWindows().find(({ start, end }) => {
-    return parts.minuteOfDay >= start.minuteOfDay && parts.minuteOfDay < end.minuteOfDay;
+  const window = CHECK_IN_WINDOWS.find(({ startHour, endHour }) => {
+    return parts.hour >= startHour && parts.hour < endHour;
   });
 
   return window ? { ...window, dateKey: parts.dateKey } : null;
 }
 
 function getWindowSummary() {
-  return getCheckInWindows()
-    .map((window) => {
-      return `${window.label[0].toUpperCase()}${window.label.slice(1)} check-in is ${formatCheckInTime(window.start)}-${formatCheckInTime(window.end, true)}.`;
-    })
-    .join(' ');
+  return 'Morning check-in is 5:00 AM-8:59 AM. Evening check-in is 4:00 PM-5:59 PM.';
 }
 
 function getSingaporeDateKey(value = new Date()) {
@@ -360,7 +319,7 @@ export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 })
     method: 'PATCH',
     body: JSON.stringify({
       [FIELD_MAP.points]: String(nextPoints),
-      [FIELD_MAP.lastCheckInAt]: getServiceNowDateTime(),
+      [FIELD_MAP.lastCheckInAt]: new Date().toISOString(),
     }),
   });
 
@@ -428,21 +387,6 @@ async function updateLoginTimestamp(record) {
   return data?.result || record;
 }
 
-async function updateLoginRole(userId, role) {
-  if (!userId || !role) {
-    return null;
-  }
-
-  const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(userId)}`), {
-    method: 'PATCH',
-    body: JSON.stringify({
-      [LOGIN_FIELD_MAP.role]: role,
-    }),
-  });
-
-  return data?.result || null;
-}
-
 async function findSeniorLoginUser(normalizedIdentifier, rawPassword) {
   const query = `(${LOGIN_FIELD_MAP.email}=${normalizedIdentifier}^OR${LOGIN_FIELD_MAP.username}=${normalizedIdentifier})`;
   const params = new URLSearchParams({
@@ -487,47 +431,7 @@ async function findLoginRecordByIdentifier(normalizedIdentifier) {
   return data?.result?.[0] || null;
 }
 
-function normalizeRoleName(role) {
-  return String(role || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-async function hasSeniorConnections(userId) {
-  if (!userId) {
-    return false;
-  }
-
-  const params = new URLSearchParams({
-    sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.user}=${userId}`,
-    sysparm_limit: '1',
-  });
-  const data = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${params.toString()}`));
-
-  return Boolean(data?.result?.length);
-}
-
-async function validateLoginType(user, loginType) {
-  const requestedType = String(loginType || 'care').trim().toLowerCase();
-  const role = normalizeRoleName(user?.role);
-  const isFamilyRole =
-    role === 'family' ||
-    role === 'familymember' ||
-    role === 'nok' ||
-    role === 'nextofkin' ||
-    role === 'nextofkins';
-  const isLinkedToSenior = await hasSeniorConnections(user?.id);
-
-  if (requestedType === 'family' && !isFamilyRole && !isLinkedToSenior) {
-    throw Object.assign(new Error('Please use the Seniors & Caregivers login for this account.'), { status: 403 });
-  }
-
-  if (requestedType === 'care' && (isFamilyRole || isLinkedToSenior)) {
-    throw Object.assign(new Error('Please use the Family Members login for this account.'), { status: 403 });
-  }
-
-  return user;
-}
-
-export async function loginWithServiceNow({ identifier, email, password, loginType }) {
+export async function loginWithServiceNow({ identifier, email, password }) {
   const normalizedIdentifier = String(identifier || email || '').trim();
   const comparableIdentifier = normalizeLoginValue(normalizedIdentifier);
   const rawPassword = String(password || '');
@@ -539,7 +443,7 @@ export async function loginWithServiceNow({ identifier, email, password, loginTy
   const seniorUser = await findSeniorLoginUser(comparableIdentifier, rawPassword);
 
   if (seniorUser) {
-    return await validateLoginType(seniorUser, loginType);
+    return seniorUser;
   }
 
   throw Object.assign(
@@ -548,7 +452,7 @@ export async function loginWithServiceNow({ identifier, email, password, loginTy
   );
 }
 
-export async function registerWithServiceNow({ email, password, name, role = 'caregiver' }) {
+export async function registerWithServiceNow({ email, password, name }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const rawPassword = String(password || '');
 
@@ -563,16 +467,16 @@ export async function registerWithServiceNow({ email, password, name, role = 'ca
   const existingData = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${existingParams.toString()}`));
 
   if (existingData?.result?.length) {
-    throw Object.assign(new Error('This email is already registered.'), { status: 409 });
+    throw Object.assign(new Error('This caregiver email is already registered.'), { status: 409 });
   }
 
-  const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'User';
+  const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Caregiver';
   const payload = {
     [LOGIN_FIELD_MAP.username]: normalizedEmail,
     [LOGIN_FIELD_MAP.email]: normalizedEmail,
     [LOGIN_FIELD_MAP.password]: rawPassword,
     [LOGIN_FIELD_MAP.name]: displayName,
-    [LOGIN_FIELD_MAP.role]: role,
+    [LOGIN_FIELD_MAP.role]: 'caregiver',
     [LOGIN_FIELD_MAP.active]: true,
   };
 
@@ -582,10 +486,6 @@ export async function registerWithServiceNow({ email, password, name, role = 'ca
   });
 
   return toLoginUser(data?.result || {});
-}
-
-function getFamilyRoleFromRelationship(relationship = '') {
-  return /next-of-kin|nok/i.test(relationship) ? 'NOK' : 'Family';
 }
 
 export async function createSosAlert({ location, message, seniorName, seniorPhone, status }) {
@@ -600,6 +500,28 @@ export async function createSosAlert({ location, message, seniorName, seniorPhon
   const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE), {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+
+  return data?.result || data;
+}
+
+export async function updateSosAlertStatus({ alertId, status }) {
+  const normalizedAlertId = String(alertId || '').trim();
+  const normalizedStatus = String(status || '').trim();
+
+  if (!normalizedAlertId) {
+    throw Object.assign(new Error('SOS alert ID is required.'), { status: 400 });
+  }
+
+  if (!normalizedStatus) {
+    throw Object.assign(new Error('SOS alert status is required.'), { status: 400 });
+  }
+
+  const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE, `/${encodeURIComponent(normalizedAlertId)}`), {
+    method: 'PATCH',
+    body: JSON.stringify({
+      [SOS_ALERT_FIELD_MAP.status]: normalizedStatus,
+    }),
   });
 
   return data?.result || data;
@@ -704,7 +626,7 @@ function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser
       seniorUser[LOGIN_FIELD_MAP.username] ||
       seniorUser[LOGIN_FIELD_MAP.email]?.split('@')[0] ||
       'Senior',
-    phone: seniorProfile[FIELD_MAP.phone] || seniorUser.u_phone || '',
+    phone: seniorProfile.u_phone || seniorUser.u_phone || '',
     email: seniorProfile[FIELD_MAP.email] || seniorUser[LOGIN_FIELD_MAP.email] || '',
     location: seniorProfile[FIELD_MAP.locationZones] || '',
     caregiverName: '',
@@ -726,36 +648,49 @@ function getDisplayValue(value) {
   return String(value);
 }
 
-function toMedicineRecord(record = {}) {
-  const rawTime = getDisplayValue(record[MEDICINE_FIELD_MAP.time]);
-  const isExtraValue = record[MEDICINE_FIELD_MAP.isExtra];
+function toActiveSosAlert(record = {}) {
+  const status = getDisplayValue(record[SOS_ALERT_FIELD_MAP.status]) || 'New';
+
+  if (/resolved|closed|cancelled|canceled/i.test(status)) {
+    return null;
+  }
 
   return {
     id: record.sys_id,
-    name: getDisplayValue(record[MEDICINE_FIELD_MAP.name]),
-    dose: getDisplayValue(record[MEDICINE_FIELD_MAP.dose]),
-    time: formatMedicineTime(rawTime),
-    frequency: getDisplayValue(record[MEDICINE_FIELD_MAP.frequency]),
-    status: getDisplayValue(record[MEDICINE_FIELD_MAP.status]),
-    notes: getDisplayValue(record[MEDICINE_FIELD_MAP.notes]),
-    isExtra: String(isExtraValue || '').toLowerCase() === 'true' || isExtraValue === true,
+    location: getDisplayValue(record[SOS_ALERT_FIELD_MAP.location]),
+    message: getDisplayValue(record[SOS_ALERT_FIELD_MAP.message]),
+    status,
+    createdAt: record.sys_created_on || '',
   };
 }
 
-function formatMedicineTime(value) {
-  const time = String(value || '').trim();
-  const match = time.match(/(?:^|\s)([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?:\s|$)/);
+async function getLatestActiveSosAlertForSenior(senior = {}) {
+  const queryParts = [];
+  const seniorName = String(senior.name || '').trim();
+  const seniorPhone = String(senior.phone || '').trim();
 
-  if (!match || /am|pm/i.test(time)) {
-    return time;
+  if (seniorPhone) {
+    queryParts.push(`${SOS_ALERT_FIELD_MAP.seniorPhone}=${seniorPhone}`);
   }
 
-  const hour24 = Number(match[1]);
-  const minute = match[2];
-  const period = hour24 >= 12 ? 'PM' : 'AM';
-  const hour12 = hour24 % 12 || 12;
+  if (seniorName) {
+    queryParts.push(`${SOS_ALERT_FIELD_MAP.seniorName}=${seniorName}`);
+  }
 
-  return `${hour12}:${minute} ${period}`;
+  if (queryParts.length === 0) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: `${queryParts.join('^OR')}^ORDERBYDESCsys_created_on`,
+    sysparm_limit: '5',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE, `?${params.toString()}`));
+  const activeAlert = (data?.result || [])
+    .map(toActiveSosAlert)
+    .find(Boolean);
+
+  return activeAlert || null;
 }
 
 export async function createCaregiverConnection(data) {
@@ -763,14 +698,7 @@ export async function createCaregiverConnection(data) {
   const seniorIdentifier = normalizeLoginValue(data.seniorEmail || data.seniorUsername);
   const caregiverUser = data.caregiverId ? { sys_id: data.caregiverId } : await findLoginRecordByIdentifier(caregiverIdentifier);
   const seniorUser = data.seniorUserId ? { sys_id: data.seniorUserId } : await findLoginRecordByIdentifier(seniorIdentifier);
-  const seniorProfile = data.seniorId
-    ? { sys_id: data.seniorId }
-    : seniorUser?.sys_id
-      ? await findSeniorProfileByUserId(seniorUser.sys_id)
-      : await findSeniorProfileByNameOrPhone({
-          seniorName: data.seniorName,
-          seniorPhone: data.seniorPhone,
-        });
+  const seniorProfile = data.seniorId ? { sys_id: data.seniorId } : await findSeniorProfileByUserId(seniorUser?.sys_id);
 
   if (!caregiverUser?.sys_id) {
     throw Object.assign(new Error('Caregiver user was not found.'), { status: 404 });
@@ -780,18 +708,15 @@ export async function createCaregiverConnection(data) {
     throw Object.assign(new Error('Senior profile was not found.'), { status: 404 });
   }
 
-  const relationshipRole = getFamilyRoleFromRelationship(data.relationship);
   const response = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE), {
     method: 'POST',
     body: JSON.stringify({
       [CAREGIVER_CONNECTION_FIELD_MAP.user]: caregiverUser.sys_id,
       [CAREGIVER_CONNECTION_FIELD_MAP.senior]: seniorProfile.sys_id,
       [CAREGIVER_CONNECTION_FIELD_MAP.relationship]: data.relationship || '',
-      [CAREGIVER_CONNECTION_FIELD_MAP.isNok]: relationshipRole === 'NOK',
+      [CAREGIVER_CONNECTION_FIELD_MAP.isNok]: /next-of-kin|nok/i.test(data.relationship || ''),
     }),
   });
-
-  await updateLoginRole(caregiverUser.sys_id, relationshipRole);
 
   return response;
 }
@@ -825,8 +750,20 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
     const seniorProfile = seniorProfileData?.result || {};
     const seniorUserId = getReferenceValue(seniorProfile[FIELD_MAP.userId]);
     const seniorUser = seniorUserId ? await getLoginRecordById(seniorUserId) : null;
+    const senior = toCaregiverSeniorRecord(connection, seniorProfile, seniorUser || {});
+    const sosAlert = await getLatestActiveSosAlertForSenior(senior);
 
-    return toCaregiverSeniorRecord(connection, seniorProfile, seniorUser || {});
+    return sosAlert
+      ? {
+          ...senior,
+          status: 'SOS Active',
+          alertId: sosAlert.id,
+          location: sosAlert.location || senior.location,
+          alertMessage: sosAlert.message,
+          alertStatus: sosAlert.status,
+          alertTime: sosAlert.createdAt,
+        }
+      : senior;
   }));
 
   return seniors.filter((senior) => {
@@ -835,6 +772,38 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
 
     return matchesName && matchesPhone;
   });
+}
+
+function formatMedicineTime(value) {
+  const time = String(value || '').trim();
+  const match = time.match(/(?:^|\s)([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?:\s|$)/);
+
+  if (!match || /am|pm/i.test(time)) {
+    return time;
+  }
+
+  const hour24 = Number(match[1]);
+  const minute = match[2];
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+
+  return `${hour12}:${minute} ${period}`;
+}
+
+function toMedicineRecord(record = {}) {
+  const rawTime = getDisplayValue(record[MEDICINE_FIELD_MAP.time]);
+  const isExtraValue = record[MEDICINE_FIELD_MAP.isExtra];
+
+  return {
+    id: record.sys_id,
+    name: getDisplayValue(record[MEDICINE_FIELD_MAP.name]),
+    dose: getDisplayValue(record[MEDICINE_FIELD_MAP.dose]),
+    time: formatMedicineTime(rawTime),
+    frequency: getDisplayValue(record[MEDICINE_FIELD_MAP.frequency]),
+    status: getDisplayValue(record[MEDICINE_FIELD_MAP.status]),
+    notes: getDisplayValue(record[MEDICINE_FIELD_MAP.notes]),
+    isExtra: String(isExtraValue || '').toLowerCase() === 'true' || isExtraValue === true,
+  };
 }
 
 export async function getMedicinesForUser(userId) {
@@ -851,6 +820,18 @@ export async function getMedicinesForUser(userId) {
   const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `?${params.toString()}`));
 
   return (data?.result || []).map(toMedicineRecord);
+}
+
+async function getMedicineForSenior(seniorProfileId, medicineId) {
+  const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `/${encodeURIComponent(medicineId)}`));
+  const record = data?.result || null;
+  const recordSeniorId = getReferenceValue(record?.[MEDICINE_FIELD_MAP.senior]);
+
+  if (!record || recordSeniorId !== seniorProfileId) {
+    throw Object.assign(new Error('Medicine record was not found for this senior.'), { status: 404 });
+  }
+
+  return record;
 }
 
 export async function saveMedicineForUser(userId, medicine = {}) {
@@ -871,15 +852,15 @@ export async function saveMedicineForUser(userId, medicine = {}) {
   }
 
   const payload = {
-        [MEDICINE_FIELD_MAP.senior]: seniorProfile.sys_id,
-        [MEDICINE_FIELD_MAP.name]: medicine.name || '',
-        [MEDICINE_FIELD_MAP.dose]: medicine.dose || '',
-        [MEDICINE_FIELD_MAP.time]: medicine.time || '',
-        [MEDICINE_FIELD_MAP.frequency]: medicine.frequency || '',
-        [MEDICINE_FIELD_MAP.status]: medicine.status || '',
-        [MEDICINE_FIELD_MAP.notes]: medicine.notes || '',
-        [MEDICINE_FIELD_MAP.isExtra]: true,
-      };
+    [MEDICINE_FIELD_MAP.senior]: seniorProfile.sys_id,
+    [MEDICINE_FIELD_MAP.name]: medicine.name || '',
+    [MEDICINE_FIELD_MAP.dose]: medicine.dose || '',
+    [MEDICINE_FIELD_MAP.time]: medicine.time || '',
+    [MEDICINE_FIELD_MAP.frequency]: medicine.frequency || '',
+    [MEDICINE_FIELD_MAP.status]: medicine.status || '',
+    [MEDICINE_FIELD_MAP.notes]: medicine.notes || '',
+    [MEDICINE_FIELD_MAP.isExtra]: true,
+  };
 
   const path = medicine.id
     ? getNamedTablePath(MEDICINE_TABLE, `/${encodeURIComponent(existingRecord.sys_id)}`)
@@ -890,18 +871,6 @@ export async function saveMedicineForUser(userId, medicine = {}) {
   });
 
   return toMedicineRecord(data?.result || {});
-}
-
-async function getMedicineForSenior(seniorProfileId, medicineId) {
-  const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `/${encodeURIComponent(medicineId)}`));
-  const record = data?.result || null;
-  const recordSeniorId = getReferenceValue(record?.[MEDICINE_FIELD_MAP.senior]);
-
-  if (!record || recordSeniorId !== seniorProfileId) {
-    throw Object.assign(new Error('Medicine record was not found for this senior.'), { status: 404 });
-  }
-
-  return record;
 }
 
 export async function deleteMedicineForUser(userId, medicineId) {

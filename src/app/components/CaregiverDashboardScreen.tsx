@@ -2,6 +2,7 @@ import {
   Activity,
   ArrowLeft,
   Bell,
+  Calendar,
   CheckCircle,
   ChevronRight,
   Clock,
@@ -12,6 +13,7 @@ import {
   Languages,
   LayoutDashboard,
   LogOut,
+  Mail,
   MapPin,
   Phone,
   Pill,
@@ -23,20 +25,23 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getStoredUser } from '../services/backend';
-import { updateSosAlertStatus } from '../services/serviceNow';
 
 const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
 const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
 
 type Senior = {
   id: string;
+  connectionId?: string;
+  userId?: string;
   name: string;
   phone: string;
   email: string;
   location?: string;
+  address?: string;
+  lastCheckIn?: string;
+  points?: number;
   relationship?: string;
   status?: string;
-  alertId?: string;
   alertMessage?: string;
   alertStatus?: string;
   alertTime?: string;
@@ -59,30 +64,16 @@ export default function CaregiverDashboardScreen({
   const [seniors, setSeniors] = useState<Senior[]>([]);
   const [isLoadingSeniors, setIsLoadingSeniors] = useState(false);
   const [seniorError, setSeniorError] = useState('');
-  const [resolvedAlertIds, setResolvedAlertIds] = useState<string[]>([]);
-  const [resolvingAlertIds, setResolvingAlertIds] = useState<string[]>([]);
-  const resolveAlert = async (seniorId: string) => {
-    const senior = seniors.find((item) => item.id === seniorId);
+  const [selectedSenior, setSelectedSenior] = useState<Senior | null>(null);
+  const pageTitle = selectedSenior
+    ? 'Details'
+    : activeTab === 'dashboard'
+      ? 'Dashboard'
+      : activeTab === 'alerts'
+        ? 'Alerts'
+        : 'Profile';
 
-    if (senior?.alertId && !resolvingAlertIds.includes(senior.alertId)) {
-      setResolvingAlertIds((current) => [...current, senior.alertId as string]);
-
-      try {
-        await updateSosAlertStatus(senior.alertId, 'Resolved');
-      } catch (error) {
-        console.error('Unable to resolve SOS alert:', error);
-        alert(error instanceof Error ? error.message : 'Unable to resolve SOS alert.');
-        return;
-      } finally {
-        setResolvingAlertIds((current) => current.filter((id) => id !== senior.alertId));
-      }
-    }
-
-    setResolvedAlertIds((current) => (
-      current.includes(seniorId) ? current : [...current, seniorId]
-    ));
-  };
-
+//Senior data loading and polling logic
   useEffect(() => {
     if (!caregiverEmail) {
       setSeniors([]);
@@ -129,9 +120,7 @@ export default function CaregiverDashboardScreen({
     };
   }, [caregiverEmail, caregiverId]);
 
-  const alertCount = seniors.filter((senior) => (
-    isAlertStatus(senior.status) && !resolvedAlertIds.includes(senior.id)
-  )).length;
+  const alertCount = seniors.filter((senior) => isAlertStatus(senior.status)).length;
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f6f8] pb-24 text-[#101418]">
@@ -142,7 +131,7 @@ export default function CaregiverDashboardScreen({
               <User className="h-8 w-8" />
             </div>
             <h1 className="truncate text-[28px] font-bold leading-8 tracking-normal text-black">
-              Caregiver Dashboard
+              {pageTitle}
             </h1>
           </div>
 
@@ -162,26 +151,22 @@ export default function CaregiverDashboardScreen({
       </header>
 
       <main className="px-5 py-5">
-        {activeTab === 'dashboard' && (
+        {selectedSenior ? (
+          <ResidentProfileDetails
+            senior={selectedSenior}
+            onBack={() => setSelectedSenior(null)}
+          />
+        ) : activeTab === 'dashboard' && (
           <CaregiverDashboardHome
             caregiverName={caregiverName}
             seniors={seniors}
             isLoading={isLoadingSeniors}
             error={seniorError}
-            resolvedAlertIds={resolvedAlertIds}
-            resolvingAlertIds={resolvingAlertIds}
-            onResolveAlert={resolveAlert}
+            onOpenProfile={setSelectedSenior}
           />
         )}
-        {activeTab === 'alerts' && (
-          <CaregiverAlerts
-            seniors={seniors}
-            resolvedAlertIds={resolvedAlertIds}
-            resolvingAlertIds={resolvingAlertIds}
-            onResolveAlert={resolveAlert}
-          />
-        )}
-        {activeTab === 'profile' && (
+        {!selectedSenior && activeTab === 'alerts' && <CaregiverAlerts seniors={seniors} />}
+        {!selectedSenior && activeTab === 'profile' && (
           <CaregiverProfile
             caregiverName={caregiverName}
             caregiverEmail={caregiverEmail}
@@ -196,20 +181,29 @@ export default function CaregiverDashboardScreen({
           active={activeTab === 'dashboard'}
           icon={<LayoutDashboard className="h-6 w-6" />}
           label="Dashboard"
-          onClick={() => setActiveTab('dashboard')}
+          onClick={() => {
+            setSelectedSenior(null);
+            setActiveTab('dashboard');
+          }}
         />
         <DashboardNavItem
           active={activeTab === 'alerts'}
           icon={<TriangleAlert className="h-6 w-6" />}
           label="Alerts"
           hasAlert={alertCount > 0}
-          onClick={() => setActiveTab('alerts')}
+          onClick={() => {
+            setSelectedSenior(null);
+            setActiveTab('alerts');
+          }}
         />
         <DashboardNavItem
           active={activeTab === 'profile'}
           icon={<User className="h-6 w-6" />}
           label="Profile"
-          onClick={() => setActiveTab('profile')}
+          onClick={() => {
+            setSelectedSenior(null);
+            setActiveTab('profile');
+          }}
         />
       </nav>
     </div>
@@ -262,26 +256,40 @@ function formatAlertTime(value = '') {
   }).format(date);
 }
 
+function formatDetailDateTime(value = '') {
+  if (!value) {
+    return 'Not provided';
+  }
+
+  const normalizedValue = value.includes('T') ? value : value.replace(' ', 'T');
+  const date = new Date(normalizedValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('en-SG', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Singapore',
+  }).format(date);
+}
+
 function CaregiverDashboardHome({
   caregiverName,
   seniors,
   isLoading,
   error,
-  resolvedAlertIds,
-  resolvingAlertIds,
-  onResolveAlert,
+  onOpenProfile,
 }: {
   caregiverName: string;
   seniors: Senior[];
   isLoading: boolean;
   error: string;
-  resolvedAlertIds: string[];
-  resolvingAlertIds: string[];
-  onResolveAlert: (seniorId: string) => void | Promise<void>;
+  onOpenProfile: (senior: Senior) => void;
 }) {
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status));
-  const activeAlertSeniors = alertSeniors.filter((senior) => !resolvedAlertIds.includes(senior.id));
-  const alertSenior = activeAlertSeniors[0];
+  const alertSenior = alertSeniors[0];
   const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status));
   const featuredSeniors = [...alertSeniors, ...stableSeniors];
   const recentAlertTitle = alertSenior
@@ -300,15 +308,9 @@ function CaregiverDashboardHome({
           </div>
           <button
             type="button"
-            onClick={() => {
-              if (alertSenior) {
-                onResolveAlert(alertSenior.id);
-              }
-            }}
-            disabled={!alertSenior || (alertSenior.alertId ? resolvingAlertIds.includes(alertSenior.alertId) : false)}
-            className="flex h-9 flex-shrink-0 items-center justify-center rounded-full bg-white px-4 text-base font-bold uppercase text-[#c8171d] shadow-sm active:scale-95 disabled:opacity-60"
+            className="flex h-9 flex-shrink-0 items-center justify-center rounded-full bg-white px-4 text-base font-bold uppercase text-[#c8171d] shadow-sm active:scale-95"
           >
-            {alertSenior?.alertId && resolvingAlertIds.includes(alertSenior.alertId) ? 'Resolving' : 'Acknowledge'}
+            Acknowledge
           </button>
         </div>
       </section>
@@ -319,7 +321,6 @@ function CaregiverDashboardHome({
           {seniors.length} Residents Active
         </p>
       </section>
-
       <section className="flex flex-col gap-5">
         {isLoading ? (
           <p className="rounded-[18px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
@@ -331,10 +332,12 @@ function CaregiverDashboardHome({
           featuredSeniors.map((senior) => (
             <SeniorCard
               key={senior.id}
+              senior={senior}
               name={senior.name}
               status={getSeniorStatus(senior)}
               location={senior.location || 'Unknown'}
-              tone={resolvedAlertIds.includes(senior.id) ? 'resolved' : isAlertStatus(senior.status) ? 'alert' : 'good'}
+              tone={isAlertStatus(senior.status) ? 'alert' : 'good'}
+              onOpenProfile={onOpenProfile}
             />
           ))
         ) : (
@@ -377,17 +380,8 @@ function CaregiverDashboardHome({
   );
 }
 
-function CaregiverAlerts({
-  seniors,
-  resolvedAlertIds,
-  resolvingAlertIds,
-  onResolveAlert,
-}: {
-  seniors: Senior[];
-  resolvedAlertIds: string[];
-  resolvingAlertIds: string[];
-  onResolveAlert: (seniorId: string) => void | Promise<void>;
-}) {
+// Placeholder component for senior card - can be expanded with more details and actions
+function CaregiverAlerts({ seniors }: { seniors: Senior[] }) {
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status));
 
   return (
@@ -408,6 +402,7 @@ function CaregiverAlerts({
         </button>
       </section>
 
+// Alert Cards
       <section className="flex flex-col gap-5">
         {alertSeniors.length > 0 ? (
           alertSeniors.map((senior) => (
@@ -419,9 +414,6 @@ function CaregiverAlerts({
               location={senior.location}
               message={senior.alertMessage}
               time={formatAlertTime(senior.alertTime)}
-              isResolved={resolvedAlertIds.includes(senior.id)}
-              isResolving={senior.alertId ? resolvingAlertIds.includes(senior.alertId) : false}
-              onResolve={() => onResolveAlert(senior.id)}
               icon={/sos|urgent/i.test(senior.status || '') ? <ShieldAlert className="h-8 w-8" /> : <Bell className="h-8 w-8" />}
             />
           ))
@@ -432,6 +424,7 @@ function CaregiverAlerts({
         )}
       </section>
 
+// Recent History
       <section className="flex flex-col gap-4">
         <h2 className="text-2xl font-bold text-[#1b1c1c]">Recent History</h2>
         {seniors.slice(0, 3).map((senior) => (
@@ -454,9 +447,6 @@ function AlertCard({
   location,
   message,
   time,
-  isResolved,
-  isResolving,
-  onResolve,
   icon,
 }: {
   kind: 'sos' | 'missed';
@@ -465,53 +455,38 @@ function AlertCard({
   location?: string;
   message?: string;
   time?: string;
-  isResolved: boolean;
-  isResolving: boolean;
-  onResolve: () => void | Promise<void>;
   icon: React.ReactNode;
 }) {
   const isSos = kind === 'sos';
-  const cardClassName = isResolved
-    ? 'border-[#18833b] bg-[#e9f8ed] text-[#12351f]'
-    : isSos
-      ? 'border-[#831318] bg-[#a42d2d] text-[#ffc1bc]'
-      : 'border-[#954a00] bg-[#ffdcc6] text-[#301400]';
-  const iconClassName = isResolved
-    ? 'bg-[#18833b] text-white'
-    : isSos
-      ? 'bg-[#831318] text-white'
-      : 'bg-[#954a00] text-white';
-  const labelClassName = isResolved
-    ? 'text-[#18833b]'
-    : isSos
-      ? 'text-[#ffc1bc]'
-      : 'text-[#713700]';
 
   return (
     <div
-      className={`rounded-[28px] border-l-8 p-5 shadow-sm min-[390px]:rounded-[32px] ${cardClassName}`}
+      className={`rounded-[28px] border-l-8 p-5 shadow-sm min-[390px]:rounded-[32px] ${
+        isSos
+          ? 'border-[#831318] bg-[#a42d2d] text-[#ffc1bc]'
+          : 'border-[#954a00] bg-[#ffdcc6] text-[#301400]'
+      }`}
     >
+// Alert header with title and time
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className={`flex h-12 w-12 items-center justify-center rounded-full ${iconClassName}`}>
-            {isResolved ? <CheckCircle className="h-8 w-8" /> : icon}
+          <div className={`flex h-12 w-12 items-center justify-center rounded-full ${isSos ? 'bg-[#831318] text-white' : 'bg-[#954a00] text-white'}`}>
+            {icon}
           </div>
           <div>
-            <p className={`text-sm font-bold uppercase tracking-wide ${labelClassName}`}>
-              {isResolved ? 'Resolved' : label}
+            <p className={`text-sm font-bold uppercase tracking-wide ${isSos ? 'text-[#ffc1bc]' : 'text-[#713700]'}`}>
+              {label}
             </p>
             <h2 className="text-2xl font-bold text-current">{title}</h2>
           </div>
         </div>
         {time && <span className="rounded-full bg-white/15 px-3 py-1 text-sm font-bold text-current">{time}</span>}
       </div>
-
-      {isSos || isResolved ? (
-        <div className={`mb-5 flex items-center gap-2 rounded-2xl p-3 ${isResolved ? 'bg-white text-[#18833b]' : 'bg-white/10'}`}>
-          <MapPin className={`h-5 w-5 flex-shrink-0 ${isResolved ? 'text-[#18833b]' : 'text-[#ffdad7]'}`} />
-          <span className={`text-base font-semibold ${isResolved ? 'text-[#18833b]' : 'text-[#ffdad7]'}`}>
-            {isResolved ? 'This alert has been resolved.' : location || message || 'Location details unavailable'}
-          </span>
+// Alert details with location and message
+      {isSos ? (
+        <div className="mb-5 flex items-center gap-2 rounded-2xl bg-white/10 p-3">
+          <MapPin className="h-5 w-5 flex-shrink-0 text-[#ffdad7]" />
+          <span className="text-base font-semibold text-[#ffdad7]">{location || message || 'Location details unavailable'}</span>
         </div>
       ) : (
         <div className="mb-5 flex items-center gap-2">
@@ -522,47 +497,31 @@ function AlertCard({
 
       <div className="grid grid-cols-2 gap-3">
         <AlertActionButton icon={<Phone className="h-5 w-5" />} label="Call" variant={isSos ? 'light' : 'warning'} />
-        <AlertActionButton
-          icon={<CheckCircle className="h-5 w-5" />}
-          label={isResolving ? 'Resolving...' : isResolved ? 'Resolved' : 'Resolve'}
-          variant={isResolved ? 'success' : isSos ? 'danger' : 'light'}
-          disabled={isResolving || isResolved}
-          onClick={onResolve}
-        />
+        <AlertActionButton icon={<CheckCircle className="h-5 w-5" />} label="Resolve" variant={isSos ? 'danger' : 'light'} />
       </div>
     </div>
   );
 }
 
+// Action button component used in alert cards with different styles based on variant
 function AlertActionButton({
-  disabled = false,
   icon,
   label,
-  onClick,
   variant,
 }: {
-  disabled?: boolean;
   icon: React.ReactNode;
   label: string;
-  onClick?: () => void;
-  variant: 'light' | 'danger' | 'warning' | 'success';
+  variant: 'light' | 'danger' | 'warning';
 }) {
   const className =
-    variant === 'success'
-      ? 'bg-[#18833b] text-white'
-      : variant === 'danger'
+    variant === 'danger'
       ? 'bg-[#831318] text-white'
       : variant === 'warning'
         ? 'bg-[#954a00] text-white'
         : 'bg-white text-[#831318]';
 
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`flex h-14 items-center justify-center gap-2 rounded-full text-base font-bold shadow-sm transition-transform active:scale-95 disabled:opacity-70 disabled:active:scale-100 ${className}`}
-    >
+    <button type="button" className={`flex h-14 items-center justify-center gap-2 rounded-full text-base font-bold shadow-sm transition-transform active:scale-95 ${className}`}>
       {icon}
       <span>{label}</span>
     </button>
@@ -582,6 +541,93 @@ function AlertHistoryItem({ name, time, message }: { name: string; time: string;
         </div>
         <p className="mt-1 text-sm leading-5 text-[#414942]">{message}</p>
       </div>
+    </div>
+  );
+}
+
+function ResidentProfileDetails({
+  senior,
+  onBack,
+}: {
+  senior: Senior;
+  onBack: () => void;
+}) {
+  const displayName = senior.name || 'Not provided';
+  const phone = senior.phone || 'Not provided';
+  const email = senior.email || 'Not provided';
+  const relationship = senior.relationship || 'Not provided';
+  const location = senior.location || 'Not provided';
+  const status = getSeniorStatus(senior);
+  const profileRows = [
+    { label: 'Full Name', value: displayName, icon: <User className="h-6 w-6" /> },
+    { label: 'Phone Number', value: phone, icon: <Phone className="h-6 w-6" /> },
+    { label: 'Email', value: email, icon: <Mail className="h-6 w-6" /> },
+    { label: 'Relationship', value: relationship, icon: <Handshake className="h-6 w-6" /> },
+    { label: 'Location Zone', value: location, icon: <MapPin className="h-6 w-6" /> },
+    ...(senior.address ? [{ label: 'Address', value: senior.address, icon: <MapPin className="h-6 w-6" /> }] : []),
+    { label: 'Last Check-In', value: formatDetailDateTime(senior.lastCheckIn), icon: <Calendar className="h-6 w-6" /> },
+    { label: 'Points', value: String(senior.points ?? 0), icon: <Activity className="h-6 w-6" /> },
+    { label: 'Current Status', value: status || 'Not provided', icon: <CheckCircle className="h-6 w-6" /> },
+  ];
+
+  return (
+    <div className="-mx-5 -my-5 min-h-full bg-[#f4f6f8] pb-6">
+      <div className="sticky top-0 z-10 flex h-16 items-center gap-3 bg-[#f4f6f8] px-5 shadow-sm">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex h-11 w-11 items-center justify-center rounded-full text-[#075fc7] active:bg-blue-50"
+          aria-label="Back to dashboard"
+        >
+          <ArrowLeft className="h-6 w-6" />
+        </button>
+        <h1 className="truncate text-2xl font-bold text-black">Details</h1>
+      </div>
+
+      <section className="px-5 pt-5">
+        <div className="rounded-[18px] bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-[16px] bg-[#dcecef] text-3xl font-bold text-[#17353d]">
+              {getInitials(displayName)}
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-[30px] font-bold leading-9 text-black">{displayName}</h2>
+              <p className="mt-2 rounded-full bg-[#e2e5e9] px-3 py-1 text-sm font-bold uppercase text-[#30343a]">
+                {status || 'Connected'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-5 px-5">
+        <div className="overflow-hidden rounded-[18px] bg-white shadow-sm">
+          {profileRows.map((row) => (
+            <div
+              key={row.label}
+              className="flex items-center gap-4 border-b border-[#eef0f2] px-5 py-4 last:border-b-0"
+            >
+              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[#edf4ff] text-[#075fc7]">
+                {row.icon}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-[#71717a]">{row.label}</p>
+                <p className="mt-1 break-words text-lg font-bold leading-6 text-black">{row.value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-5 px-5">
+        <a
+          href={phone === 'Not provided' ? undefined : `tel:${phone.replace(/\s/g, '')}`}
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-[10px] bg-[#075fc7] text-lg font-bold uppercase text-white active:scale-[0.98]"
+        >
+          <Phone className="h-5 w-5" />
+          Call
+        </a>
+      </section>
     </div>
   );
 }
@@ -662,7 +708,7 @@ function CaregiverProfile({
           <button
             type="button"
             onClick={() => setShowPersonalInfo(false)}
-            className="flex h-11 w-11 items-center justify-center rounded-full text-green-700 active:bg-green-50"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-[#075fc7] active:bg-blue-50"
             aria-label="Back to profile"
           >
             <ArrowLeft className="h-6 w-6" />
@@ -672,7 +718,7 @@ function CaregiverProfile({
 
         <div className="p-5 min-[390px]:p-8">
           <div className="mb-5 rounded-3xl bg-white p-5 shadow-sm">
-            <h2 className="mb-5 text-2xl font-bold text-green-600">Profile Photo</h2>
+            <h2 className="mb-5 text-2xl font-bold text-[#075fc7]">Profile Photo</h2>
 
             <div className="flex flex-col items-center">
               {profileImage ? (
@@ -682,12 +728,12 @@ function CaregiverProfile({
                   className="mb-4 h-32 w-32 rounded-full object-cover"
                 />
               ) : (
-                <div className="mb-4 flex h-32 w-32 items-center justify-center rounded-full bg-green-50 text-green-700">
+                <div className="mb-4 flex h-32 w-32 items-center justify-center rounded-full bg-[#edf4ff] text-[#075fc7]">
                   <User className="h-16 w-16" />
                 </div>
               )}
 
-              <label className="cursor-pointer rounded-full bg-green-500 px-6 py-3 text-lg font-semibold text-white shadow-sm active:scale-95">
+              <label className="cursor-pointer rounded-full bg-[#2875e0] px-6 py-3 text-lg font-semibold text-white shadow-sm active:scale-95">
                 Change Photo
                 <input
                   type="file"
@@ -706,7 +752,7 @@ function CaregiverProfile({
           </div>
 
           <div className="rounded-3xl bg-white p-5 shadow-sm">
-            <h2 className="mb-5 text-2xl font-bold text-green-600">Basic Information</h2>
+            <h2 className="mb-5 text-2xl font-bold text-[#075fc7]">Basic Information</h2>
 
             <ProfileField label="Phone Number" value={phone} onChange={setPhone} type="tel" />
             <ProfileField label="Email" value={personalEmail} onChange={setPersonalEmail} type="email" />
@@ -715,7 +761,7 @@ function CaregiverProfile({
             <button
               type="button"
               onClick={handleSavePersonalInfo}
-              className="mt-5 w-full rounded-2xl bg-green-500 py-3 text-lg font-semibold text-white active:scale-95"
+              className="mt-5 w-full rounded-2xl bg-[#2875e0] py-3 text-lg font-semibold text-white active:scale-95"
             >
               Save Changes
             </button>
@@ -727,7 +773,7 @@ function CaregiverProfile({
 
   return (
     <div className="-mx-5 -my-6 min-h-full bg-gray-50 min-[390px]:-mx-6">
-      <div className="bg-gradient-to-br from-green-400 to-green-600 px-5 pb-5 pt-6 text-white min-[390px]:px-7 min-[390px]:pb-7 min-[390px]:pt-8">
+      <div className="bg-gradient-to-br from-[#4f8ff0] to-[#2875e0] px-5 pb-5 pt-6 text-white min-[390px]:px-7 min-[390px]:pb-7 min-[390px]:pt-8">
         <div className="mb-4 flex items-center gap-4 min-[390px]:gap-5">
           {profileImage ? (
             <img
@@ -736,13 +782,13 @@ function CaregiverProfile({
               className="h-16 w-16 rounded-full bg-white object-cover min-[390px]:h-20 min-[390px]:w-20"
             />
           ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-[#316342] min-[390px]:h-20 min-[390px]:w-20">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-[#075fc7] min-[390px]:h-20 min-[390px]:w-20">
               <User className="h-8 w-8 min-[390px]:h-10 min-[390px]:w-10" />
             </div>
           )}
           <div className="min-w-0">
             <h2 className="truncate text-2xl font-bold min-[390px]:text-3xl">{caregiverName}</h2>
-            <p className="mt-1 truncate text-sm text-green-100 min-[390px]:text-base">
+            <p className="mt-1 truncate text-sm text-blue-100 min-[390px]:text-base">
               {caregiverEmail || 'Registered caregiver'}
             </p>
           </div>
@@ -848,44 +894,26 @@ function getInitials(name: string) {
 }
 
 function SeniorCard({
+  senior,
   name,
   status,
   location,
   tone,
+  onOpenProfile,
 }: {
+  senior: Senior;
   name: string;
   status: string;
   location: string;
-  tone: 'good' | 'alert' | 'resolved';
+  tone: 'good' | 'alert';
+  onOpenProfile: (senior: Senior) => void;
 }) {
   const isAlert = tone === 'alert';
-  const isResolved = tone === 'resolved';
-  const borderClassName = isResolved
-    ? 'border-2 border-[#18833b]'
-    : isAlert
-      ? 'border-2 border-[#c8171d]'
-      : 'border-[#d0d3d8]';
-  const avatarClassName = isResolved
-    ? 'bg-[#18833b] text-white'
-    : isAlert
-      ? 'bg-[#14353d] text-white'
-      : 'bg-[#dcecef] text-[#17353d]';
-  const statusTextClassName = isResolved
-    ? 'text-[#18833b]'
-    : isAlert
-      ? 'text-[#c8171d]'
-      : 'text-[#30343a]';
-  const badgeClassName = isResolved
-    ? 'bg-[#dff5e6] text-[#18833b]'
-    : isAlert
-      ? 'bg-[#ffdada] text-[#a90000]'
-      : 'bg-[#e2e5e9] text-[#30343a]';
-  const tileIconColor = isResolved ? 'text-[#18833b]' : isAlert ? 'text-[#c8171d]' : 'text-[#12b962]';
 
   return (
-    <div className={`rounded-[18px] border bg-white p-5 shadow-sm ${borderClassName}`}>
+    <div className={`rounded-[18px] border bg-white p-5 shadow-sm ${isAlert ? 'border-2 border-[#c8171d]' : 'border-[#d0d3d8]'}`}>
       <div className="flex items-start gap-4">
-        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${avatarClassName}`}>
+        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${isAlert ? 'bg-[#14353d] text-white' : 'bg-[#dcecef] text-[#17353d]'}`}>
           {getInitials(name)}
         </div>
 
@@ -893,19 +921,17 @@ function SeniorCard({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="truncate text-[28px] font-bold leading-8 text-black">{name}</h3>
-              <p className={`mt-3 flex items-center gap-2 text-lg font-bold ${statusTextClassName}`}>
-                {isResolved ? (
-                  <CheckCircle className="h-5 w-5 flex-shrink-0 text-[#18833b]" />
-                ) : isAlert ? (
+              <p className={`mt-3 flex items-center gap-2 text-lg font-bold ${isAlert ? 'text-[#c8171d]' : 'text-[#30343a]'}`}>
+                {isAlert ? (
                   <TriangleAlert className="h-5 w-5 flex-shrink-0" />
                 ) : (
                   <CheckCircle className="h-5 w-5 flex-shrink-0 text-[#12c759]" />
                 )}
-                <span className="truncate">{isResolved ? 'Resolved' : isAlert ? 'No check-in today' : 'Checked in today'}</span>
+                <span className="truncate">{isAlert ? 'No check-in today' : 'Checked in today'}</span>
               </p>
             </div>
-            <span className={`shrink-0 rounded-[12px] px-3 py-2 text-base font-bold uppercase ${badgeClassName}`}>
-              {isResolved ? 'Resolved' : isAlert ? 'SOS Active' : status || 'Stable'}
+            <span className={`shrink-0 rounded-[12px] px-3 py-2 text-base font-bold uppercase ${isAlert ? 'bg-[#ffdada] text-[#a90000]' : 'bg-[#e2e5e9] text-[#30343a]'}`}>
+              {isAlert ? 'SOS Active' : status || 'Stable'}
             </span>
           </div>
         </div>
@@ -914,9 +940,9 @@ function SeniorCard({
       <div className="mt-4 grid grid-cols-2 gap-3">
         <ResidentInfoTile
           icon={<Pill className="h-8 w-8" />}
-          iconColor={tileIconColor}
+          iconColor={isAlert ? 'text-[#c8171d]' : 'text-[#12b962]'}
           label="Medication"
-          value={isResolved ? 'Resolved' : isAlert ? 'Missed' : 'Taken'}
+          value={isAlert ? 'Missed' : 'Taken'}
         />
         <ResidentInfoTile
           icon={<MapPin className="h-8 w-8" />}
@@ -929,16 +955,17 @@ function SeniorCard({
       <div className="mt-5 grid grid-cols-[1fr_128px] gap-3">
         <button
           type="button"
-          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${isAlert ? 'border-[#075fc7] bg-[#075fc7] text-white' : isResolved ? 'border-[#18833b] bg-[#18833b] text-white' : 'border-[#075fc7] bg-white text-[#075fc7]'}`}
+          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${isAlert ? 'border-[#075fc7] bg-[#075fc7] text-white' : 'border-[#075fc7] bg-white text-[#075fc7]'}`}
         >
           <Phone className="h-6 w-6" />
-          {isAlert ? 'Call Emergency' : isResolved ? 'Resolved' : 'Call'}
+          {isAlert ? 'Call Emergency' : 'Call'}
         </button>
         <button
           type="button"
+          onClick={() => onOpenProfile(senior)}
           className="flex h-16 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-lg font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98]"
         >
-          Profile
+          Details
         </button>
       </div>
     </div>

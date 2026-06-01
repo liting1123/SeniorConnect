@@ -12,12 +12,13 @@ const REQUIRED_FIELDS = [
 const FIELD_MAP = {
   userId: process.env.SERVICE_NOW_FIELD_USER_ID || 'sys_id',
   email: process.env.SERVICE_NOW_FIELD_EMAIL || 'u_email',
-  name: process.env.SERVICE_NOW_FIELD_NAME || 'u_name',
+  name: process.env.SERVICE_NOW_FIELD_NAME || 'u_full_name',
   phone: process.env.SERVICE_NOW_FIELD_PHONE || 'u_phone',
   points: process.env.SERVICE_NOW_FIELD_POINTS || 'u_points',
   lastCheckInAt: process.env.SERVICE_NOW_FIELD_LAST_CHECK_IN_AT || 'u_last_check_in_at',
   gameRewardDate: process.env.SERVICE_NOW_FIELD_GAME_REWARD_DATE || 'u_game_reward_date',
   locationZones: process.env.SERVICE_NOW_FIELD_LOCATION_ZONES || 'u_location_zones',
+  address: process.env.SERVICE_NOW_FIELD_ADDRESS || 'u_address',
 };
 
 const CHECK_IN_TIME_ZONE = process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore';
@@ -164,6 +165,7 @@ function toUserRecord(record = {}) {
     name: record[FIELD_MAP.name] || '',
     phone: record[FIELD_MAP.phone] || '',
     locationZones: record[FIELD_MAP.locationZones] || '',
+    address: record[FIELD_MAP.address] || '',
     points: Number(record[FIELD_MAP.points]) || 0,
     lastCheckInAt: record[FIELD_MAP.lastCheckInAt] || null,
     gameRewardDate: record[FIELD_MAP.gameRewardDate] || null,
@@ -549,11 +551,48 @@ async function findSeniorProfileByUserId(userId) {
 
   const params = new URLSearchParams({
     sysparm_query: `${FIELD_MAP.userId}=${userId}`,
-    sysparm_limit: '1',
+    sysparm_limit: '20',
   });
   const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
 
-  return data?.result?.[0] || null;
+  return getBestSeniorProfileRecord(data?.result || []);
+}
+
+function getSeniorProfileCompletenessScore(record = {}) {
+  return [
+    FIELD_MAP.name,
+    FIELD_MAP.phone,
+    FIELD_MAP.email,
+    FIELD_MAP.locationZones,
+    FIELD_MAP.lastCheckInAt,
+    FIELD_MAP.points,
+  ].reduce((score, field) => (getDisplayValue(record[field]) ? score + 1 : score), 0);
+}
+
+function getBestSeniorProfileRecord(records = []) {
+  return [...records].sort((first, second) => {
+    const scoreDelta = getSeniorProfileCompletenessScore(second) - getSeniorProfileCompletenessScore(first);
+
+    if (scoreDelta !== 0) {
+      return scoreDelta;
+    }
+
+    const secondUpdatedAt = new Date(second.sys_updated_on || second.sys_created_on || 0).getTime();
+    const firstUpdatedAt = new Date(first.sys_updated_on || first.sys_created_on || 0).getTime();
+
+    return secondUpdatedAt - firstUpdatedAt;
+  })[0] || null;
+}
+
+function getMappedSeniorCompletenessScore(senior = {}) {
+  return [
+    senior.name,
+    senior.phone,
+    senior.email,
+    senior.location,
+    senior.lastCheckIn,
+    senior.points,
+  ].reduce((score, value) => (getDisplayValue(value) ? score + 1 : score), 0);
 }
 
 async function findSeniorProfileByNameOrPhone({ seniorName, seniorPhone }) {
@@ -618,20 +657,27 @@ export async function searchSeniorProfiles({ searchName, phone }) {
 }
 
 function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser = {}) {
+  const seniorUserId = getReferenceValue(seniorProfile[FIELD_MAP.userId]) || seniorUser.sys_id || '';
+
   return {
-    id: connection.sys_id,
+    id: seniorProfile.sys_id || connection.sys_id,
+    connectionId: connection.sys_id,
+    userId: seniorUserId,
     name:
-      seniorProfile[FIELD_MAP.name] ||
+      getDisplayValue(seniorProfile[FIELD_MAP.name]) ||
       seniorUser[LOGIN_FIELD_MAP.name] ||
       seniorUser[LOGIN_FIELD_MAP.username] ||
       seniorUser[LOGIN_FIELD_MAP.email]?.split('@')[0] ||
       'Senior',
-    phone: seniorProfile.u_phone || seniorUser.u_phone || '',
-    email: seniorProfile[FIELD_MAP.email] || seniorUser[LOGIN_FIELD_MAP.email] || '',
-    location: seniorProfile[FIELD_MAP.locationZones] || '',
+    phone: getDisplayValue(seniorProfile[FIELD_MAP.phone]) || seniorUser.u_phone || '',
+    email: getDisplayValue(seniorProfile[FIELD_MAP.email]) || seniorUser[LOGIN_FIELD_MAP.email] || '',
+    location: getDisplayValue(seniorProfile[FIELD_MAP.locationZones]) || '',
+    address: getDisplayValue(seniorProfile[FIELD_MAP.address]) || '',
+    lastCheckIn: getDisplayValue(seniorProfile[FIELD_MAP.lastCheckInAt]) || '',
+    points: Number(getDisplayValue(seniorProfile[FIELD_MAP.points])) || 0,
     caregiverName: '',
     caregiverEmail: '',
-    relationship: '',
+    relationship: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.relationship]) || '',
     status: 'Connected',
   };
 }
@@ -747,7 +793,11 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
     const seniorProfileData = seniorProfileId
       ? await serviceNowFetch(getTablePath(`/${encodeURIComponent(seniorProfileId)}`))
       : null;
-    const seniorProfile = seniorProfileData?.result || {};
+    const referencedSeniorProfile = seniorProfileData?.result || {};
+    const referencedSeniorUserId = getReferenceValue(referencedSeniorProfile[FIELD_MAP.userId]);
+    const seniorProfile = referencedSeniorUserId
+      ? await findSeniorProfileByUserId(referencedSeniorUserId) || referencedSeniorProfile
+      : referencedSeniorProfile;
     const seniorUserId = getReferenceValue(seniorProfile[FIELD_MAP.userId]);
     const seniorUser = seniorUserId ? await getLoginRecordById(seniorUserId) : null;
     const senior = toCaregiverSeniorRecord(connection, seniorProfile, seniorUser || {});
@@ -766,7 +816,20 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
       : senior;
   }));
 
-  return seniors.filter((senior) => {
+  const uniqueSeniors = Array.from(
+    seniors.reduce((seniorMap, senior) => {
+      const key = senior.userId || senior.id || senior.connectionId;
+      const existing = seniorMap.get(key);
+
+      if (!existing || getMappedSeniorCompletenessScore(senior) > getMappedSeniorCompletenessScore(existing)) {
+        seniorMap.set(key, senior);
+      }
+
+      return seniorMap;
+    }, new Map()).values(),
+  );
+
+  return uniqueSeniors.filter((senior) => {
     const matchesName = !nameSearch || senior.name.toLowerCase().includes(nameSearch);
     const matchesPhone = !phoneSearch || senior.phone.toLowerCase().includes(phoneSearch);
 

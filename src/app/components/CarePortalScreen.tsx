@@ -272,8 +272,6 @@ export default function CarePortalScreen({ onBack, onRegistered }: { onBack: () 
               >
                 <option>Next-of-Kin</option>
                 <option>Family Member</option>
-                <option>Caregiver</option>
-                <option>Helper</option>
               </select>
               <ChevronDown className="pointer-events-none h-6 w-6 text-[#717971] min-[390px]:h-7 min-[390px]:w-7" />
             </div>

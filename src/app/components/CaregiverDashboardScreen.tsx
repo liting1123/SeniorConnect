@@ -218,6 +218,12 @@ function getSeniorStatus(senior: Senior) {
   return senior.status?.trim() || 'Connected';
 }
 
+function getPhoneHref(phone = '') {
+  const cleanedPhone = phone.replace(/[^\d+]/g, '');
+
+  return cleanedPhone ? `tel:${cleanedPhone}` : undefined;
+}
+
 function getTimeGreeting() {
   const hour = Number(
     new Intl.DateTimeFormat('en-SG', {
@@ -554,6 +560,7 @@ function ResidentProfileDetails({
 }) {
   const displayName = senior.name || 'Not provided';
   const phone = senior.phone || 'Not provided';
+  const phoneHref = getPhoneHref(senior.phone);
   const email = senior.email || 'Not provided';
   const relationship = senior.relationship || 'Not provided';
   const location = senior.location || 'Not provided';
@@ -621,8 +628,13 @@ function ResidentProfileDetails({
 
       <section className="mt-5 px-5">
         <a
-          href={phone === 'Not provided' ? undefined : `tel:${phone.replace(/\s/g, '')}`}
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-[10px] bg-[#075fc7] text-lg font-bold uppercase text-white active:scale-[0.98]"
+          href={phoneHref}
+          aria-disabled={!phoneHref}
+          className={`flex h-14 w-full items-center justify-center gap-2 rounded-[10px] text-lg font-bold uppercase active:scale-[0.98] ${
+            phoneHref
+              ? 'bg-[#075fc7] text-white'
+              : 'pointer-events-none bg-[#d0d3d8] text-[#71717a]'
+          }`}
         >
           <Phone className="h-5 w-5" />
           Call
@@ -909,6 +921,7 @@ function SeniorCard({
   onOpenProfile: (senior: Senior) => void;
 }) {
   const isAlert = tone === 'alert';
+  const phoneHref = getPhoneHref(senior.phone);
 
   return (
     <div className={`rounded-[18px] border bg-white p-5 shadow-sm ${isAlert ? 'border-2 border-[#c8171d]' : 'border-[#d0d3d8]'}`}>
@@ -953,13 +966,20 @@ function SeniorCard({
       </div>
 
       <div className="mt-5 grid grid-cols-[1fr_128px] gap-3">
-        <button
-          type="button"
-          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${isAlert ? 'border-[#075fc7] bg-[#075fc7] text-white' : 'border-[#075fc7] bg-white text-[#075fc7]'}`}
+        <a
+          href={phoneHref}
+          aria-disabled={!phoneHref}
+          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${
+            !phoneHref
+              ? 'pointer-events-none border-[#c7cbd1] bg-[#f0f2f5] text-[#71717a]'
+              : isAlert
+                ? 'border-[#075fc7] bg-[#075fc7] text-white'
+                : 'border-[#075fc7] bg-white text-[#075fc7]'
+          }`}
         >
           <Phone className="h-6 w-6" />
           {isAlert ? 'Call Emergency' : 'Call'}
-        </button>
+        </a>
         <button
           type="button"
           onClick={() => onOpenProfile(senior)}

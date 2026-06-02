@@ -358,6 +358,14 @@ function normalizeLoginValue(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function isFamilyRole(role = '') {
+  return ['family', 'familymember', 'family_member'].includes(String(role || '').trim().toLowerCase());
+}
+
+function isCareRole(role = '') {
+  return ['caregiver', 'nok', 'elderly', 'senior'].includes(String(role || '').trim().toLowerCase());
+}
+
 function getServiceNowDateTime(value = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Singapore',
@@ -433,10 +441,11 @@ async function findLoginRecordByIdentifier(normalizedIdentifier) {
   return data?.result?.[0] || null;
 }
 
-export async function loginWithServiceNow({ identifier, email, password }) {
+export async function loginWithServiceNow({ identifier, email, password, loginType = 'care' }) {
   const normalizedIdentifier = String(identifier || email || '').trim();
   const comparableIdentifier = normalizeLoginValue(normalizedIdentifier);
   const rawPassword = String(password || '');
+  const normalizedLoginType = String(loginType || 'care').trim().toLowerCase();
 
   if (!normalizedIdentifier || !rawPassword) {
     throw Object.assign(new Error('Email/username and password are required.'), { status: 400 });
@@ -445,6 +454,24 @@ export async function loginWithServiceNow({ identifier, email, password }) {
   const seniorUser = await findSeniorLoginUser(comparableIdentifier, rawPassword);
 
   if (seniorUser) {
+    if (normalizedLoginType === 'family' && !isFamilyRole(seniorUser.role)) {
+      throw Object.assign(
+        new Error('This account is for Seniors & Caregivers. Please use that login tab.'),
+        { status: 403 },
+      );
+    }
+
+    if (normalizedLoginType !== 'family' && isFamilyRole(seniorUser.role)) {
+      throw Object.assign(
+        new Error('This account is for Family Members. Please use the Family Members login tab.'),
+        { status: 403 },
+      );
+    }
+
+    if (!isFamilyRole(seniorUser.role) && !isCareRole(seniorUser.role)) {
+      throw Object.assign(new Error('This account role is not allowed to log in here.'), { status: 403 });
+    }
+
     return seniorUser;
   }
 
@@ -454,9 +481,10 @@ export async function loginWithServiceNow({ identifier, email, password }) {
   );
 }
 
-export async function registerWithServiceNow({ email, password, name }) {
+export async function registerWithServiceNow({ email, password, name, role = 'caregiver' }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const rawPassword = String(password || '');
+  const normalizedRole = isFamilyRole(role) ? 'family' : 'caregiver';
 
   if (!normalizedEmail || !rawPassword) {
     throw Object.assign(new Error('Email and password are required.'), { status: 400 });
@@ -472,13 +500,13 @@ export async function registerWithServiceNow({ email, password, name }) {
     throw Object.assign(new Error('This caregiver email is already registered.'), { status: 409 });
   }
 
-  const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || 'Caregiver';
+  const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || (normalizedRole === 'family' ? 'Family Member' : 'Caregiver');
   const payload = {
     [LOGIN_FIELD_MAP.username]: normalizedEmail,
     [LOGIN_FIELD_MAP.email]: normalizedEmail,
     [LOGIN_FIELD_MAP.password]: rawPassword,
     [LOGIN_FIELD_MAP.name]: displayName,
-    [LOGIN_FIELD_MAP.role]: 'caregiver',
+    [LOGIN_FIELD_MAP.role]: normalizedRole,
     [LOGIN_FIELD_MAP.active]: true,
   };
 

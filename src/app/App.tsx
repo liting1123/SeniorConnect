@@ -32,6 +32,14 @@ type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medicati
 type LanguageReturnScreen = 'home' | 'caregiverDashboard';
 const MEDICINE_REMINDER_EARLY_MINUTES = 5;
 
+function isFamilyRole(role = '') {
+  return ['family', 'familymember', 'family_member'].includes(role.trim().toLowerCase());
+}
+
+function isCaregiverRole(role = '') {
+  return ['caregiver', 'nok'].includes(role.trim().toLowerCase());
+}
+
 function getSavedPersonalInfo() {
   const savedInfo = localStorage.getItem(PERSONAL_INFO_KEY);
 
@@ -337,14 +345,7 @@ export default function App() {
   };
 
   const handleLoginSuccess = async (user: AppUser) => {
-    const role = user.role.trim().toLowerCase();
-
-    if (role === 'caregiver' || role === 'nok') {
-      setCurrentScreen('caregiverDashboard');
-      return;
-    }
-
-    if (role === 'familymember' || role === 'family_member' || role === 'family') {
+    if (isCaregiverRole(user.role) || isFamilyRole(user.role)) {
       setCurrentScreen('caregiverDashboard');
       return;
     }

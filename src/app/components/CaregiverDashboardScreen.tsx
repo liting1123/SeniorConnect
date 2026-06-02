@@ -42,6 +42,7 @@ type Senior = {
   points?: number;
   relationship?: string;
   status?: string;
+  alertId?: string;
   alertMessage?: string;
   alertStatus?: string;
   alertTime?: string;
@@ -65,6 +66,7 @@ export default function CaregiverDashboardScreen({
   const [isLoadingSeniors, setIsLoadingSeniors] = useState(false);
   const [seniorError, setSeniorError] = useState('');
   const [selectedSenior, setSelectedSenior] = useState<Senior | null>(null);
+  const [resolvingAlertIds, setResolvingAlertIds] = useState<string[]>([]);
   const pageTitle = selectedSenior
     ? 'Details'
     : activeTab === 'dashboard'
@@ -120,6 +122,52 @@ export default function CaregiverDashboardScreen({
     };
   }, [caregiverEmail, caregiverId]);
 
+  const handleResolveAlert = async (senior: Senior) => {
+    if (!senior.alertId) {
+      alert('This alert cannot be resolved because its ServiceNow alert ID is missing.');
+      return;
+    }
+
+    setResolvingAlertIds((ids) => [...ids, senior.alertId as string]);
+
+    try {
+      const response = await fetch('/api/servicenow/sos-alert', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          alertId: senior.alertId,
+          status: 'Resolved',
+        }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to resolve ServiceNow alert');
+      }
+
+      setSeniors((currentSeniors) =>
+        currentSeniors.map((currentSenior) =>
+          currentSenior.alertId === senior.alertId
+            ? {
+                ...currentSenior,
+                status: 'Connected',
+                alertStatus: 'Resolved',
+                alertMessage: '',
+                alertTime: '',
+              }
+            : currentSenior,
+        ),
+      );
+    } catch (error) {
+      console.error('Resolve alert failed:', error);
+      alert(error instanceof Error ? error.message : 'Unable to resolve ServiceNow alert');
+    } finally {
+      setResolvingAlertIds((ids) => ids.filter((id) => id !== senior.alertId));
+    }
+  };
+
   const alertCount = seniors.filter((senior) => isAlertStatus(senior.status)).length;
 
   return (
@@ -165,7 +213,13 @@ export default function CaregiverDashboardScreen({
             onOpenProfile={setSelectedSenior}
           />
         )}
-        {!selectedSenior && activeTab === 'alerts' && <CaregiverAlerts seniors={seniors} />}
+        {!selectedSenior && activeTab === 'alerts' && (
+          <CaregiverAlerts
+            seniors={seniors}
+            resolvingAlertIds={resolvingAlertIds}
+            onResolveAlert={handleResolveAlert}
+          />
+        )}
         {!selectedSenior && activeTab === 'profile' && (
           <CaregiverProfile
             caregiverName={caregiverName}
@@ -217,7 +271,7 @@ function isAlertStatus(status = '') {
 function getSeniorStatus(senior: Senior) {
   return senior.status?.trim() || 'Connected';
 }
-
+//Phone number cleaning for tel: links, removing non-digit characters except for leading
 function getPhoneHref(phone = '') {
   const cleanedPhone = phone.replace(/[^\d+]/g, '');
 
@@ -387,7 +441,15 @@ function CaregiverDashboardHome({
 }
 
 // Placeholder component for senior card - can be expanded with more details and actions
-function CaregiverAlerts({ seniors }: { seniors: Senior[] }) {
+function CaregiverAlerts({
+  seniors,
+  resolvingAlertIds,
+  onResolveAlert,
+}: {
+  seniors: Senior[];
+  resolvingAlertIds: string[];
+  onResolveAlert: (senior: Senior) => void;
+}) {
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status));
 
   return (
@@ -408,7 +470,7 @@ function CaregiverAlerts({ seniors }: { seniors: Senior[] }) {
         </button>
       </section>
 
-// Alert Cards
+
       <section className="flex flex-col gap-5">
         {alertSeniors.length > 0 ? (
           alertSeniors.map((senior) => (
@@ -421,6 +483,8 @@ function CaregiverAlerts({ seniors }: { seniors: Senior[] }) {
               message={senior.alertMessage}
               time={formatAlertTime(senior.alertTime)}
               icon={/sos|urgent/i.test(senior.status || '') ? <ShieldAlert className="h-8 w-8" /> : <Bell className="h-8 w-8" />}
+              isResolving={senior.alertId ? resolvingAlertIds.includes(senior.alertId) : false}
+              onResolve={() => onResolveAlert(senior)}
             />
           ))
         ) : (
@@ -430,7 +494,6 @@ function CaregiverAlerts({ seniors }: { seniors: Senior[] }) {
         )}
       </section>
 
-// Recent History
       <section className="flex flex-col gap-4">
         <h2 className="text-2xl font-bold text-[#1b1c1c]">Recent History</h2>
         {seniors.slice(0, 3).map((senior) => (
@@ -454,6 +517,8 @@ function AlertCard({
   message,
   time,
   icon,
+  isResolving,
+  onResolve,
 }: {
   kind: 'sos' | 'missed';
   title: string;
@@ -462,6 +527,8 @@ function AlertCard({
   message?: string;
   time?: string;
   icon: React.ReactNode;
+  isResolving: boolean;
+  onResolve: () => void;
 }) {
   const isSos = kind === 'sos';
 
@@ -473,7 +540,7 @@ function AlertCard({
           : 'border-[#954a00] bg-[#ffdcc6] text-[#301400]'
       }`}
     >
-// Alert header with title and time
+
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className={`flex h-12 w-12 items-center justify-center rounded-full ${isSos ? 'bg-[#831318] text-white' : 'bg-[#954a00] text-white'}`}>
@@ -488,7 +555,7 @@ function AlertCard({
         </div>
         {time && <span className="rounded-full bg-white/15 px-3 py-1 text-sm font-bold text-current">{time}</span>}
       </div>
-// Alert details with location and message
+
       {isSos ? (
         <div className="mb-5 flex items-center gap-2 rounded-2xl bg-white/10 p-3">
           <MapPin className="h-5 w-5 flex-shrink-0 text-[#ffdad7]" />
@@ -503,7 +570,13 @@ function AlertCard({
 
       <div className="grid grid-cols-2 gap-3">
         <AlertActionButton icon={<Phone className="h-5 w-5" />} label="Call" variant={isSos ? 'light' : 'warning'} />
-        <AlertActionButton icon={<CheckCircle className="h-5 w-5" />} label="Resolve" variant={isSos ? 'danger' : 'light'} />
+        <AlertActionButton
+          icon={<CheckCircle className="h-5 w-5" />}
+          label={isResolving ? 'Resolving' : 'Resolve'}
+          variant={isResolving ? 'success' : isSos ? 'danger' : 'light'}
+          disabled={isResolving}
+          onClick={onResolve}
+        />
       </div>
     </div>
   );
@@ -511,23 +584,34 @@ function AlertCard({
 
 // Action button component used in alert cards with different styles based on variant
 function AlertActionButton({
+  disabled = false,
   icon,
   label,
+  onClick,
   variant,
 }: {
+  disabled?: boolean;
   icon: React.ReactNode;
   label: string;
-  variant: 'light' | 'danger' | 'warning';
+  onClick?: () => void;
+  variant: 'light' | 'danger' | 'warning' | 'success';
 }) {
   const className =
-    variant === 'danger'
+    variant === 'success'
+      ? 'bg-[#18833b] text-white'
+      : variant === 'danger'
       ? 'bg-[#831318] text-white'
       : variant === 'warning'
         ? 'bg-[#954a00] text-white'
         : 'bg-white text-[#831318]';
 
   return (
-    <button type="button" className={`flex h-14 items-center justify-center gap-2 rounded-full text-base font-bold shadow-sm transition-transform active:scale-95 ${className}`}>
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex h-14 items-center justify-center gap-2 rounded-full text-base font-bold shadow-sm transition-transform active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100 ${className}`}
+    >
       {icon}
       <span>{label}</span>
     </button>

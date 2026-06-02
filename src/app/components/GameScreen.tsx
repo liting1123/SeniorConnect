@@ -8,6 +8,9 @@ import {
   setCachedUserPoints,
   type AppUser,
 } from '../services/backend';
+import GameLauncher from './GameLauncher';
+import MemoryGame from './MemoryGame';
+import PuzzleGame from './PuzzleGame';
 
 type CardData = {
   id: number;
@@ -33,6 +36,8 @@ type StoredGameState = {
   revealedIds: number[];
   rewardClaimed: boolean;
 };
+
+type GameMode = 'menu' | 'friendly' | 'memory' | 'puzzle';
 
 function getSingaporeDateKey(value = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -89,6 +94,7 @@ export default function GameScreen() {
   const [confirmed, setConfirmed] = useState(false);
   const [isSavingPoint, setIsSavingPoint] = useState(false);
   const [rewardClaimed, setRewardClaimed] = useState(false);
+  const [gameMode, setGameMode] = useState<GameMode>('menu');
   const rewardStartedRef = useRef(false);
   const revealedCount = cards.filter((card) => card.revealed).length;
   const canConfirm = revealedCount >= requiredReveals;
@@ -200,6 +206,18 @@ export default function GameScreen() {
     updateRewardCount();
   };
 
+  if (gameMode !== 'friendly') {
+    if (gameMode === 'menu') {
+      return <GameLauncher onSelect={setGameMode} />;
+    }
+
+    if (gameMode === 'memory') {
+      return <MemoryGame onBack={() => setGameMode('menu')} />;
+    }
+
+    return <PuzzleGame onBack={() => setGameMode('menu')} />;
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-[#fbf9f8] text-[#1b1c1c]">
       <header className="sticky top-0 z-10 bg-[#fbf9f8] shadow-sm">
@@ -208,12 +226,21 @@ export default function GameScreen() {
             <Gamepad2 className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
             <span className="text-xl font-bold min-[390px]:text-2xl">{t('friendlyGame')}</span>
           </div>
-          <button
-            aria-label={t('notificationsLabel')}
-            className="flex h-10 w-10 items-center justify-center rounded-full text-[#414942] transition-colors active:scale-95 active:bg-[#e4e2e1] min-[390px]:h-12 min-[390px]:w-12"
-          >
-            <Bell className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setGameMode('menu')}
+              className="rounded-full border border-[#cbd5e1] bg-white px-3 py-1 text-sm text-[#1f2937] transition hover:bg-[#e2e8f0]"
+            >
+              Back
+            </button>
+            <button
+              aria-label={t('notificationsLabel')}
+              className="flex h-10 w-10 items-center justify-center rounded-full text-[#414942] transition-colors active:scale-95 active:bg-[#e4e2e1] min-[390px]:h-12 min-[390px]:w-12"
+            >
+              <Bell className="h-6 w-6 min-[390px]:h-7 min-[390px]:w-7" />
+            </button>
+          </div>
         </div>
       </header>
 

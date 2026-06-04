@@ -244,6 +244,9 @@ export async function handleRequest(request, response) {
       userId: route.uid,
       email: body.email,
       name: body.name,
+      phone: body.phone,
+      locationZones: body.locationZones,
+      address: body.address,
     });
     sendJson(response, 200, { user });
     return;

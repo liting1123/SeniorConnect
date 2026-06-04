@@ -446,7 +446,7 @@ export default function App() {
         </div>
 
         {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && currentScreen !== 'caregiverDashboard' && (
-          <nav className="shrink-0 bg-white border-t-2 border-gray-200 px-2 py-2 flex justify-around items-center">
+          <nav className="shrink-0 bg-white border-t-2 border-gray-200 flex justify-around items-center">
             <NavButton
               icon={<Home className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('home')}

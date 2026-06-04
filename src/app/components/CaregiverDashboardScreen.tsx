@@ -19,7 +19,6 @@ import {
   Pill,
   ShieldAlert,
   Shield,
-  SlidersHorizontal,
   TriangleAlert,
   User,
 } from 'lucide-react';
@@ -28,6 +27,17 @@ import { getStoredUser } from '../services/backend';
 
 const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
 const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
+const CAREGIVER_DASHBOARD_REFRESH_MS = 5000;
+
+type SosAlertHistory = {
+  id: string;
+  seniorName: string;
+  status: string;
+  location?: string;
+  message?: string;
+  alertTime?: string;
+  resolvedAt: string;
+};
 
 type Senior = {
   id: string;
@@ -48,6 +58,37 @@ type Senior = {
   alertTime?: string;
 };
 
+type SeniorDetailsInput = {
+  name: string;
+  phone: string;
+  email: string;
+  location: string;
+  address: string;
+};
+
+function getSosHistoryKey(caregiverEmail: string) {
+  return `careconnect.sosHistory.${caregiverEmail.trim().toLowerCase() || 'unknown'}`;
+}
+
+function getStoredSosHistory(caregiverEmail: string) {
+  const rawHistory = localStorage.getItem(getSosHistoryKey(caregiverEmail));
+
+  if (!rawHistory) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(rawHistory) as SosAlertHistory[];
+  } catch {
+    localStorage.removeItem(getSosHistoryKey(caregiverEmail));
+    return [];
+  }
+}
+
+function saveSosHistory(caregiverEmail: string, history: SosAlertHistory[]) {
+  localStorage.setItem(getSosHistoryKey(caregiverEmail), JSON.stringify(history));
+}
+
 export default function CaregiverDashboardScreen({
   onBack,
   onChangeLanguage,
@@ -67,14 +108,7 @@ export default function CaregiverDashboardScreen({
   const [seniorError, setSeniorError] = useState('');
   const [selectedSenior, setSelectedSenior] = useState<Senior | null>(null);
   const [resolvingAlertIds, setResolvingAlertIds] = useState<string[]>([]);
-  const pageTitle = selectedSenior
-    ? 'Details'
-    : activeTab === 'dashboard'
-      ? 'Dashboard'
-      : activeTab === 'alerts'
-        ? 'Alerts'
-        : 'Profile';
-
+  const [sosHistory, setSosHistory] = useState<SosAlertHistory[]>(() => getStoredSosHistory(caregiverEmail));
 //Senior data loading and polling logic
   useEffect(() => {
     if (!caregiverEmail) {
@@ -83,9 +117,21 @@ export default function CaregiverDashboardScreen({
     }
 
     const controller = new AbortController();
+    let isMounted = true;
+    let isRefreshing = false;
+    let hasLoadedOnce = false;
 
     async function loadSeniors() {
-      setIsLoadingSeniors(true);
+      if (isRefreshing) {
+        return;
+      }
+
+      isRefreshing = true;
+
+      if (!hasLoadedOnce) {
+        setIsLoadingSeniors(true);
+      }
+
       setSeniorError('');
 
       try {
@@ -99,28 +145,105 @@ export default function CaregiverDashboardScreen({
           throw new Error(data?.error || 'Unable to load caregiver dashboard');
         }
 
-        setSeniors(data?.seniors || []);
+        if (isMounted) {
+          setSeniors(data?.seniors || []);
+          hasLoadedOnce = true;
+        }
       } catch (error) {
         if ((error as Error).name === 'AbortError') {
           return;
         }
 
         console.error('Caregiver dashboard load failed:', error);
-        setSeniorError(error instanceof Error ? error.message : 'Unable to load caregiver dashboard');
-        setSeniors([]);
+        if (isMounted) {
+          setSeniorError(error instanceof Error ? error.message : 'Unable to load caregiver dashboard');
+
+          if (!hasLoadedOnce) {
+            setSeniors([]);
+          }
+        }
       } finally {
-        if (!controller.signal.aborted) {
+        isRefreshing = false;
+
+        if (isMounted && !controller.signal.aborted) {
           setIsLoadingSeniors(false);
         }
       }
     }
 
     loadSeniors();
+    const refreshTimer = window.setInterval(loadSeniors, CAREGIVER_DASHBOARD_REFRESH_MS);
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        loadSeniors();
+      }
+    };
+
+    document.addEventListener('visibilitychange', refreshWhenVisible);
 
     return () => {
+      isMounted = false;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
       controller.abort();
     };
   }, [caregiverEmail, caregiverId]);
+
+  useEffect(() => {
+    setSosHistory(getStoredSosHistory(caregiverEmail));
+  }, [caregiverEmail]);
+
+  const handleUpdateSeniorDetails = async (senior: Senior, details: SeniorDetailsInput) => {
+    const seniorId = senior.userId || senior.id;
+
+    if (!seniorId) {
+      throw new Error('Senior profile ID is missing.');
+    }
+
+    if (!currentUser?.token) {
+      throw new Error('Please log in again before updating senior details.');
+    }
+
+    const response = await fetch(`/api/users/${encodeURIComponent(seniorId)}/profile`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${currentUser.token}`,
+      },
+      body: JSON.stringify({
+        name: details.name,
+        email: details.email,
+        phone: details.phone,
+        locationZones: details.location,
+        address: details.address,
+      }),
+    });
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(data?.error || 'Unable to update senior details.');
+    }
+
+    const updatedUser = data?.user || {};
+    const updatedSenior: Senior = {
+      ...senior,
+      name: updatedUser.name || details.name,
+      phone: updatedUser.phone || details.phone,
+      email: updatedUser.email || details.email,
+      location: updatedUser.locationZones || details.location,
+      address: updatedUser.address || details.address,
+    };
+
+    setSelectedSenior(updatedSenior);
+    setSeniors((currentSeniors) =>
+      currentSeniors.map((currentSenior) =>
+        currentSenior.id === senior.id || currentSenior.userId === senior.userId
+          ? { ...currentSenior, ...updatedSenior }
+          : currentSenior,
+      ),
+    );
+  };
 
   const handleResolveAlert = async (senior: Senior) => {
     if (!senior.alertId) {
@@ -147,6 +270,26 @@ export default function CaregiverDashboardScreen({
         throw new Error(data?.error || 'Unable to resolve ServiceNow alert');
       }
 
+      const resolvedHistoryItem: SosAlertHistory = {
+        id: senior.alertId,
+        seniorName: senior.name || 'Senior',
+        status: senior.status || senior.alertStatus || 'SOS Active',
+        location: senior.location,
+        message: senior.alertMessage,
+        alertTime: senior.alertTime,
+        resolvedAt: new Date().toISOString(),
+      };
+
+      setSosHistory((currentHistory) => {
+        const nextHistory = [
+          resolvedHistoryItem,
+          ...currentHistory.filter((item) => item.id !== resolvedHistoryItem.id),
+        ].slice(0, 20);
+
+        saveSosHistory(caregiverEmail, nextHistory);
+        return nextHistory;
+      });
+
       setSeniors((currentSeniors) =>
         currentSeniors.map((currentSenior) =>
           currentSenior.alertId === senior.alertId
@@ -172,37 +315,12 @@ export default function CaregiverDashboardScreen({
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f6f8] pb-24 text-[#101418]">
-      <header className="sticky top-0 z-10 bg-[#f4f6f8] shadow-sm">
-        <div className="flex h-[88px] items-center justify-between px-5">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full border-2 border-[#b8d5df] bg-[#dcecef] text-[#0f5f75] shadow-sm">
-              <User className="h-8 w-8" />
-            </div>
-            <h1 className="truncate text-[28px] font-bold leading-8 tracking-normal text-black">
-              {pageTitle}
-            </h1>
-          </div>
-
-          <button
-            type="button"
-            className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full text-black transition-transform active:scale-95"
-            aria-label="Notifications"
-          >
-            <Bell className="h-8 w-8" />
-            {alertCount > 0 && (
-              <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[#f4f6f8] bg-[#c8171d] text-[11px] font-bold text-white">
-                {alertCount}
-              </span>
-            )}
-          </button>
-        </div>
-      </header>
-
       <main className="px-5 py-5">
         {selectedSenior ? (
           <ResidentProfileDetails
             senior={selectedSenior}
             onBack={() => setSelectedSenior(null)}
+            onSave={handleUpdateSeniorDetails}
           />
         ) : activeTab === 'dashboard' && (
           <CaregiverDashboardHome
@@ -216,6 +334,7 @@ export default function CaregiverDashboardScreen({
         {!selectedSenior && activeTab === 'alerts' && (
           <CaregiverAlerts
             seniors={seniors}
+            sosHistory={sosHistory}
             resolvingAlertIds={resolvingAlertIds}
             onResolveAlert={handleResolveAlert}
           />
@@ -230,7 +349,7 @@ export default function CaregiverDashboardScreen({
         )}
       </main>
 
-      <nav className="absolute bottom-0 left-0 right-0 z-20 flex h-24 items-center justify-around bg-[#f4f6f8] px-5 pb-3 pt-2 shadow-[0_-8px_20px_rgba(0,0,0,0.04)]">
+      <nav className="absolute bottom-0 left-0 right-0 z-20 flex min-h-24 items-center justify-around bg-[#f4f6f8] pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_20px_rgba(0,0,0,0.04)]">
         <DashboardNavItem
           active={activeTab === 'dashboard'}
           icon={<LayoutDashboard className="h-6 w-6" />}
@@ -298,14 +417,26 @@ function getTimeGreeting() {
   return 'Good Evening';
 }
 
-function formatAlertTime(value = '') {
+function parseServiceNowDate(value = '') {
   if (!value) {
-    return undefined;
+    return null;
   }
 
-  const date = new Date(value.replace(' ', 'T'));
+  const normalizedValue = value.trim().replace(' ', 'T');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedValue);
+  const date = new Date(hasTimezone ? normalizedValue : `${normalizedValue}Z`);
 
   if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
+function formatAlertTime(value = '') {
+  const date = parseServiceNowDate(value);
+
+  if (!date) {
     return undefined;
   }
 
@@ -321,10 +452,9 @@ function formatDetailDateTime(value = '') {
     return 'Not provided';
   }
 
-  const normalizedValue = value.includes('T') ? value : value.replace(' ', 'T');
-  const date = new Date(normalizedValue);
+  const date = parseServiceNowDate(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (!date) {
     return value;
   }
 
@@ -352,29 +482,9 @@ function CaregiverDashboardHome({
   const alertSenior = alertSeniors[0];
   const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status));
   const featuredSeniors = [...alertSeniors, ...stableSeniors];
-  const recentAlertTitle = alertSenior
-    ? `${alertSenior.name}'s status needs attention`
-    : 'All residents stable';
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="-mx-5 -mt-5">
-        <div className="flex h-16 items-center justify-between bg-[#c8171d] px-6 text-white">
-          <div className="flex min-w-0 items-center gap-3">
-            <TriangleAlert className="h-8 w-8 flex-shrink-0" />
-            <p className="truncate text-lg font-bold uppercase tracking-wide">
-              {alertSenior ? `Active SOS: ${alertSenior.name}` : 'No Active SOS'}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="flex h-9 flex-shrink-0 items-center justify-center rounded-full bg-white px-4 text-base font-bold uppercase text-[#c8171d] shadow-sm active:scale-95"
-          >
-            Acknowledge
-          </button>
-        </div>
-      </section>
-
       <section className="flex items-center justify-between gap-4">
         <h2 className="text-[30px] font-bold leading-9 text-black">Monitored Residents</h2>
         <p className="shrink-0 text-right text-base font-bold text-[#71717a]">
@@ -410,32 +520,6 @@ function CaregiverDashboardHome({
         )}
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-[30px] font-bold leading-9 text-black">Recent Alerts</h2>
-        <div className="rounded-[22px] bg-[#2875e0] p-6 text-white shadow-sm">
-          <p className="text-base font-medium uppercase text-white/90">Critical Update</p>
-          <h3 className="mt-3 text-2xl font-bold leading-8">{recentAlertTitle}</h3>
-          <p className="mt-4 flex items-center gap-2 text-base font-bold">
-            <Clock className="h-5 w-5" />
-            {alertSenior ? '2 mins ago' : 'Just now'}
-          </p>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-2 gap-4">
-        <DashboardMetricCard
-          icon={<Activity className="h-10 w-10" />}
-          title={alertSenior ? 'Review' : 'Active'}
-          subtitle={alertSenior ? `${alertSenior.name}'s activity` : 'Resident activity'}
-          tone="blue"
-        />
-        <DashboardMetricCard
-          icon={<Heart className="h-10 w-10" />}
-          title={alertSenior ? 'Attention' : 'Normal'}
-          subtitle="Sleep quality"
-          tone="green"
-        />
-      </section>
     </div>
   );
 }
@@ -443,10 +527,12 @@ function CaregiverDashboardHome({
 // Placeholder component for senior card - can be expanded with more details and actions
 function CaregiverAlerts({
   seniors,
+  sosHistory,
   resolvingAlertIds,
   onResolveAlert,
 }: {
   seniors: Senior[];
+  sosHistory: SosAlertHistory[];
   resolvingAlertIds: string[];
   onResolveAlert: (senior: Senior) => void;
 }) {
@@ -454,23 +540,6 @@ function CaregiverAlerts({
 
   return (
     <div className="flex flex-col gap-7">
-      <section className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold leading-10 text-[#1b1c1c] min-[390px]:text-[32px]">Alerts</h1>
-          <p className="mt-1 text-base leading-6 text-[#414942] min-[390px]:text-lg">
-            Managing urgent caregiver notifications
-          </p>
-        </div>
-        <button
-          type="button"
-          className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#f5f3f3] text-[#717971] transition-transform active:scale-95"
-          aria-label="Filter alerts"
-        >
-          <SlidersHorizontal className="h-6 w-6" />
-        </button>
-      </section>
-
-
       <section className="flex flex-col gap-5">
         {alertSeniors.length > 0 ? (
           alertSeniors.map((senior) => (
@@ -495,15 +564,22 @@ function CaregiverAlerts({
       </section>
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-2xl font-bold text-[#1b1c1c]">Recent History</h2>
-        {seniors.slice(0, 3).map((senior) => (
-          <AlertHistoryItem
-            key={senior.id}
-            name={senior.name}
-            time={senior.status || 'Connected'}
-            message={`${senior.name} is linked to your caregiver dashboard.`}
-          />
-        ))}
+        <h2 className="text-2xl font-bold text-[#1b1c1c]">SOS History</h2>
+        {sosHistory.length > 0 ? (
+          sosHistory.map((alert) => (
+            <AlertHistoryItem
+              key={alert.id}
+              name={alert.seniorName}
+              time={formatAlertTime(alert.alertTime) || formatAlertTime(alert.resolvedAt) || 'Resolved'}
+              message={alert.message || `${alert.status} resolved`}
+              location={alert.location}
+            />
+          ))
+        ) : (
+          <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
+            Resolved SOS alerts will appear here.
+          </p>
+        )}
       </section>
     </div>
   );
@@ -618,18 +694,29 @@ function AlertActionButton({
   );
 }
 
-function AlertHistoryItem({ name, time, message }: { name: string; time: string; message: string }) {
+function AlertHistoryItem({
+  location,
+  name,
+  time,
+  message,
+}: {
+  location?: string;
+  name: string;
+  time: string;
+  message: string;
+}) {
   return (
-    <div className="flex items-start gap-4 rounded-[28px] bg-[#f5f3f3] p-4 min-[390px]:rounded-[32px]">
-      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#a7ddb3]/40 text-[#1d5031]">
+    <div className="flex items-start gap-4 rounded-[28px] bg-[#e9f6ed] p-4 shadow-sm min-[390px]:rounded-[32px]">
+      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#18833b] text-white">
         <CheckCircle className="h-6 w-6" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
-          <p className="font-bold text-[#1b1c1c]">{name}</p>
-          <span className="flex-shrink-0 text-sm font-semibold text-[#717971]">{time}</span>
+          <p className="font-bold text-[#124f25]">{name}</p>
+          <span className="flex-shrink-0 text-sm font-semibold text-[#18833b]">{time}</span>
         </div>
-        <p className="mt-1 text-sm leading-5 text-[#414942]">{message}</p>
+        <p className="mt-1 text-sm leading-5 text-[#1d5031]">{message}</p>
+        {location && <p className="mt-1 text-sm font-semibold leading-5 text-[#2e6f42]">{location}</p>}
       </div>
     </div>
   );
@@ -638,10 +725,21 @@ function AlertHistoryItem({ name, time, message }: { name: string; time: string;
 function ResidentProfileDetails({
   senior,
   onBack,
+  onSave,
 }: {
   senior: Senior;
   onBack: () => void;
+  onSave: (senior: Senior, details: SeniorDetailsInput) => Promise<void>;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formValues, setFormValues] = useState<SeniorDetailsInput>({
+    name: senior.name || '',
+    phone: senior.phone || '',
+    email: senior.email || '',
+    location: senior.location || '',
+    address: senior.address || '',
+  });
   const displayName = senior.name || 'Not provided';
   const phone = senior.phone || 'Not provided';
   const phoneHref = getPhoneHref(senior.phone);
@@ -661,6 +759,48 @@ function ResidentProfileDetails({
     { label: 'Current Status', value: status || 'Not provided', icon: <CheckCircle className="h-6 w-6" /> },
   ];
 
+  useEffect(() => {
+    setFormValues({
+      name: senior.name || '',
+      phone: senior.phone || '',
+      email: senior.email || '',
+      location: senior.location || '',
+      address: senior.address || '',
+    });
+  }, [senior]);
+
+  const updateFormValue = (field: keyof SeniorDetailsInput, value: string) => {
+    setFormValues((currentValues) => ({
+      ...currentValues,
+      [field]: value,
+    }));
+  };
+
+  const handleSave = async () => {
+    if (!formValues.name.trim()) {
+      alert('Senior name is required.');
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await onSave(senior, {
+        name: formValues.name.trim(),
+        phone: formValues.phone.trim(),
+        email: formValues.email.trim(),
+        location: formValues.location.trim(),
+        address: formValues.address.trim(),
+      });
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Unable to update senior details:', error);
+      alert(error instanceof Error ? error.message : 'Unable to update senior details.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="-mx-5 -my-5 min-h-full bg-[#f4f6f8] pb-6">
       <div className="sticky top-0 z-10 flex h-16 items-center gap-3 bg-[#f4f6f8] px-5 shadow-sm">
@@ -673,6 +813,13 @@ function ResidentProfileDetails({
           <ArrowLeft className="h-6 w-6" />
         </button>
         <h1 className="truncate text-2xl font-bold text-black">Details</h1>
+        <button
+          type="button"
+          onClick={() => setIsEditing((currentValue) => !currentValue)}
+          className="ml-auto rounded-full bg-white px-4 py-2 text-base font-bold text-[#075fc7] shadow-sm active:scale-95"
+        >
+          {isEditing ? 'Cancel' : 'Edit'}
+        </button>
       </div>
 
       <section className="px-5 pt-5">
@@ -692,25 +839,43 @@ function ResidentProfileDetails({
       </section>
 
       <section className="mt-5 px-5">
-        <div className="overflow-hidden rounded-[18px] bg-white shadow-sm">
-          {profileRows.map((row) => (
-            <div
-              key={row.label}
-              className="flex items-center gap-4 border-b border-[#eef0f2] px-5 py-4 last:border-b-0"
+        {isEditing ? (
+          <div className="rounded-[18px] bg-white p-5 shadow-sm">
+            <SeniorDetailField label="Full Name" value={formValues.name} onChange={(value) => updateFormValue('name', value)} />
+            <SeniorDetailField label="Phone Number" value={formValues.phone} onChange={(value) => updateFormValue('phone', value)} type="tel" />
+            <SeniorDetailField label="Email" value={formValues.email} onChange={(value) => updateFormValue('email', value)} type="email" />
+            <SeniorDetailField label="Location Zone" value={formValues.location} onChange={(value) => updateFormValue('location', value)} />
+            <SeniorDetailField label="Address" value={formValues.address} onChange={(value) => updateFormValue('address', value)} />
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={handleSave}
+              className="mt-5 flex h-14 w-full items-center justify-center rounded-[10px] bg-[#075fc7] text-lg font-bold uppercase text-white active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
             >
-              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[#edf4ff] text-[#075fc7]">
-                {row.icon}
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-[18px] bg-white shadow-sm">
+            {profileRows.map((row) => (
+              <div
+                key={row.label}
+                className="flex items-center gap-4 border-b border-[#eef0f2] px-5 py-4 last:border-b-0"
+              >
+                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[#edf4ff] text-[#075fc7]">
+                  {row.icon}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[#71717a]">{row.label}</p>
+                  <p className="mt-1 break-words text-lg font-bold leading-6 text-black">{row.value}</p>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-[#71717a]">{row.label}</p>
-                <p className="mt-1 break-words text-lg font-bold leading-6 text-black">{row.value}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
 
-      <section className="mt-5 px-5">
+      {!isEditing && <section className="mt-5 px-5">
         <a
           href={phoneHref}
           aria-disabled={!phoneHref}
@@ -723,8 +888,32 @@ function ResidentProfileDetails({
           <Phone className="h-5 w-5" />
           Call
         </a>
-      </section>
+      </section>}
     </div>
+  );
+}
+
+function SeniorDetailField({
+  label,
+  onChange,
+  type = 'text',
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  type?: string;
+  value: string;
+}) {
+  return (
+    <label className="block border-b border-gray-200 py-3 last:border-b-0">
+      <span className="mb-1 block text-sm font-semibold text-[#71717a]">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl bg-[#f4f6f8] px-4 py-3 text-lg font-bold text-black outline-none focus:ring-2 focus:ring-[#075fc7]"
+      />
+    </label>
   );
 }
 

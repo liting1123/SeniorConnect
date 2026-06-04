@@ -264,12 +264,24 @@ export async function getUserById(userId) {
   return record ? toUserRecord(record) : null;
 }
 
-export async function upsertUserProfile({ userId, email, name }) {
+export async function upsertUserProfile({ userId, email, name, phone, locationZones, address }) {
   const existing = await getUserById(userId);
   const payload = {
     [FIELD_MAP.email]: email || '',
     [FIELD_MAP.name]: name || email?.split('@')[0] || 'User',
   };
+
+  if (phone !== undefined) {
+    payload[FIELD_MAP.phone] = phone || '';
+  }
+
+  if (locationZones !== undefined) {
+    payload[FIELD_MAP.locationZones] = locationZones || '';
+  }
+
+  if (address !== undefined) {
+    payload[FIELD_MAP.address] = address || '';
+  }
 
   if (FIELD_MAP.userId !== 'sys_id') {
     payload[FIELD_MAP.userId] = userId;

@@ -34,6 +34,18 @@ export type MedicineInput = Partial<Medicine> & {
   name: string;
 };
 
+export type FamilyVerification = {
+  id: string;
+  seniorId: string;
+  seniorName?: string;
+  familyEmail: string;
+  code?: string;
+  expiresAt: string;
+  status: string;
+  verifiedAt?: string;
+  familyUserId?: string;
+};
+
 export type AppUser = {
   uid: string;
   email: string;
@@ -273,4 +285,59 @@ export async function syncProfile(user: AppUser) {
       name: getDisplayName(user),
     }),
   });
+}
+
+export async function startFamilyVerification(user: AppUser, seniorId: string) {
+  const data = await request<{ verification: FamilyVerification }>(user, '/api/servicenow/family-verification/start', {
+    method: 'POST',
+    body: JSON.stringify({
+      seniorId,
+      familyEmail: user.email,
+      familyUserId: user.uid,
+    }),
+  });
+
+  return data.verification;
+}
+
+export async function verifyFamilyCode(
+  user: AppUser,
+  {
+    code,
+    relationship,
+    seniorId,
+    verificationId,
+  }: {
+    code: string;
+    relationship: string;
+    seniorId: string;
+    verificationId: string;
+  },
+) {
+  const data = await request<{ verification: FamilyVerification; connection: unknown }>(
+    user,
+    '/api/servicenow/family-verification/verify',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        code,
+        relationship,
+        seniorId,
+        verificationId,
+        familyEmail: user.email,
+        familyUserId: user.uid,
+      }),
+    },
+  );
+
+  return data;
+}
+
+export async function getFamilyVerificationCodes(user: AppUser) {
+  const data = await request<{ verifications: FamilyVerification[] }>(
+    user,
+    `/api/users/${user.uid}/family-verification-codes`,
+  );
+
+  return data.verifications || [];
 }

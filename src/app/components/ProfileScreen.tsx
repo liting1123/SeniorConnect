@@ -1,10 +1,21 @@
-import { ArrowLeft, ChevronRight, User, Shield, HelpCircle, LogOut, Languages } from 'lucide-react';
+import { ArrowLeft, ChevronRight, User, Shield, HelpCircle, LogOut, Languages, KeyRound, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { type AppUser, getStoredUser } from '../services/backend';
+import {
+  type AppUser,
+  type FamilyVerification,
+  getFamilyVerificationCodes,
+  getSeniorProfile,
+  getStoredUser,
+} from '../services/backend';
 
 export const PERSONAL_INFO_KEY = 'careconnect.personalInfo';
 const PROFILE_IMAGE_KEY = 'careconnect.profileImage';
+const SENIOR_ID_LENGTH = 8;
+
+function getDisplaySeniorId(value = '') {
+  return value ? value.slice(0, SENIOR_ID_LENGTH).toUpperCase() : '';
+}
 
 export default function ProfileScreen({
   onChangeLanguage,
@@ -20,7 +31,13 @@ export default function ProfileScreen({
   const [personalEmail, setPersonalEmail] = useState(() => getStoredUser()?.email || '');
   const [address, setAddress] = useState('Block 123 Woodlands');
   const [profileImage, setProfileImage] = useState(() => localStorage.getItem(PROFILE_IMAGE_KEY) || '');
+  const [verificationCodes, setVerificationCodes] = useState<FamilyVerification[]>([]);
+  const [verificationError, setVerificationError] = useState('');
+  const [seniorIdForFamily, setSeniorIdForFamily] = useState('');
+  const [activeVerification, setActiveVerification] = useState<FamilyVerification | null>(null);
+  const [dismissedVerificationId, setDismissedVerificationId] = useState('');
   const profileEmail = user?.email ?? 'No email found';
+  const shouldShowSeniorId = !/family|nok/i.test(user?.role || '');
   const displayName = useMemo(() => {
     if (user?.displayName?.trim()) {
       return user.displayName.trim();
@@ -61,6 +78,52 @@ export default function ProfileScreen({
 
     setPersonalEmail(user?.email || '');
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !shouldShowSeniorId) {
+      setVerificationCodes([]);
+      setSeniorIdForFamily('');
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadVerificationCodes = async () => {
+      try {
+        const profile = await getSeniorProfile(user).catch(() => null);
+
+        if (isMounted) {
+          setSeniorIdForFamily(getDisplaySeniorId(profile?.sysId || profile?.userId || user.uid));
+        }
+
+        const codes = await getFamilyVerificationCodes(user);
+
+        if (isMounted) {
+          setVerificationCodes(codes);
+          const newestCode = codes[0];
+
+          if (newestCode && newestCode.id !== dismissedVerificationId) {
+            setActiveVerification(newestCode);
+          }
+
+          setVerificationError('');
+        }
+      } catch (error) {
+        if (isMounted) {
+          console.error('Unable to load family verification codes:', error);
+          setVerificationError(error instanceof Error ? error.message : 'Unable to load verification codes.');
+        }
+      }
+    };
+
+    loadVerificationCodes();
+    const timer = window.setInterval(loadVerificationCodes, 5000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
+  }, [dismissedVerificationId, shouldShowSeniorId, user]);
 
   const handleSavePersonalInfo = () => {
     localStorage.setItem(
@@ -183,7 +246,7 @@ export default function ProfileScreen({
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-gray-50">
+    <div className="relative h-full overflow-y-auto bg-gray-50">
       <div className="bg-gradient-to-br from-green-400 to-green-600 px-5 pb-5 pt-6 text-white min-[390px]:px-7 min-[390px]:pb-7 min-[390px]:pt-8">
         <div className="mb-4 flex items-center gap-4 min-[390px]:gap-5">
           {profileImage ? (
@@ -205,6 +268,45 @@ export default function ProfileScreen({
       </div>
 
       <div className="space-y-5 p-5 min-[390px]:space-y-6 min-[390px]:p-8">
+        {shouldShowSeniorId && user && (
+          <div className="rounded-2xl bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-green-50 text-green-700">
+                <KeyRound className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 min-[390px]:text-2xl">Senior ID</h3>
+                <p className="text-sm font-semibold text-gray-500">Give this ID to your family member.</p>
+              </div>
+            </div>
+            <p className="break-all rounded-2xl bg-gray-50 p-4 text-lg font-bold text-gray-900">
+              {seniorIdForFamily || getDisplaySeniorId(user.uid)}
+            </p>
+
+            <div className="mt-5">
+              <h4 className="text-lg font-bold text-gray-900">Family Verification Codes</h4>
+              {verificationCodes.length > 0 ? (
+                <div className="mt-3 flex flex-col gap-3">
+                  {verificationCodes.map((verification) => (
+                    <div key={verification.id} className="rounded-2xl bg-green-50 p-4">
+                      <p className="text-sm font-semibold text-green-900">{verification.familyEmail}</p>
+                      <p className="mt-1 text-3xl font-black tracking-wide text-green-700">{verification.code}</p>
+                      <p className="mt-1 text-sm font-medium text-green-900">
+                        Expires at {verification.expiresAt || 'soon'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 rounded-2xl bg-gray-50 p-4 text-base font-medium text-gray-600">
+                  No pending family verification code.
+                </p>
+              )}
+              {verificationError && <p className="mt-3 text-sm font-bold text-red-600">{verificationError}</p>}
+            </div>
+          </div>
+        )}
+
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
           <SettingsItem
             icon={<User className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
@@ -229,6 +331,49 @@ export default function ProfileScreen({
           />
         </div>
       </div>
+
+      {activeVerification && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-5">
+          <div className="w-full max-w-sm rounded-[28px] bg-white p-6 text-center shadow-2xl">
+            <div className="mb-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setDismissedVerificationId(activeVerification.id);
+                  setActiveVerification(null);
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700 active:scale-95"
+                aria-label="Close verification code"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-50 text-green-700">
+              <KeyRound className="h-9 w-9" />
+            </div>
+            <h2 className="mt-4 text-2xl font-black text-gray-900">Family Verification Code</h2>
+            <p className="mt-2 text-base font-semibold text-gray-600">
+              Give this code to {activeVerification.familyEmail}.
+            </p>
+            <p className="mt-5 rounded-3xl bg-green-50 px-5 py-6 text-5xl font-black tracking-[0.18em] text-green-700">
+              {activeVerification.code}
+            </p>
+            <p className="mt-4 text-sm font-semibold text-gray-500">
+              It will become Verified after your family member enters this code.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setDismissedVerificationId(activeVerification.id);
+                setActiveVerification(null);
+              }}
+              className="mt-6 flex h-14 w-full items-center justify-center rounded-full bg-green-600 text-xl font-bold text-white active:scale-95"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -113,6 +113,7 @@ export default function App() {
   const activeMedicineReminderIdRef = useRef<string | null>(null);
   const [snoozedMedicineUntil, setSnoozedMedicineUntil] = useState<Record<string, number>>({});
   const snoozedMedicineUntilRef = useRef<Record<string, number>>({});
+  const [familyRegistrationNotice, setFamilyRegistrationNotice] = useState('');
 
   const activeMedicineReminder = useMemo(() => {
     return medicines.find((medicine) => medicine.id === activeMedicineReminderId) || null;
@@ -378,7 +379,10 @@ export default function App() {
         return (
           <LoginScreen
             onGetStarted={handleLoginSuccess}
-            onFamilyRegister={() => setCurrentScreen('carePortal')}
+            onFamilyRegister={(user) => {
+              setFamilyRegistrationNotice(`${user.email || 'Family member'} has been registered.`);
+              setCurrentScreen('carePortal');
+            }}
           />
         );
       case 'language':
@@ -415,8 +419,15 @@ export default function App() {
       case 'carePortal':
         return (
           <CarePortalScreen
-            onBack={() => setCurrentScreen('welcome')}
-            onRegistered={() => setCurrentScreen('caregiverDashboard')}
+            registrationNotice={familyRegistrationNotice}
+            onBack={() => {
+              setFamilyRegistrationNotice('');
+              setCurrentScreen('welcome');
+            }}
+            onRegistered={() => {
+              setFamilyRegistrationNotice('');
+              setCurrentScreen('caregiverDashboard');
+            }}
           />
         );
       case 'caregiverDashboard':

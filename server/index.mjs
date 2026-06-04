@@ -5,9 +5,11 @@ import {
   addCheckInPoints,
   addGamePoint,
   createCaregiverConnection,
+  createFamilyVerification,
   createSosAlert,
   deleteMedicineForUser,
   getCaregiverSeniorConnections,
+  getPendingFamilyVerificationCodesForSenior,
   getMedicinesForUser,
   getServiceNowLoginConfig,
   getUserById,
@@ -17,6 +19,7 @@ import {
   searchSeniorProfiles,
   updateSosAlertStatus,
   upsertUserProfile,
+  verifyFamilyVerification,
 } from './servicenow.mjs';
 
 loadEnv();
@@ -53,7 +56,7 @@ function requireAuth(request) {
 }
 
 function getUidFromPath(pathname) {
-  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|game|profile|medicines))?$/);
+  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|game|profile|medicines|family-verification-codes))?$/);
   return match ? { uid: decodeURIComponent(match[1]), action: match[2] || null } : null;
 }
 
@@ -151,6 +154,35 @@ export async function handleRequest(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/servicenow/family-verification/start' && request.method === 'POST') {
+    requireAuth(request);
+    const body = await readJson(request);
+    const result = await createFamilyVerification({
+      seniorId: body.seniorId,
+      familyEmail: body.familyEmail,
+      familyUserId: body.familyUserId,
+    });
+
+    sendJson(response, 200, result);
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/family-verification/verify' && request.method === 'POST') {
+    requireAuth(request);
+    const body = await readJson(request);
+    const result = await verifyFamilyVerification({
+      verificationId: body.verificationId,
+      seniorId: body.seniorId,
+      familyEmail: body.familyEmail,
+      familyUserId: body.familyUserId,
+      code: body.code,
+      relationship: body.relationship,
+    });
+
+    sendJson(response, 200, result);
+    return;
+  }
+
   if (url.pathname === '/api/servicenow/caregiver-seniors' && request.method === 'GET') {
     const seniors = await getCaregiverSeniorConnections({
       caregiverId: url.searchParams.get('caregiverId'),
@@ -197,6 +229,12 @@ export async function handleRequest(request, response) {
   if (request.method === 'GET' && route.action === 'medicines') {
     const medicines = await getMedicinesForUser(route.uid);
     sendJson(response, 200, { medicines });
+    return;
+  }
+
+  if (request.method === 'GET' && route.action === 'family-verification-codes') {
+    const verifications = await getPendingFamilyVerificationCodesForSenior(route.uid);
+    sendJson(response, 200, { verifications });
     return;
   }
 

@@ -31,6 +31,8 @@ const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
 const SOS_ALERT_TABLE = process.env.SERVICE_NOW_SOS_ALERT_TABLE || 'u_sos_alert';
 const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregiver_profiles';
 const MEDICINE_TABLE = process.env.SERVICE_NOW_MEDICINE_TABLE || 'u_medicine';
+const FAMILY_VERIFICATION_TABLE = process.env.SERVICE_NOW_FAMILY_VERIFICATION_TABLE || 'u_family_verification_code';
+const SENIOR_DISPLAY_ID_LENGTH = Number(process.env.SENIOR_DISPLAY_ID_LENGTH) || 8;
 
 const LOGIN_FIELD_MAP = {
   username: process.env.SERVICE_NOW_LOGIN_FIELD_USERNAME || 'u_username',
@@ -66,6 +68,16 @@ const MEDICINE_FIELD_MAP = {
   status: process.env.SERVICE_NOW_MEDICINE_FIELD_STATUS || 'u_status',
   notes: process.env.SERVICE_NOW_MEDICINE_FIELD_NOTES || 'u_notes',
   isExtra: process.env.SERVICE_NOW_MEDICINE_FIELD_IS_EXTRA || 'u_is_extra',
+};
+
+const FAMILY_VERIFICATION_FIELD_MAP = {
+  senior: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_SENIOR || 'u_senior_id',
+  familyEmail: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_FAMILY_EMAIL || 'u_family_email',
+  code: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_CODE || 'u_code',
+  expiresAt: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_EXPIRES_AT || 'u_expires_at',
+  status: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_STATUS || 'u_status',
+  verifiedAt: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_VERIFIED_AT || 'u_verified_at',
+  familyUser: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_FAMILY_USER || 'u_family_user_id',
 };
 
 function getConfig() {
@@ -186,6 +198,23 @@ function getTablePath(query = '') {
 function getNamedTablePath(table, query = '') {
   getConfig();
   return `/api/now/table/${encodeURIComponent(table)}${query}`;
+}
+
+async function serviceNowFamilyVerificationFetch(query = '', options = {}) {
+  try {
+    return await serviceNowFetch(getNamedTablePath(FAMILY_VERIFICATION_TABLE, query), options);
+  } catch (error) {
+    if (error.status === 404 || /not found/i.test(error.message || '')) {
+      throw Object.assign(
+        new Error(
+          `Verification code table was not found. Check SERVICE_NOW_FAMILY_VERIFICATION_TABLE in .env. Current value: ${FAMILY_VERIFICATION_TABLE}`,
+        ),
+        { status: 503, details: error.details },
+      );
+    }
+
+    throw error;
+  }
 }
 
 function toUserRecord(record = {}) {
@@ -423,6 +452,107 @@ function getServiceNowDateTime(value = new Date()) {
   const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
 
   return `${partMap.year}-${partMap.month}-${partMap.day} ${partMap.hour}:${partMap.minute}:${partMap.second}`;
+}
+
+function getServiceNowUtcDateTime(value = new Date()) {
+  return value.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function generateVerificationCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function isExpiredServiceNowDateTime(value = '') {
+  if (!value) {
+    return true;
+  }
+
+  const normalizedValue = String(value).trim().replace(' ', 'T');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedValue);
+  const date = new Date(hasTimezone ? normalizedValue : `${normalizedValue}Z`);
+
+  return Number.isNaN(date.getTime()) || date.getTime() < Date.now();
+}
+
+function getShortSeniorId(record = {}) {
+  return String(record.sys_id || '').slice(0, SENIOR_DISPLAY_ID_LENGTH).toUpperCase();
+}
+
+function isFamilyVerificationVerified(record = {}) {
+  return Boolean(getDisplayValue(record[FAMILY_VERIFICATION_FIELD_MAP.verifiedAt]));
+}
+
+function toFamilyVerificationRecord(record = {}) {
+  const verifiedAt = getDisplayValue(record[FAMILY_VERIFICATION_FIELD_MAP.verifiedAt]);
+
+  return {
+    id: record.sys_id || '',
+    seniorId: getReferenceValue(record[FAMILY_VERIFICATION_FIELD_MAP.senior]),
+    seniorName: getDisplayValue(record[FAMILY_VERIFICATION_FIELD_MAP.senior]),
+    familyEmail: getDisplayValue(record[FAMILY_VERIFICATION_FIELD_MAP.familyEmail]),
+    code: getDisplayValue(record[FAMILY_VERIFICATION_FIELD_MAP.code]),
+    expiresAt: getDisplayValue(record[FAMILY_VERIFICATION_FIELD_MAP.expiresAt]),
+    status: verifiedAt ? 'Verified' : 'Pending',
+    verifiedAt,
+    familyUserId: getReferenceValue(record[FAMILY_VERIFICATION_FIELD_MAP.familyUser]),
+  };
+}
+
+async function findSeniorProfileByIdOrUserId(seniorId) {
+  const normalizedSeniorId = String(seniorId || '').trim();
+  const comparableSeniorId = normalizedSeniorId.toLowerCase();
+
+  if (!normalizedSeniorId) {
+    return null;
+  }
+
+  try {
+    const data = await serviceNowFetch(getTablePath(`/${encodeURIComponent(normalizedSeniorId)}`));
+
+    if (data?.result?.sys_id) {
+      return data.result;
+    }
+  } catch (error) {
+    if (error.status !== 404) {
+      throw error;
+    }
+  }
+
+  const profileByUserId = await findSeniorProfileByUserId(normalizedSeniorId);
+
+  if (profileByUserId?.sys_id) {
+    return profileByUserId;
+  }
+
+  if (/^[a-f0-9]{6,12}$/i.test(normalizedSeniorId)) {
+    const params = new URLSearchParams({
+      sysparm_query: `sys_idSTARTSWITH${comparableSeniorId}`,
+      sysparm_limit: '2',
+    });
+    const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
+    let matches = data?.result || [];
+
+    if (matches.length === 0) {
+      const fallbackParams = new URLSearchParams({
+        sysparm_fields: 'sys_id',
+        sysparm_limit: '1000',
+      });
+      const fallbackData = await serviceNowFetch(getTablePath(`?${fallbackParams.toString()}`));
+      matches = (fallbackData?.result || []).filter((record) => {
+        return String(record.sys_id || '').toLowerCase().startsWith(comparableSeniorId);
+      });
+    }
+
+    if (matches.length > 1) {
+      throw Object.assign(new Error('Senior ID matches more than one senior. Please use the full Senior ID.'), {
+        status: 409,
+      });
+    }
+
+    return matches[0] || null;
+  }
+
+  return null;
 }
 
 async function updateLoginTimestamp(record) {
@@ -725,6 +855,134 @@ export async function searchSeniorProfiles({ searchName, phone }) {
   const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
 
   return (data?.result || []).map(toSeniorSearchRecord);
+}
+
+export async function createFamilyVerification({ seniorId, familyEmail, familyUserId }) {
+  const normalizedFamilyEmail = normalizeLoginValue(familyEmail);
+  const normalizedFamilyUserId = String(familyUserId || '').trim();
+  const seniorProfile = await findSeniorProfileByIdOrUserId(seniorId);
+
+  if (!seniorProfile?.sys_id) {
+    throw Object.assign(new Error('Senior ID was not found.'), { status: 404 });
+  }
+
+  if (!normalizedFamilyEmail || !normalizedFamilyUserId) {
+    throw Object.assign(new Error('Family member account is required.'), { status: 400 });
+  }
+
+  const expiresAt = getServiceNowUtcDateTime(new Date(Date.now() + 10 * 60 * 1000));
+  const data = await serviceNowFamilyVerificationFetch('', {
+    method: 'POST',
+    body: JSON.stringify({
+      [FAMILY_VERIFICATION_FIELD_MAP.senior]: seniorProfile.sys_id,
+      [FAMILY_VERIFICATION_FIELD_MAP.familyEmail]: normalizedFamilyEmail,
+      [FAMILY_VERIFICATION_FIELD_MAP.code]: generateVerificationCode(),
+      [FAMILY_VERIFICATION_FIELD_MAP.expiresAt]: expiresAt,
+      [FAMILY_VERIFICATION_FIELD_MAP.familyUser]: normalizedFamilyUserId,
+    }),
+  });
+  const verification = toFamilyVerificationRecord(data?.result || {});
+
+  return {
+    verification: {
+      ...verification,
+      code: undefined,
+    },
+  };
+}
+
+export async function getPendingFamilyVerificationCodesForSenior(userId) {
+  const seniorProfile = await findSeniorProfileByIdOrUserId(userId);
+
+  if (!seniorProfile?.sys_id) {
+    return [];
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: `${FAMILY_VERIFICATION_FIELD_MAP.senior}=${seniorProfile.sys_id}^ORDERBYDESCsys_created_on`,
+    sysparm_limit: '20',
+  });
+  const data = await serviceNowFamilyVerificationFetch(`?${params.toString()}`);
+  const records = data?.result || [];
+  const activeRecords = [];
+
+  await Promise.all(records.map(async (record) => {
+    const verification = toFamilyVerificationRecord(record);
+
+    if (isFamilyVerificationVerified(record) || isExpiredServiceNowDateTime(verification.expiresAt)) {
+      return;
+    }
+
+    activeRecords.push(verification);
+  }));
+
+  return activeRecords;
+}
+
+export async function verifyFamilyVerification({ verificationId, seniorId, familyEmail, familyUserId, code, relationship }) {
+  const normalizedCode = String(code || '').trim();
+  const normalizedFamilyEmail = normalizeLoginValue(familyEmail);
+  const normalizedFamilyUserId = String(familyUserId || '').trim();
+  let record = null;
+
+  if (!normalizedCode) {
+    throw Object.assign(new Error('Verification code is required.'), { status: 400 });
+  }
+
+  if (verificationId) {
+    const data = await serviceNowFamilyVerificationFetch(`/${encodeURIComponent(verificationId)}`);
+    record = data?.result || null;
+  } else {
+    const seniorProfile = await findSeniorProfileByIdOrUserId(seniorId);
+    const params = new URLSearchParams({
+      sysparm_query: `${FAMILY_VERIFICATION_FIELD_MAP.senior}=${seniorProfile?.sys_id || seniorId}^${FAMILY_VERIFICATION_FIELD_MAP.familyEmail}=${normalizedFamilyEmail}^ORDERBYDESCsys_created_on`,
+      sysparm_limit: '10',
+    });
+    const data = await serviceNowFamilyVerificationFetch(`?${params.toString()}`);
+    record = (data?.result || []).find((candidate) => {
+      const verification = toFamilyVerificationRecord(candidate);
+
+      return !isFamilyVerificationVerified(candidate) && !isExpiredServiceNowDateTime(verification.expiresAt);
+    }) || null;
+  }
+
+  const verification = toFamilyVerificationRecord(record || {});
+
+  if (!verification.id) {
+    throw Object.assign(new Error('Verification request was not found.'), { status: 404 });
+  }
+
+  if (verification.familyEmail.toLowerCase() !== normalizedFamilyEmail || verification.familyUserId !== normalizedFamilyUserId) {
+    throw Object.assign(new Error('This verification request does not belong to this account.'), { status: 403 });
+  }
+
+  if (verification.verifiedAt) {
+    throw Object.assign(new Error('This verification request has already been verified.'), { status: 409 });
+  }
+
+  if (isExpiredServiceNowDateTime(verification.expiresAt)) {
+    throw Object.assign(new Error('This verification code has expired. Please request a new code.'), { status: 410 });
+  }
+
+  if (verification.code !== normalizedCode) {
+    throw Object.assign(new Error('Verification code is incorrect.'), { status: 401 });
+  }
+
+  await serviceNowFamilyVerificationFetch(`/${encodeURIComponent(verification.id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      [FAMILY_VERIFICATION_FIELD_MAP.verifiedAt]: getServiceNowUtcDateTime(),
+    }),
+  });
+
+  const connection = await createCaregiverConnection({
+    caregiverId: normalizedFamilyUserId,
+    caregiverEmail: normalizedFamilyEmail,
+    seniorId: verification.seniorId,
+    relationship: relationship || 'Family Member',
+  });
+
+  return { verification: { ...verification, status: 'Verified', code: undefined }, connection };
 }
 
 function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser = {}) {

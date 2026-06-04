@@ -123,17 +123,6 @@ export default function HomePage({
                   </div>
                 </button>
 
-                <button className="absolute bg-white bottom-0 content-stretch flex items-center justify-center p-px right-[-4px] rounded-[9999px] size-12 active:scale-95 transition-transform min-[390px]:right-[-8px] min-[390px]:size-14">
-                  <div aria-hidden="true" className="absolute border border-[#f0eded] border-solid inset-0 pointer-events-none rounded-[9999px]" />
-                  <div className="absolute bg-[rgba(255,255,255,0)] bottom-0 right-0 rounded-[9999px] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] size-[56px]" />
-                  <div className="h-[21.75px] relative shrink-0 w-[15px]">
-                    <svg className="absolute block inset-0 size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 15 21.75">
-                      <g id="Container">
-                        <path d={svgPaths.p1eb81b40} fill="var(--fill-0, #944A00)" id="Symbol" />
-                      </g>
-                    </svg>
-                  </div>
-                </button>
               </div>
             </div>
           </div>

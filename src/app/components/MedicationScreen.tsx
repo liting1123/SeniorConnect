@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bell, CheckCircle, Clock, Pencil, Pill, Plus, Trash2, Utensils, X } from 'lucide-react';
+import { Bell, CheckCircle, Clock, Pill, Trash2, Utensils, X } from 'lucide-react';
 import type { Medicine, MedicineInput } from '../services/backend';
 
 export function getMinutesFromTimeLabel(timeLabel: string) {
@@ -45,8 +45,6 @@ export default function MedicationScreen({
 }) {
   const { t } = useTranslation();
   const [currentMinutes, setCurrentMinutes] = useState(() => getCurrentMinutes());
-  const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
-  const [isAddingMedicine, setIsAddingMedicine] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -64,7 +62,6 @@ export default function MedicationScreen({
             <h1 className="text-3xl font-bold leading-tight text-[#07122e]">
               {t('medicineReminder')}
             </h1>
-            <p className="mt-2 text-lg text-gray-500">{t('takeOnTime')}</p>
           </div>
 
           <button
@@ -75,22 +72,6 @@ export default function MedicationScreen({
           </button>
         </div>
 
-        <section className="mt-6 flex items-center gap-3 rounded-[22px] bg-[#fff7ef] px-4 py-4 shadow-sm">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#ffe8dd]">
-            <Clock className="h-6 w-6 text-[#f04a24]" />
-          </div>
-          <p className="text-xl font-bold leading-tight text-[#07122e]">
-            {t('todaysMedicine')}
-          </p>
-          <button
-            aria-label="Add medicine"
-            onClick={() => setIsAddingMedicine(true)}
-            className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#f04a24] text-white shadow-sm active:scale-95"
-          >
-            <Plus className="h-6 w-6" />
-          </button>
-        </section>
-
         <div className="mt-5 flex flex-col gap-4">
           {medicines.length > 0 ? (
             medicines.map((medicine) => (
@@ -99,7 +80,6 @@ export default function MedicationScreen({
                 key={medicine.id}
                 isTaken={takenMedicineIds.includes(medicine.id)}
                 medicine={medicine}
-                onEdit={() => setEditingMedicine(medicine)}
                 onTaken={() => onMedicineTaken(medicine.id)}
                 t={t}
               />
@@ -107,31 +87,12 @@ export default function MedicationScreen({
           ) : (
             <div className="rounded-[24px] bg-white p-5 text-center shadow-[0_8px_20px_rgba(7,18,46,0.08)]">
               <p className="text-xl font-bold text-[#07122e]">No medicine added yet</p>
-              <p className="mt-2 text-base text-gray-500">Tap + to add a medicine reminder.</p>
+              <p className="mt-2 text-base text-gray-500">Your medicine reminders will appear here.</p>
             </div>
           )}
         </div>
       </main>
 
-      {(isAddingMedicine || editingMedicine) && (
-        <MedicineForm
-          medicine={editingMedicine}
-          onClose={() => {
-            setEditingMedicine(null);
-            setIsAddingMedicine(false);
-          }}
-          onSave={async (medicine) => {
-            await onSaveMedicine(medicine);
-            setEditingMedicine(null);
-            setIsAddingMedicine(false);
-          }}
-          onDelete={async (medicineId) => {
-            await onDeleteMedicine(medicineId);
-            setEditingMedicine(null);
-            setIsAddingMedicine(false);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -140,7 +101,6 @@ function MedicineCard({
   currentMinutes,
   isTaken,
   medicine,
-  onEdit,
   onTaken,
   t,
 }: {
@@ -155,7 +115,6 @@ function MedicineCard({
     notes?: string;
     isExtra?: boolean;
   };
-  onEdit: () => void;
   onTaken: () => void;
   t: (key: string, options?: Record<string, string | number>) => string;
 }) {
@@ -193,13 +152,6 @@ function MedicineCard({
   return (
     <section className="rounded-[24px] bg-white p-4 shadow-[0_8px_20px_rgba(7,18,46,0.08)]">
       <div className="mb-3 flex justify-end">
-        <button
-          aria-label={`Edit ${medicine.name}`}
-          onClick={onEdit}
-          className="mr-auto flex h-10 w-10 items-center justify-center rounded-full bg-[#f3f4f6] text-[#07122e] active:scale-95"
-        >
-          <Pencil className="h-5 w-5" />
-        </button>
         <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold ${statusStyle.badge}`}>
           <CheckCircle className="h-4 w-4" />
           {statusLabel}

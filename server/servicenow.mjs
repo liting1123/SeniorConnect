@@ -79,7 +79,7 @@ function getConfig() {
   }
 
   return {
-    instanceUrl: process.env.SERVICE_NOW_INSTANCE_URL.replace(/\/$/, ''),
+    instanceUrl: normalizeServiceNowInstanceUrl(process.env.SERVICE_NOW_INSTANCE_URL),
     table: process.env.SERVICE_NOW_TABLE,
     username: process.env.SERVICE_NOW_USERNAME,
     password: process.env.SERVICE_NOW_PASSWORD,
@@ -88,6 +88,25 @@ function getConfig() {
 
 function getAuthHeader(username, password) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+}
+
+function normalizeServiceNowInstanceUrl(url) {
+  const normalized = url.replace(/\/$/, '');
+
+  if (!/^https?:\/\//i.test(normalized)) {
+    throw Object.assign(new Error('SERVICE_NOW_INSTANCE_URL must start with http:// or https://'), { status: 503 });
+  }
+
+  if (/developer\.servicenow\.com|dev\.do|hibernate/i.test(normalized)) {
+    throw Object.assign(
+      new Error(
+        'SERVICE_NOW_INSTANCE_URL appears to point to the ServiceNow developer portal or a hibernating page. Use your actual instance URL like https://dev12345.service-now.com.'
+      ),
+      { status: 503 },
+    );
+  }
+
+  return normalized;
 }
 
 function getResponsePreview(text) {
@@ -105,8 +124,20 @@ function parseServiceNowJson(text, response) {
     const contentType = response.headers.get('content-type') || '';
     const returnedHtml = contentType.includes('text/html') || /^\s*</.test(text);
     const message = returnedHtml
-      ? 'ServiceNow returned HTML instead of JSON. Check SERVICE_NOW_INSTANCE_URL, SERVICE_NOW_USERNAME, and SERVICE_NOW_PASSWORD; the instance may be redirecting to a login page.'
+      ? 'ServiceNow returned HTML instead of JSON. The instance may be hibernating or redirecting to a login/portal page. Check SERVICE_NOW_INSTANCE_URL, SERVICE_NOW_USERNAME, and SERVICE_NOW_PASSWORD.'
       : 'ServiceNow returned invalid JSON.';
+
+    const details = {
+      status: response.status,
+      url: response.url,
+      contentType,
+      bodyPreview: getResponsePreview(text),
+    };
+
+    throw Object.assign(new Error(message), {
+      status: response.ok ? 502 : response.status,
+      details,
+    });
 
     throw Object.assign(new Error(message), {
       status: response.ok ? 502 : response.status,

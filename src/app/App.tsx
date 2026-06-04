@@ -102,6 +102,7 @@ export default function App() {
   const [languageReturnScreen, setLanguageReturnScreen] = useState<LanguageReturnScreen>('home');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
   const [isSendingSOS, setIsSendingSOS] = useState(false);
+  const isSendingSOSRef = useRef(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const isCheckingInRef = useRef(false);
   const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
@@ -255,10 +256,11 @@ export default function App() {
   }, [currentScreen, medicines]);
 
   const handleSOSConfirm = async () => {
-    if (isSendingSOS) {
+    if (isSendingSOSRef.current) {
       return;
     }
 
+    isSendingSOSRef.current = true;
     setIsSendingSOS(true);
 
     try {
@@ -286,6 +288,7 @@ export default function App() {
       console.error('SOS alert failed:', error);
       alert(error instanceof Error ? error.message : 'Unable to send SOS alert. Please try again.');
     } finally {
+      isSendingSOSRef.current = false;
       setIsSendingSOS(false);
     }
   };
@@ -482,6 +485,7 @@ export default function App() {
             <SOSConfirmationScreen
               onConfirm={handleSOSConfirm}
               onCancel={() => setShowSOSConfirmation(false)}
+              isSending={isSendingSOS}
             />
           </div>
         )}

@@ -60,7 +60,7 @@ export default function PuzzleGame({ onBack }: PuzzleGameProps) {
   const [soundOn, setSoundOn] = useState(true);
   const [highContrast, setHighContrast] = useState(false);
 
-  const timerRef = useRef<number>();
+  const timerRef = useRef<number | undefined>(undefined);
 
   const buildTiles = (boardSize: number): string[] => {
     const total = boardSize * boardSize;

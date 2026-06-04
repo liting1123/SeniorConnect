@@ -3,9 +3,12 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "main": "expo/AppEntry",
   "scripts": {
     "build": "node ./node_modules/vite/bin/vite.js build",
     "dev": "node scripts/dev.mjs",
+    "dev:expo": "expo start",
+    "dev:ios": "expo start --ios",
     "dev:web": "vite",
     "dev:api": "node server/index.mjs"
   },
@@ -48,18 +51,23 @@
     "cmdk": "1.1.1",
     "date-fns": "3.6.0",
     "embla-carousel-react": "8.6.0",
+    "expo": "~54.0.0",
+    "expo-asset": "~12.0.13",
+    "expo-constants": "~18.0.13",
     "i18next": "^26.1.0",
     "input-otp": "1.4.2",
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
     "next-themes": "0.4.6",
+    "react": "19.1.0",
     "react-day-picker": "8.10.1",
     "react-dnd": "16.0.1",
     "react-dnd-html5-backend": "16.0.1",
+    "react-dom": "19.1.0",
     "react-hook-form": "7.55.0",
     "react-i18next": "^17.0.7",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "react-native": "0.81.5",
+    "react-native-webview": "13.15.0",
     "react-popper": "2.3.0",
     "react-resizable-panels": "2.1.7",
     "react-responsive-masonry": "2.7.1",
@@ -73,21 +81,11 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.12",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
+    "typescript": "^6.0.3",
     "vite": "6.3.5"
-  },
-  "peerDependencies": {
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    }
   },
   "pnpm": {
     "overrides": {

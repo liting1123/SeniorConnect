@@ -47,7 +47,7 @@ export default function MemoryGame({ onBack }: MemoryGameProps) {
   const secondRef = useRef<number | null>(null);
   const lockRef = useRef(false);
   const matchedRef = useRef(0);
-  const timerRef = useRef<number>();
+  const timerRef = useRef<number | undefined>(undefined);
 
   const buildDeck = (pairs: number): Card[] => {
     const pool = shuffle(EMOJIS).slice(0, pairs);

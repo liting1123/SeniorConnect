@@ -14,9 +14,10 @@ const svgPaths = {
 type SOSConfirmationProps = {
   onConfirm: () => void;
   onCancel: () => void;
+  isSending?: boolean;
 };
 
-export default function SOSConfirmationScreen({ onConfirm, onCancel }: SOSConfirmationProps) {
+export default function SOSConfirmationScreen({ onConfirm, onCancel, isSending = false }: SOSConfirmationProps) {
   const { t } = useTranslation();
   const [countdown, setCountdown] = useState(15);
 
@@ -89,10 +90,11 @@ export default function SOSConfirmationScreen({ onConfirm, onCancel }: SOSConfir
               <div className="content-stretch flex flex-col gap-[16px] items-start max-w-[384px] relative shrink-0 w-full">
                 <button
                   onClick={onConfirm}
-                  className="bg-[#ba1a1a] content-stretch drop-shadow-[0px_8px_10px_rgba(186,26,26,0.15)] flex items-center justify-center min-h-[76px] relative rounded-[9999px] shrink-0 w-full active:scale-95 transition-transform"
+                  disabled={isSending}
+                  className="bg-[#ba1a1a] content-stretch drop-shadow-[0px_8px_10px_rgba(186,26,26,0.15)] flex items-center justify-center min-h-[76px] relative rounded-[9999px] shrink-0 w-full active:scale-95 transition-transform disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
                 >
                   <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[30px] text-center text-white tracking-[0.4px] whitespace-nowrap">
-                    <p className="leading-[36px]">YES</p>
+                    <p className="leading-[36px]">{isSending ? 'Sending...' : 'YES'}</p>
                   </div>
                 </button>
 

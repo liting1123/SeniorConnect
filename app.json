@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "SeniorConnect",
+    "slug": "seniorconnect",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "webAppPort": 5173
+    },
+    "plugins": [
+      "expo-asset"
+    ]
+  }
+}

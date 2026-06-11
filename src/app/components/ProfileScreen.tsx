@@ -34,10 +34,11 @@ export default function ProfileScreen({
   const [verificationCodes, setVerificationCodes] = useState<FamilyVerification[]>([]);
   const [verificationError, setVerificationError] = useState('');
   const [seniorIdForFamily, setSeniorIdForFamily] = useState('');
+  const [isLoadingSeniorId, setIsLoadingSeniorId] = useState(false);
   const [activeVerification, setActiveVerification] = useState<FamilyVerification | null>(null);
   const [dismissedVerificationId, setDismissedVerificationId] = useState('');
   const profileEmail = user?.email ?? 'No email found';
-  const shouldShowSeniorId = !/family|nok/i.test(user?.role || '');
+  const shouldShowSeniorId = /senior|elderly/i.test(user?.role || '');
   const displayName = useMemo(() => {
     if (user?.displayName?.trim()) {
       return user.displayName.trim();
@@ -83,6 +84,7 @@ export default function ProfileScreen({
     if (!user || !shouldShowSeniorId) {
       setVerificationCodes([]);
       setSeniorIdForFamily('');
+      setIsLoadingSeniorId(false);
       return;
     }
 
@@ -90,10 +92,12 @@ export default function ProfileScreen({
 
     const loadVerificationCodes = async () => {
       try {
+        setIsLoadingSeniorId(true);
         const profile = await getSeniorProfile(user).catch(() => null);
 
         if (isMounted) {
           setSeniorIdForFamily(getDisplaySeniorId(profile?.sysId || profile?.userId || user.uid));
+          setIsLoadingSeniorId(false);
         }
 
         const codes = await getFamilyVerificationCodes(user);
@@ -112,6 +116,7 @@ export default function ProfileScreen({
         if (isMounted) {
           console.error('Unable to load family verification codes:', error);
           setVerificationError(error instanceof Error ? error.message : 'Unable to load verification codes.');
+          setIsLoadingSeniorId(false);
         }
       }
     };
@@ -280,7 +285,7 @@ export default function ProfileScreen({
               </div>
             </div>
             <p className="break-all rounded-2xl bg-gray-50 p-4 text-lg font-bold text-gray-900">
-              {seniorIdForFamily || getDisplaySeniorId(user.uid)}
+              {isLoadingSeniorId && !seniorIdForFamily ? 'Loading Senior ID...' : seniorIdForFamily}
             </p>
 
             <div className="mt-5">

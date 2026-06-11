@@ -354,22 +354,6 @@ export default function App() {
       return;
     }
 
-    try {
-      const params = new URLSearchParams({
-        caregiverId: user.uid,
-        caregiverEmail: user.email,
-      });
-      const response = await fetch(`/api/servicenow/caregiver-seniors?${params.toString()}`);
-      const data = await response.json().catch(() => null);
-
-      if (response.ok && Array.isArray(data?.seniors) && data.seniors.length > 0) {
-        setCurrentScreen('caregiverDashboard');
-        return;
-      }
-    } catch (error) {
-      console.error('Unable to check linked seniors:', error);
-    }
-
     goToSeniorHome();
   };
 

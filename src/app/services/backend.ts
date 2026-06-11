@@ -71,6 +71,12 @@ function getDisplayName(user: AppUser) {
   return user.displayName?.trim() || user.email?.split('@')[0] || 'User';
 }
 
+function setStoredUser(user: AppUser) {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
+  localStorage.removeItem(SESSION_KEY);
+  window.dispatchEvent(new Event('careconnect-user-updated'));
+}
+
 export function getUserStorageIdentity(user: AppUser) {
   const identity = (user.email || user.uid || 'guest').trim().toLowerCase();
   return identity.replace(/[^a-z0-9@._-]/g, '_');
@@ -108,7 +114,7 @@ async function request<T>(user: AppUser, path: string, options: RequestInit = {}
 }
 
 export function getStoredUser() {
-  const rawUser = localStorage.getItem(SESSION_KEY);
+  const rawUser = sessionStorage.getItem(SESSION_KEY);
 
   if (!rawUser) {
     return null;
@@ -117,12 +123,13 @@ export function getStoredUser() {
   try {
     return JSON.parse(rawUser) as AppUser;
   } catch {
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
     return null;
   }
 }
 
 export function clearStoredUser() {
+  sessionStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(SESSION_KEY);
   window.dispatchEvent(new Event('careconnect-user-updated'));
 }
@@ -135,8 +142,7 @@ export function updateStoredUserRole(role: string) {
   }
 
   const updatedUser = { ...user, role };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
-  window.dispatchEvent(new Event('careconnect-user-updated'));
+  setStoredUser(updatedUser);
 
   return updatedUser;
 }
@@ -162,8 +168,7 @@ export async function login(identifier: string, password: string, loginType: 'ca
     role: loginData.user.role || 'elderly',
   };
 
-  localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-  window.dispatchEvent(new Event('careconnect-user-updated'));
+  setStoredUser(user);
 
   return user;
 }
@@ -189,8 +194,7 @@ export async function registerCaregiver(email: string, password: string) {
     role: loginData.user.role || 'caregiver',
   };
 
-  localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-  window.dispatchEvent(new Event('careconnect-user-updated'));
+  setStoredUser(user);
 
   return user;
 }
@@ -216,8 +220,7 @@ export async function registerFamilyMember(email: string, password: string) {
     role: loginData.user.role || 'Family',
   };
 
-  localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-  window.dispatchEvent(new Event('careconnect-user-updated'));
+  setStoredUser(user);
 
   return user;
 }

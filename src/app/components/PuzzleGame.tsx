@@ -1,57 +1,44 @@
-import { useEffect, useRef, useState } from 'react';
+/**
+ * Puzzle Game Component
+ * Slide puzzle game with image tiles
+ */
 
-type PuzzleGameProps = {
-  onBack: () => void;
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  isAdjacent,
+  isSolvable,
+  isSolved,
+  shuffle,
+  speak,
+} from './shared/utils';
+
+interface PuzzleGameProps {
+  onBack?: () => void;
+}
+
+const IMAGE_MAP: Record<number, string> = {
+  2: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 300 300%22%3E%3Crect fill=%22%23ff9800%22 width=%22300%22 height=%22300%22/%3E%3Ccircle cx=%22150%22 cy=%22150%22 r=%22100%22 fill=%22%23fff%22/%3E%3C/svg%3E',
+  3: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 300 300%22%3E%3Crect fill=%22%23ff9800%22 width=%22300%22 height=%22300%22/%3E%3Ccircle cx=%22150%22 cy=%22150%22 r=%22100%22 fill=%22%23fff%22/%3E%3C/svg%3E',
+  5: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 300 300%22%3E%3Crect fill=%22%238B4513%22 width=%22300%22 height=%22300%22/%3E%3Ccircle cx=%22150%22 cy=%22150%22 r=%22100%22 fill=%22%23D2B48C%22/%3E%3C/svg%3E',
+  9: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 300 300%22%3E%3Crect fill=%22%23228B22%22 width=%22300%22 height=%22300%22/%3E%3Ccircle cx=%22150%22 cy=%22150%22 r=%22100%22 fill=%22%23FFFF99%22/%3E%3C/svg%3E',
 };
 
-function shuffle<T>(array: T[]): T[] {
-  const result = [...array];
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
-}
+const IMAGE_LABEL: Record<number, string> = {
+  2: 'kitten (orange)',
+  3: 'kitten (orange)',
+  5: 'dog (brown)',
+  9: 'owl (green)',
+};
 
-function countInversions(values: number[]): number {
-  let count = 0;
-  for (let i = 0; i < values.length; i++) {
-    for (let j = i + 1; j < values.length; j++) {
-      if (values[i] > values[j]) count++;
-    }
-  }
-  return count;
-}
+const buttonClass = (highContrast: boolean) =>
+  `min-h-10 rounded-full border px-4 py-2 transition ${
+    highContrast
+      ? 'border-white bg-[#111] text-white'
+      : 'border-[#cbd5e1] bg-white text-[#1f2937] hover:bg-[#eaf4ec]'
+  }`;
 
-function isSolvable(array: string[], size: number): boolean {
-  const numbers = array.filter((item) => item !== '').map((item) => Number(item));
-  const inversions = countInversions(numbers);
-  if (size % 2 === 1) {
-    return inversions % 2 === 0;
-  }
-
-  const blankRowFromBottom = size - Math.floor(array.indexOf('') / size);
-  return (blankRowFromBottom % 2 === 0) !== (inversions % 2 === 0);
-}
-
-function isSolved(array: string[], size: number): boolean {
-  for (let i = 0; i < array.length - 1; i++) {
-    if (array[i] !== String(i + 1)) return false;
-  }
-  return array[array.length - 1] === '';
-}
-
-function speak(text: string, soundOn: boolean) {
-  if (!soundOn) return;
-  if ('speechSynthesis' in window) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }
-}
-
-export default function PuzzleGame({ onBack }: PuzzleGameProps) {
-  const [size, setSize] = useState(4);
+const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
+  const [gridN, setGridN] = useState(2);
   const [tiles, setTiles] = useState<string[]>([]);
   const [blankIndex, setBlankIndex] = useState(0);
   const [moves, setMoves] = useState(0);
@@ -59,201 +46,265 @@ export default function PuzzleGame({ onBack }: PuzzleGameProps) {
   const [message, setMessage] = useState('');
   const [soundOn, setSoundOn] = useState(true);
   const [highContrast, setHighContrast] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(IMAGE_MAP[3]);
+  const [easyMode, setEasyMode] = useState(true);
 
   const timerRef = useRef<number | undefined>(undefined);
+  const movesRef = useRef(0);
+  const secondsRef = useRef(0);
 
-  const buildTiles = (boardSize: number): string[] => {
-    const total = boardSize * boardSize;
+  const buildTiles = (size: number, easy = false): string[] => {
+    const total = size * size;
     const values = Array.from({ length: total - 1 }, (_, index) => String(index + 1));
-    const board = [...values, ''];
+    let tilesArray = [...values, ''];
+
+    if (easy) {
+      for (let i = 0; i < 5; i += 1) {
+        const blank = tilesArray.indexOf('');
+        const row = Math.floor(blank / size);
+        const col = blank % size;
+        const neighbors: number[] = [];
+
+        if (row > 0) neighbors.push(blank - size);
+        if (row < size - 1) neighbors.push(blank + size);
+        if (col > 0) neighbors.push(blank - 1);
+        if (col < size - 1) neighbors.push(blank + 1);
+
+        const target = neighbors[Math.floor(Math.random() * neighbors.length)];
+        [tilesArray[blank], tilesArray[target]] = [tilesArray[target], tilesArray[blank]];
+      }
+
+      if (isSolved(tilesArray, size)) {
+        return buildTiles(size, easy);
+      }
+
+      return tilesArray;
+    }
 
     do {
-      shuffle(board);
-    } while (!isSolvable(board, boardSize) || isSolved(board, boardSize));
+      tilesArray = shuffle(tilesArray);
+    } while (!isSolvable(tilesArray, size) || isSolved(tilesArray, size));
 
-    return board;
+    return tilesArray;
+  };
+
+  const clearTimers = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const startTimer = () => {
+    timerRef.current = window.setInterval(() => {
+      setSeconds((value) => {
+        const nextValue = value + 1;
+        secondsRef.current = nextValue;
+        return nextValue;
+      });
+    }, 1000);
   };
 
   const startGame = () => {
-    const newTiles = buildTiles(size);
+    const newTiles = buildTiles(gridN, easyMode);
+    const image = IMAGE_MAP[gridN] || IMAGE_MAP[5];
+    const label = IMAGE_LABEL[gridN] || 'image';
+
+    clearTimers();
     setTiles(newTiles);
     setBlankIndex(newTiles.indexOf(''));
     setMoves(0);
     setSeconds(0);
-    setMessage('Slide the tiles to solve the puzzle.');
-    if (timerRef.current) window.clearInterval(timerRef.current);
-    timerRef.current = window.setInterval(() => {
-      setSeconds((value) => value + 1);
-    }, 1000);
+    movesRef.current = 0;
+    secondsRef.current = 0;
+    setSelectedImage(image);
+    setMessage(`Game started with the ${label}. Use arrow keys or click adjacent tiles.`);
+    speak('Game started', soundOn);
+
+    startTimer();
   };
 
-  const swapTiles = (index: number) => {
-    const newTiles = [...tiles];
-    [newTiles[index], newTiles[blankIndex]] = [newTiles[blankIndex], newTiles[index]];
-    setTiles(newTiles);
-    setBlankIndex(index);
-    setMoves((value) => value + 1);
-    return newTiles;
-  };
-
-  const isAdjacent = (a: number, b: number): boolean => {
-    const rowA = Math.floor(a / size);
-    const colA = a % size;
-    const rowB = Math.floor(b / size);
-    const colB = b % size;
-    return Math.abs(rowA - rowB) + Math.abs(colA - colB) === 1;
-  };
-
-  const clickTile = (index: number) => {
-    if (!isAdjacent(index, blankIndex)) return;
-    const tileValue = tiles[index];
-    const newTiles = swapTiles(index);
-    setMessage(`Moved tile ${tileValue}`);
-    speak(`Moved tile ${tileValue}`, soundOn);
-    if (isSolved(newTiles, size)) {
-      endGame();
-    }
-  };
-
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (!tiles.length) return;
-    let target = -1;
-    const row = Math.floor(blankIndex / size);
-    const col = blankIndex % size;
-
-    switch (event.key) {
-      case 'ArrowUp':
-        if (row < size - 1) target = blankIndex + size;
-        break;
-      case 'ArrowDown':
-        if (row > 0) target = blankIndex - size;
-        break;
-      case 'ArrowLeft':
-        if (col < size - 1) target = blankIndex + 1;
-        break;
-      case 'ArrowRight':
-        if (col > 0) target = blankIndex - 1;
-        break;
-      default:
-        break;
-    }
-
-    if (target >= 0) {
-      event.preventDefault();
-      clickTile(target);
-    }
-  };
-
-  const endGame = () => {
-    if (timerRef.current) window.clearInterval(timerRef.current);
-    setMessage(`Solved in ${moves} moves and ${seconds} seconds!`);
+  const endGame = (finalMoves: number) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setMessage(`Solved in ${finalMoves} moves and ${secondsRef.current} seconds!`);
     speak('Puzzle solved', soundOn);
   };
 
+  const clickTile = (index: number) => {
+    if (!isAdjacent(index, blankIndex, gridN)) return;
+
+    const tileValue = tiles[index];
+    const newTiles = [...tiles];
+    [newTiles[index], newTiles[blankIndex]] = [
+      newTiles[blankIndex],
+      newTiles[index],
+    ];
+
+    const nextMoves = movesRef.current + 1;
+    movesRef.current = nextMoves;
+    setTiles(newTiles);
+    setBlankIndex(index);
+    setMoves(nextMoves);
+    speak(`Moved tile ${tileValue}`, soundOn);
+
+    if (isSolved(newTiles, gridN)) {
+      endGame(nextMoves);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!tiles.length) return;
+
+      let target = -1;
+      const row = Math.floor(blankIndex / gridN);
+      const col = blankIndex % gridN;
+
+      switch (event.key) {
+        case 'ArrowUp':
+          if (row < gridN - 1) target = blankIndex + gridN;
+          break;
+        case 'ArrowDown':
+          if (row > 0) target = blankIndex - gridN;
+          break;
+        case 'ArrowLeft':
+          if (col < gridN - 1) target = blankIndex + 1;
+          break;
+        case 'ArrowRight':
+          if (col > 0) target = blankIndex - 1;
+          break;
+        default:
+          break;
+      }
+
+      if (target >= 0) {
+        event.preventDefault();
+        clickTile(target);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [tiles, blankIndex, gridN]);
+
   useEffect(() => {
     startGame();
-    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      if (timerRef.current) window.clearInterval(timerRef.current);
-      window.removeEventListener('keydown', handleKeyDown);
+      clearTimers();
     };
-  }, [size, tiles, blankIndex]);
+  }, []);
 
   return (
     <div className={`h-full overflow-y-auto ${highContrast ? 'bg-black text-white' : 'bg-[#fbf9f8] text-[#1b1c1c]'}`}>
-      <header className="sticky top-0 z-10 bg-[#fbf9f8] shadow-sm">
-        <div className="flex h-14 items-center justify-between px-5 py-3 min-[390px]:h-16 min-[390px]:px-6">
-          <div>
-            <h1 className="text-xl font-bold text-[#316342]">Puzzle Game</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onBack}
-              className="rounded-full border border-[#cbd5e1] bg-white px-3 py-1 text-sm text-[#1f2937] transition hover:bg-[#e2e8f0]"
-            >
-              Back
-            </button>
-          </div>
-        </div>
+      <header className="sticky top-0 z-10 flex min-h-16 items-center justify-between gap-3 bg-inherit px-6 py-3 shadow-sm">
+        <h1 className={`m-0 text-2xl font-bold ${highContrast ? 'text-white' : 'text-[#316342]'}`}>
+          Puzzle Game
+        </h1>
+        {onBack && (
+          <button className={buttonClass(highContrast)} onClick={onBack} aria-label="Back to menu">
+            Back
+          </button>
+        )}
+
       </header>
 
-      <main className="flex flex-col gap-5 px-5 py-5 min-[390px]:gap-6 min-[390px]:px-6 min-[390px]:py-7">
-        <section className="rounded-[28px] bg-[#eef7ef] p-5 shadow-[0_8px_20px_rgba(49,99,66,0.08)]">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="font-semibold text-[#1b1c1c]">Board size:</span>
-                <select
-                  value={size}
-                  onChange={(e) => setSize(Number(e.target.value))}
-                  className="rounded-xl border border-[#d1d5db] bg-white px-3 py-2"
-                >
-                  <option value={3}>3x3</option>
-                  <option value={4}>4x4</option>
-                  <option value={5}>5x5</option>
-                </select>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={startGame}
-                  className="rounded-full bg-[#316342] px-4 py-3 text-white shadow-sm"
-                >
-                  Restart
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHighContrast(!highContrast)}
-                  className="rounded-full border border-[#cbd5e1] bg-white px-4 py-3"
-                >
-                  Contrast: {highContrast ? 'On' : 'Off'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSoundOn(!soundOn)}
-                  className="rounded-full border border-[#cbd5e1] bg-white px-4 py-3"
-                >
-                  Sound: {soundOn ? 'On' : 'Off'}
-                </button>
-              </div>
-            </div>
+      <main className="mx-auto flex max-w-[560px] flex-col gap-5 p-6 max-[430px]:p-[18px]">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="size">Grid Size:</label>
+            <select
+              id="size"
+              value={gridN}
+              onChange={(event) => setGridN(Number(event.target.value))}
+              disabled
+              className={buttonClass(highContrast)}
+            >
+              <option value={2}>2x2</option>
+            </select>
           </div>
-        </section>
 
-        <section className="grid grid-cols-2 gap-3 min-[390px]:gap-4">
-          <div className="rounded-[24px] bg-white p-4 shadow-sm">
-            <span className="text-sm font-semibold text-[#316342]">Moves</span>
-            <div className="mt-2 text-3xl font-bold">{moves}</div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="easy">Easy Mode:</label>
+            <button
+              id="easy"
+              className={buttonClass(highContrast)}
+              onClick={() => setEasyMode((value) => !value)}
+              aria-pressed={easyMode}
+            >
+              {easyMode ? 'On' : 'Off'}
+            </button>
           </div>
-          <div className="rounded-[24px] bg-white p-4 shadow-sm">
-            <span className="text-sm font-semibold text-[#316342]">Time</span>
-            <div className="mt-2 text-3xl font-bold">{seconds}s</div>
-          </div>
-        </section>
 
-        <section className="grid gap-2 rounded-[28px] bg-white p-4 shadow-sm" style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }}>
+          <button className={buttonClass(highContrast)} onClick={startGame} aria-label="Start new game">
+            Start New Game
+          </button>
+
+          <button
+            className={buttonClass(highContrast)}
+            onClick={() => setHighContrast((value) => !value)}
+            aria-label={`${highContrast ? 'Disable' : 'Enable'} high contrast`}
+          >
+            Contrast: {highContrast ? 'On' : 'Off'}
+          </button>
+
+          <button
+            className={buttonClass(highContrast)}
+            onClick={() => setSoundOn((value) => !value)}
+            aria-label={`Sound: ${soundOn ? 'On' : 'Off'}`}
+          >
+            Sound: {soundOn ? 'On' : 'Off'}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className={`flex min-w-[120px] items-center gap-2 rounded-2xl p-4 shadow-sm ${highContrast ? 'bg-[#111]' : 'bg-white'}`}>
+            <span className={`font-bold ${highContrast ? 'text-white' : 'text-[#316342]'}`}>Moves:</span>
+            <span className="text-2xl font-bold">{moves}</span>
+          </div>
+          <div className={`flex min-w-[120px] items-center gap-2 rounded-2xl p-4 shadow-sm ${highContrast ? 'bg-[#111]' : 'bg-white'}`}>
+            <span className={`font-bold ${highContrast ? 'text-white' : 'text-[#316342]'}`}>Time:</span>
+            <span className="text-2xl font-bold">{seconds}s</span>
+          </div>
+        </div>
+
+        <div
+          className={`mx-auto grid w-full max-w-[420px] gap-1.5 rounded-3xl p-3 shadow-[0_8px_20px_rgba(49,99,66,0.08)] max-[430px]:p-2.5 ${
+            highContrast ? 'bg-[#111]' : 'bg-white'
+          }`}
+          style={{ gridTemplateColumns: `repeat(${gridN}, 1fr)` }}
+        >
           {tiles.map((tile, index) => (
             <button
               key={index}
-              type="button"
+              className={`aspect-square rounded-[14px] border-2 bg-[#eef7ef] bg-no-repeat text-2xl font-bold text-[#1b1c1c] transition hover:-translate-y-px hover:border-[#316342] ${
+                tile === ''
+                  ? 'cursor-default border-dashed border-[#d1d5db] bg-[#f8fafc]'
+                  : 'cursor-pointer border-[#d1d5db]'
+              }`}
               onClick={() => clickTile(index)}
               disabled={tile === ''}
-              className={`aspect-square rounded-[20px] border-2 p-0 text-2xl font-bold transition ${
-                tile === '' ? 'border-dashed border-[#9ca3af] bg-[#f3f4f6]' : 'border-[#d1d5db] bg-[#f8fafc] hover:border-[#316342] hover:bg-[#e1ffe5]'
-              }`}
+              aria-label={tile === '' ? 'Empty space' : `Puzzle tile ${tile}`}
+              role="gridcell"
+              tabIndex={tile === '' ? -1 : 0}
+              style={
+                tile !== ''
+                  ? {
+                      backgroundImage: `url(${selectedImage})`,
+                      backgroundPosition: `${((Number(tile) - 1) % gridN) * (100 / (gridN - 1))}% ${Math.floor((Number(tile) - 1) / gridN) * (100 / (gridN - 1))}%`,
+                      backgroundSize: `${gridN * 100}% ${gridN * 100}%`,
+                    }
+                  : {}
+              }
             >
               {tile}
             </button>
           ))}
-        </section>
+        </div>
 
-        <section className="rounded-[28px] bg-white p-4 shadow-sm">
-          <p className="text-base text-[#414942]">{message}</p>
-        </section>
+        <div className={`min-h-[52px] rounded-[18px] p-4 text-lg leading-6 shadow-sm ${highContrast ? 'bg-[#111] text-white' : 'bg-white text-[#414942]'}`}>
+          {message}
+        </div>
       </main>
     </div>
   );
-}
+};
+
+export default PuzzleGame;

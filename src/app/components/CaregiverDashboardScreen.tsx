@@ -17,6 +17,7 @@ import {
   MapPin,
   Phone,
   Pill,
+  Pencil,
   ShieldAlert,
   Shield,
   TriangleAlert,
@@ -390,6 +391,13 @@ function isAlertStatus(status = '') {
 function getSeniorStatus(senior: Senior) {
   return senior.status?.trim() || 'Connected';
 }
+
+function getSeniorDetailValue(value?: string | number | null) {
+  const normalizedValue = String(value ?? '').trim();
+
+  return normalizedValue || 'NO';
+}
+
 //Phone number cleaning for tel: links, removing non-digit characters except for leading
 function getPhoneHref(phone = '') {
   const cleanedPhone = phone.replace(/[^\d+]/g, '');
@@ -740,24 +748,13 @@ function ResidentProfileDetails({
     location: senior.location || '',
     address: senior.address || '',
   });
-  const displayName = senior.name || 'Not provided';
-  const phone = senior.phone || 'Not provided';
-  const phoneHref = getPhoneHref(senior.phone);
-  const email = senior.email || 'Not provided';
-  const relationship = senior.relationship || 'Not provided';
-  const location = senior.location || 'Not provided';
+  const displayName = getSeniorDetailValue(senior.name);
+  const phone = getSeniorDetailValue(senior.phone);
+  const email = getSeniorDetailValue(senior.email);
+  const relationship = getSeniorDetailValue(senior.relationship);
+  const address = getSeniorDetailValue(senior.address);
+  const location = getSeniorDetailValue(senior.location);
   const status = getSeniorStatus(senior);
-  const profileRows = [
-    { label: 'Full Name', value: displayName, icon: <User className="h-6 w-6" /> },
-    { label: 'Phone Number', value: phone, icon: <Phone className="h-6 w-6" /> },
-    { label: 'Email', value: email, icon: <Mail className="h-6 w-6" /> },
-    { label: 'Relationship', value: relationship, icon: <Handshake className="h-6 w-6" /> },
-    { label: 'Location Zone', value: location, icon: <MapPin className="h-6 w-6" /> },
-    ...(senior.address ? [{ label: 'Address', value: senior.address, icon: <MapPin className="h-6 w-6" /> }] : []),
-    { label: 'Last Check-In', value: formatDetailDateTime(senior.lastCheckIn), icon: <Calendar className="h-6 w-6" /> },
-    { label: 'Points', value: String(senior.points ?? 0), icon: <Activity className="h-6 w-6" /> },
-    { label: 'Current Status', value: status || 'Not provided', icon: <CheckCircle className="h-6 w-6" /> },
-  ];
 
   useEffect(() => {
     setFormValues({
@@ -802,7 +799,7 @@ function ResidentProfileDetails({
   };
 
   return (
-    <div className="-mx-5 -my-5 min-h-full bg-[#f4f6f8] pb-6">
+    <div className="-mx-5 -my-5 min-h-full bg-[#f4f6f8] pb-8">
       <div className="sticky top-0 z-10 flex h-16 items-center gap-3 bg-[#f4f6f8] px-5 shadow-sm">
         <button
           type="button"
@@ -812,83 +809,144 @@ function ResidentProfileDetails({
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <h1 className="truncate text-2xl font-bold text-black">Details</h1>
+        <h1 className="truncate text-2xl font-bold text-black">Senior Details</h1>
         <button
           type="button"
           onClick={() => setIsEditing((currentValue) => !currentValue)}
-          className="ml-auto rounded-full bg-white px-4 py-2 text-base font-bold text-[#075fc7] shadow-sm active:scale-95"
+          className="ml-auto flex items-center gap-2 rounded-[10px] border border-[#d5dde8] bg-white px-4 py-2 text-base font-bold text-[#14213d] shadow-sm active:scale-95"
         >
+          {!isEditing && <Pencil className="h-4 w-4" />}
           {isEditing ? 'Cancel' : 'Edit'}
         </button>
       </div>
 
       <section className="px-5 pt-5">
-        <div className="rounded-[18px] bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-[16px] bg-[#dcecef] text-3xl font-bold text-[#17353d]">
-              {getInitials(displayName)}
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-[30px] font-bold leading-9 text-black">{displayName}</h2>
-              <p className="mt-2 rounded-full bg-[#e2e5e9] px-3 py-1 text-sm font-bold uppercase text-[#30343a]">
-                {status || 'Connected'}
-              </p>
-            </div>
+        <div className="flex items-center gap-4">
+          <div className="flex h-24 w-24 flex-shrink-0 items-center justify-center rounded-full bg-white text-3xl font-bold text-[#17353d] shadow-sm">
+            {getInitials(displayName)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-[30px] font-bold leading-9 text-[#111827]">{displayName}</h2>
+            <a href={getPhoneHref(senior.phone)} className="mt-2 flex items-center gap-2 text-lg font-medium text-[#334155]">
+              <Phone className="h-5 w-5" />
+              {phone}
+            </a>
+            <p className="mt-2 flex items-center gap-2 truncate text-lg font-medium text-[#334155]">
+              <Mail className="h-5 w-5" />
+              {email}
+            </p>
           </div>
         </div>
       </section>
 
-      <section className="mt-5 px-5">
+      <section className="mt-5 space-y-5 px-5">
         {isEditing ? (
-          <div className="rounded-[18px] bg-white p-5 shadow-sm">
+          <div className="rounded-[10px] bg-white p-5 shadow-sm">
+            <h3 className="mb-4 text-lg font-black uppercase tracking-wide text-[#3d8508]">Edit Information</h3>
             <SeniorDetailField label="Full Name" value={formValues.name} onChange={(value) => updateFormValue('name', value)} />
+            <SeniorDetailField label="Address" value={formValues.address} onChange={(value) => updateFormValue('address', value)} />
+            <SeniorDetailField label="Location Zone" value={formValues.location} onChange={(value) => updateFormValue('location', value)} />
             <SeniorDetailField label="Phone Number" value={formValues.phone} onChange={(value) => updateFormValue('phone', value)} type="tel" />
             <SeniorDetailField label="Email" value={formValues.email} onChange={(value) => updateFormValue('email', value)} type="email" />
-            <SeniorDetailField label="Location Zone" value={formValues.location} onChange={(value) => updateFormValue('location', value)} />
-            <SeniorDetailField label="Address" value={formValues.address} onChange={(value) => updateFormValue('address', value)} />
             <button
               type="button"
               disabled={isSaving}
               onClick={handleSave}
-              className="mt-5 flex h-14 w-full items-center justify-center rounded-[10px] bg-[#075fc7] text-lg font-bold uppercase text-white active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
+              className="mt-5 flex h-14 w-full items-center justify-center gap-3 rounded-[10px] bg-[#4b8508] text-lg font-bold text-white shadow-sm active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
             >
-              {isSaving ? 'Saving...' : 'Save Changes'}
+              <Pencil className="h-5 w-5" />
+              {isSaving ? 'Saving...' : 'Save Information'}
             </button>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-[18px] bg-white shadow-sm">
-            {profileRows.map((row) => (
-              <div
-                key={row.label}
-                className="flex items-center gap-4 border-b border-[#eef0f2] px-5 py-4 last:border-b-0"
-              >
-                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[#edf4ff] text-[#075fc7]">
-                  {row.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-[#71717a]">{row.label}</p>
-                  <p className="mt-1 break-words text-lg font-bold leading-6 text-black">{row.value}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+          <>
+            <SeniorDetailSection title="Basic Information" tone="green" icon={<Info className="h-6 w-6" />}>
+              <SeniorDetailRow icon={<User className="h-6 w-6" />} label="Full Name" value={displayName} />
+              <SeniorDetailRow icon={<Calendar className="h-6 w-6" />} label="Date of Birth" value="NO" />
+              <SeniorDetailRow icon={<Handshake className="h-6 w-6" />} label="Relationship" value={relationship} />
+              <SeniorDetailRow icon={<MapPin className="h-6 w-6" />} label="Address" value={address} />
+              <SeniorDetailRow icon={<MapPin className="h-6 w-6" />} label="Location Zone" value={location} />
+              <SeniorDetailRow icon={<Phone className="h-6 w-6" />} label="Phone Number" value={phone} />
+              <SeniorDetailRow icon={<Mail className="h-6 w-6" />} label="Email" value={email} />
+            </SeniorDetailSection>
+
+            <SeniorDetailSection title="Emergency Contact" tone="red" icon={<ShieldAlert className="h-6 w-6" />}>
+              <SeniorDetailRow icon={<User className="h-6 w-6" />} label="Contact Name" value="NO" />
+              <SeniorDetailRow icon={<Phone className="h-6 w-6" />} label="Contact Phone" value="NO" />
+              <SeniorDetailRow icon={<Handshake className="h-6 w-6" />} label="Relationship" value={relationship} />
+            </SeniorDetailSection>
+
+            <SeniorDetailSection title="Medical Information" tone="blue" icon={<Pill className="h-6 w-6" />}>
+              <SeniorDetailRow icon={<Heart className="h-6 w-6" />} label="Blood Type" value="NO" />
+              <SeniorDetailRow icon={<Shield className="h-6 w-6" />} label="Allergies" value="NO" />
+              <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label="Medical Conditions" value="NO" />
+              <SeniorDetailRow icon={<Pill className="h-6 w-6" />} label="Current Medication" value="NO" />
+            </SeniorDetailSection>
+
+            <SeniorDetailSection title="Status" tone="blue" icon={<CheckCircle className="h-6 w-6" />}>
+              <SeniorDetailRow icon={<Calendar className="h-6 w-6" />} label="Last Check-In" value={senior.lastCheckIn ? formatDetailDateTime(senior.lastCheckIn) : 'NO'} />
+              <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label="Points" value={String(senior.points ?? 0)} />
+              <SeniorDetailRow icon={<CheckCircle className="h-6 w-6" />} label="Current Status" value={getSeniorDetailValue(status)} />
+            </SeniorDetailSection>
+
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="flex h-16 w-full items-center justify-center gap-3 rounded-[10px] bg-[#4b8508] text-xl font-bold text-white shadow-sm active:scale-[0.98]"
+            >
+              <Pencil className="h-6 w-6" />
+              Edit Information
+            </button>
+          </>
         )}
       </section>
+    </div>
+  );
+}
 
-      {!isEditing && <section className="mt-5 px-5">
-        <a
-          href={phoneHref}
-          aria-disabled={!phoneHref}
-          className={`flex h-14 w-full items-center justify-center gap-2 rounded-[10px] text-lg font-bold uppercase active:scale-[0.98] ${
-            phoneHref
-              ? 'bg-[#075fc7] text-white'
-              : 'pointer-events-none bg-[#d0d3d8] text-[#71717a]'
-          }`}
-        >
-          <Phone className="h-5 w-5" />
-          Call
-        </a>
-      </section>}
+function SeniorDetailSection({
+  children,
+  icon,
+  title,
+  tone,
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  title: string;
+  tone: 'green' | 'red' | 'blue';
+}) {
+  const toneClass = {
+    green: 'bg-[#f5fff7] text-[#3d8508] border-[#cfe9d6]',
+    red: 'bg-[#fff7f7] text-[#c8171d] border-[#ffd7d7]',
+    blue: 'bg-[#f6faff] text-[#075fc7] border-[#d5e6ff]',
+  }[tone];
+
+  return (
+    <div className="overflow-hidden rounded-[10px] bg-white shadow-sm">
+      <div className={`flex items-center gap-3 border-b px-5 py-4 ${toneClass}`}>
+        {icon}
+        <h3 className="text-lg font-black uppercase tracking-wide">{title}</h3>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SeniorDetailRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="grid grid-cols-[28px_minmax(104px,1fr)_minmax(112px,1.35fr)_20px] items-center gap-3 border-b border-[#eef0f2] px-5 py-4 last:border-b-0">
+      <div className="text-[#94a3b8]">{icon}</div>
+      <p className="text-base font-semibold leading-5 text-[#111827]">{label}</p>
+      <p className="break-words text-right text-base font-semibold leading-6 text-black">{value}</p>
+      <ChevronRight className="h-5 w-5 text-[#cbd5e1]" />
     </div>
   );
 }
@@ -896,11 +954,13 @@ function ResidentProfileDetails({
 function SeniorDetailField({
   label,
   onChange,
+  placeholder,
   type = 'text',
   value,
 }: {
   label: string;
   onChange: (value: string) => void;
+  placeholder?: string;
   type?: string;
   value: string;
 }) {
@@ -910,6 +970,7 @@ function SeniorDetailField({
       <input
         type={type}
         value={value}
+        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-xl bg-[#f4f6f8] px-4 py-3 text-lg font-bold text-black outline-none focus:ring-2 focus:ring-[#075fc7]"
       />

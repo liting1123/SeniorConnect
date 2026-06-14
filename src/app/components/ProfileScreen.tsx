@@ -236,14 +236,6 @@ export default function ProfileScreen({
               onChange={setAddress}
               isLast
             />
-
-            <button
-              type="button"
-              onClick={handleSavePersonalInfo}
-              className="mt-5 w-full rounded-2xl bg-green-500 py-3 text-lg font-semibold text-white active:scale-95"
-            >
-              {t('saveChanges')}
-            </button>
           </div>
         </main>
       </div>
@@ -323,11 +315,9 @@ export default function ProfileScreen({
             title={t('selectLanguage')}
             onClick={onChangeLanguage}
           />
-          <SettingsItem icon={<Shield className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('privacySecurity')} />
         </div>
 
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-          <SettingsItem icon={<HelpCircle className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />} title={t('helpSupport')} />
           <SettingsItem
             icon={<LogOut className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
             title={t('logOut')}

@@ -22,9 +22,42 @@ const FIELD_MAP = {
 };
 
 const CHECK_IN_TIME_ZONE = process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore';
+const parseCheckInTime = (value, fallback) => {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value || '');
+  if (!match) {
+    return fallback;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) {
+    return fallback;
+  }
+
+  return hours * 60 + minutes;
+};
+
+const formatCheckInTime = (totalMinutes) => {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const suffix = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${String(minutes).padStart(2, '0')} ${suffix}`;
+};
+
 const CHECK_IN_WINDOWS = [
-  { id: 'morning', label: 'morning', startHour: 5, endHour: 9 },
-  { id: 'evening', label: 'evening', startHour: 16, endHour: 18 },
+  {
+    id: 'morning',
+    label: 'morning',
+    startMinute: parseCheckInTime(process.env.CHECK_IN_MORNING_START, 5 * 60),
+    endMinute: parseCheckInTime(process.env.CHECK_IN_MORNING_END, 11 * 60 + 59),
+  },
+  {
+    id: 'evening',
+    label: 'evening',
+    startMinute: parseCheckInTime(process.env.CHECK_IN_EVENING_START, 17 * 60),
+    endMinute: parseCheckInTime(process.env.CHECK_IN_EVENING_END, 23 * 60 + 59),
+  },
 ];
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
@@ -245,13 +278,18 @@ function getSingaporeParts(value = new Date()) {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
+    minute: '2-digit',
     hour12: false,
   }).formatToParts(date);
   const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const hour = Number(partMap.hour);
+  const minute = Number(partMap.minute);
 
   return {
     dateKey: `${partMap.year}-${partMap.month}-${partMap.day}`,
-    hour: Number(partMap.hour),
+    hour,
+    minute,
+    totalMinutes: hour * 60 + minute,
   };
 }
 
@@ -262,15 +300,16 @@ function getCheckInWindow(value = new Date()) {
     return null;
   }
 
-  const window = CHECK_IN_WINDOWS.find(({ startHour, endHour }) => {
-    return parts.hour >= startHour && parts.hour < endHour;
+  const window = CHECK_IN_WINDOWS.find(({ startMinute, endMinute }) => {
+    return parts.totalMinutes >= startMinute && parts.totalMinutes <= endMinute;
   });
 
   return window ? { ...window, dateKey: parts.dateKey } : null;
 }
 
 function getWindowSummary() {
-  return 'Morning check-in is 5:00 AM-8:59 AM. Evening check-in is 4:00 PM-5:59 PM.';
+  const [morning, evening] = CHECK_IN_WINDOWS;
+  return `Morning check-in is ${formatCheckInTime(morning.startMinute)}-${formatCheckInTime(morning.endMinute)}. Evening check-in is ${formatCheckInTime(evening.startMinute)}-${formatCheckInTime(evening.endMinute)}.`;
 }
 
 function getSingaporeDateKey(value = new Date()) {

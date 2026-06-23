@@ -14,7 +14,7 @@ export default function LoginScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [selectedLoginType, setSelectedLoginType] = useState<'care' | 'family'>('care');
+  const [selectedLoginType, setSelectedLoginType] = useState<'senior' | 'family'>('senior');
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -26,7 +26,12 @@ export default function LoginScreen({
       onGetStarted(user);
     } catch (error) {
       console.error('Login failed:', error);
-      setError(error instanceof Error ? error.message : 'Email or password is incorrect.');
+      const message = error instanceof Error ? error.message : 'Email or password is incorrect.';
+      setError(
+        /Seniors\s*&\s*Caregivers/i.test(message)
+          ? 'This account is for Seniors. Please use Seniors login tab.'
+          : message,
+      );
     } finally {
       setIsLoggingIn(false);
     }
@@ -69,21 +74,19 @@ export default function LoginScreen({
           <div className="mt-8 flex rounded-2xl bg-[#f1f1f1] p-1 shadow-sm">
             <button
               type="button"
-              aria-pressed={selectedLoginType === 'care'}
+              aria-pressed={selectedLoginType === 'senior'}
               onClick={() => {
-                setSelectedLoginType('care');
+                setSelectedLoginType('senior');
                 setError('');
               }}
               className={`flex-1 rounded-2xl px-2 py-4 transition active:scale-[0.98] ${
-                selectedLoginType === 'care' ? 'bg-white shadow-sm' : 'bg-transparent'
+                selectedLoginType === 'senior' ? 'bg-white shadow-sm' : 'bg-transparent'
               }`}
             >
               <span className={`text-[16px] font-semibold leading-6 ${
-                selectedLoginType === 'care' ? 'text-[#2d6b2f]' : 'text-[#2f2f2f]'
+                selectedLoginType === 'senior' ? 'text-[#2d6b2f]' : 'text-[#2f2f2f]'
               }`}>
-                Seniors &
-                <br />
-                Caregivers
+                Senior
               </span>
             </button>
 
@@ -101,9 +104,9 @@ export default function LoginScreen({
               <span className={`text-[16px] font-semibold leading-6 ${
                 selectedLoginType === 'family' ? 'text-[#2d6b2f]' : 'text-[#2f2f2f]'
               }`}>
-                Family
+                Caregiver /
                 <br />
-                Members
+                Family
               </span>
             </button>
           </div>

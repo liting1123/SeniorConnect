@@ -266,6 +266,23 @@ function toUserRecord(record = {}) {
 }
 
 function getSingaporeParts(value = new Date()) {
+  if (!(value instanceof Date)) {
+    const serviceNowDateTimeMatch = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::\d{2})?$/.exec(
+      String(value || '').trim(),
+    );
+
+    if (serviceNowDateTimeMatch) {
+      const [, year, month, day, hour, minute] = serviceNowDateTimeMatch;
+
+      return {
+        dateKey: `${year}-${month}-${day}`,
+        hour: Number(hour),
+        minute: Number(minute),
+        totalMinutes: Number(hour) * 60 + Number(minute),
+      };
+    }
+  }
+
   const date = value instanceof Date ? value : new Date(value);
 
   if (Number.isNaN(date.getTime())) {
@@ -432,7 +449,7 @@ export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 })
     method: 'PATCH',
     body: JSON.stringify({
       [FIELD_MAP.points]: String(nextPoints),
-      [FIELD_MAP.lastCheckInAt]: new Date().toISOString(),
+      [FIELD_MAP.lastCheckInAt]: getServiceNowDateTime(),
     }),
   });
 
@@ -440,6 +457,8 @@ export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 })
 }
 
 function toLoginUser(record = {}) {
+  const roleValue = getDisplayValue(record[LOGIN_FIELD_MAP.role]) || getReferenceValue(record[LOGIN_FIELD_MAP.role]);
+
   return {
     id: record.sys_id,
     username: record[LOGIN_FIELD_MAP.username] || '',
@@ -449,7 +468,7 @@ function toLoginUser(record = {}) {
       record[LOGIN_FIELD_MAP.username] ||
       record[LOGIN_FIELD_MAP.email]?.split('@')[0] ||
       'User',
-    role: String(record[LOGIN_FIELD_MAP.role] || '').trim().toLowerCase() || 'elderly',
+    role: String(roleValue || '').trim() || 'elderly',
   };
 }
 
@@ -469,12 +488,20 @@ function normalizeLoginValue(value) {
   return String(value || '').trim().toLowerCase();
 }
 
-function isFamilyRole(role = '') {
-  return ['family', 'familymember', 'family_member'].includes(String(role || '').trim().toLowerCase());
+function normalizeRole(value = '') {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-function isCareRole(role = '') {
-  return ['caregiver', 'nok', 'elderly', 'senior'].includes(String(role || '').trim().toLowerCase());
+function isFamilyRole(role = '') {
+  return ['family', 'families', 'familymember', 'familymembers'].includes(normalizeRole(role));
+}
+
+function isCaregiverRole(role = '') {
+  return ['caregiver', 'caregivers', 'nok', 'nextofkin', 'caregiverfamily'].includes(normalizeRole(role));
+}
+
+function isSeniorRole(role = '') {
+  return ['elderly', 'senior', 'seniors'].includes(normalizeRole(role));
 }
 
 function getServiceNowDateTime(value = new Date()) {
@@ -653,11 +680,11 @@ async function findLoginRecordByIdentifier(normalizedIdentifier) {
   return data?.result?.[0] || null;
 }
 
-export async function loginWithServiceNow({ identifier, email, password, loginType = 'care' }) {
+export async function loginWithServiceNow({ identifier, email, password, loginType = 'senior' }) {
   const normalizedIdentifier = String(identifier || email || '').trim();
   const comparableIdentifier = normalizeLoginValue(normalizedIdentifier);
   const rawPassword = String(password || '');
-  const normalizedLoginType = String(loginType || 'care').trim().toLowerCase();
+  const normalizedLoginType = String(loginType || 'senior').trim().toLowerCase();
 
   if (!normalizedIdentifier || !rawPassword) {
     throw Object.assign(new Error('Email/username and password are required.'), { status: 400 });
@@ -666,21 +693,21 @@ export async function loginWithServiceNow({ identifier, email, password, loginTy
   const seniorUser = await findSeniorLoginUser(comparableIdentifier, rawPassword);
 
   if (seniorUser) {
-    if (normalizedLoginType === 'family' && !isFamilyRole(seniorUser.role)) {
+    if (normalizedLoginType === 'family' && !isFamilyRole(seniorUser.role) && !isCaregiverRole(seniorUser.role)) {
       throw Object.assign(
-        new Error('This account is for Seniors & Caregivers. Please use that login tab.'),
+        new Error('This account is for Seniors. Please use Seniors login tab.'),
         { status: 403 },
       );
     }
 
-    if (normalizedLoginType !== 'family' && isFamilyRole(seniorUser.role)) {
+    if (normalizedLoginType !== 'family' && !isSeniorRole(seniorUser.role)) {
       throw Object.assign(
-        new Error('This account is for Family Members. Please use the Family Members login tab.'),
+        new Error('Only senior accounts can use the Senior login tab. Please use Caregiver / Family.'),
         { status: 403 },
       );
     }
 
-    if (!isFamilyRole(seniorUser.role) && !isCareRole(seniorUser.role)) {
+    if (!isFamilyRole(seniorUser.role) && !isCaregiverRole(seniorUser.role) && !isSeniorRole(seniorUser.role)) {
       throw Object.assign(new Error('This account role is not allowed to log in here.'), { status: 403 });
     }
 

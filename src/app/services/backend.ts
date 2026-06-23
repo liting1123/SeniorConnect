@@ -67,6 +67,28 @@ type LoginResponse = {
 
 const SESSION_KEY = 'careconnect.user';
 
+function normalizeRole(role = '') {
+  return role.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function isSeniorRole(role = '') {
+  return ['elderly', 'senior', 'seniors'].includes(normalizeRole(role));
+}
+
+function isCaregiverOrFamilyRole(role = '') {
+  return [
+    'caregiver',
+    'caregivers',
+    'nok',
+    'nextofkin',
+    'family',
+    'families',
+    'familymember',
+    'familymembers',
+    'caregiverfamily',
+  ].includes(normalizeRole(role));
+}
+
 function getDisplayName(user: AppUser) {
   return user.displayName?.trim() || user.email?.split('@')[0] || 'User';
 }
@@ -147,7 +169,7 @@ export function updateStoredUserRole(role: string) {
   return updatedUser;
 }
 
-export async function login(identifier: string, password: string, loginType: 'care' | 'family' = 'care') {
+export async function login(identifier: string, password: string, loginType: 'senior' | 'family' = 'senior') {
   const response = await fetch('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -167,6 +189,18 @@ export async function login(identifier: string, password: string, loginType: 'ca
     token: loginData.token,
     role: loginData.user.role || 'elderly',
   };
+
+  if (loginType === 'family' && isSeniorRole(user.role)) {
+    throw new Error('This account is for Seniors. Please use Seniors login tab.');
+  }
+
+  if (loginType === 'senior' && !isSeniorRole(user.role)) {
+    throw new Error('Only senior accounts can use the Senior login tab. Please use Caregiver / Family.');
+  }
+
+  if (!isSeniorRole(user.role) && !isCaregiverOrFamilyRole(user.role)) {
+    throw new Error('This account role is not allowed to log in here.');
+  }
 
   setStoredUser(user);
 

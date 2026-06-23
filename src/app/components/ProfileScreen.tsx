@@ -13,6 +13,14 @@ export const PERSONAL_INFO_KEY = 'careconnect.personalInfo';
 const PROFILE_IMAGE_KEY = 'careconnect.profileImage';
 const SENIOR_ID_LENGTH = 8;
 
+function normalizeRole(role = '') {
+  return role.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function isSeniorRole(role = '') {
+  return ['elderly', 'senior', 'seniors'].includes(normalizeRole(role));
+}
+
 function getDisplaySeniorId(value = '') {
   return value ? value.slice(0, SENIOR_ID_LENGTH).toUpperCase() : '';
 }
@@ -38,7 +46,7 @@ export default function ProfileScreen({
   const [activeVerification, setActiveVerification] = useState<FamilyVerification | null>(null);
   const [dismissedVerificationId, setDismissedVerificationId] = useState('');
   const profileEmail = user?.email ?? 'No email found';
-  const shouldShowSeniorId = /senior|elderly/i.test(user?.role || '');
+  const shouldShowSeniorId = isSeniorRole(user?.role || '');
   const displayName = useMemo(() => {
     if (user?.displayName?.trim()) {
       return user.displayName.trim();

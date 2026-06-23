@@ -32,12 +32,16 @@ type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medicati
 type LanguageReturnScreen = 'home' | 'caregiverDashboard';
 const MEDICINE_REMINDER_EARLY_MINUTES = 5;
 
+function normalizeRole(role = '') {
+  return role.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 function isFamilyRole(role = '') {
-  return ['family', 'familymember', 'family_member'].includes(role.trim().toLowerCase());
+  return ['family', 'families', 'familymember', 'familymembers'].includes(normalizeRole(role));
 }
 
 function isCaregiverRole(role = '') {
-  return ['caregiver', 'nok'].includes(role.trim().toLowerCase());
+  return ['caregiver', 'caregivers', 'nok', 'nextofkin', 'caregiverfamily'].includes(normalizeRole(role));
 }
 
 function getSavedPersonalInfo() {
@@ -200,7 +204,7 @@ export default function App() {
   useEffect(() => {
     const user = getStoredUser();
 
-    if (!user || user.role.trim().toLowerCase() === 'caregiver' || hasLoadedMedicinesRef.current) {
+    if (!user || isCaregiverRole(user.role) || isFamilyRole(user.role) || hasLoadedMedicinesRef.current) {
       return;
     }
 

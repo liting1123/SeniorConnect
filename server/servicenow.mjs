@@ -493,11 +493,33 @@ function normalizeRole(value = '') {
 }
 
 function isFamilyRole(role = '') {
-  return ['family', 'families', 'familymember', 'familymembers'].includes(normalizeRole(role));
+  return ['children', 'family', 'families', 'familymember', 'familymembers', 'volunteer'].includes(normalizeRole(role));
 }
 
 function isCaregiverRole(role = '') {
   return ['caregiver', 'caregivers', 'nok', 'nextofkin', 'caregiverfamily'].includes(normalizeRole(role));
+}
+
+function getRoleFromRelationship(relationship = '') {
+  const normalizedRelationship = normalizeRole(relationship);
+
+  if (normalizedRelationship === 'children') {
+    return 'children';
+  }
+
+  if (normalizedRelationship === 'volunteer') {
+    return 'volunteer';
+  }
+
+  if (normalizedRelationship === 'caregiver') {
+    return 'caregiver';
+  }
+
+  if (normalizedRelationship === 'nextofkin' || normalizedRelationship === 'nok') {
+    return 'caregiver';
+  }
+
+  return 'children';
 }
 
 function isSeniorRole(role = '') {
@@ -723,7 +745,12 @@ export async function loginWithServiceNow({ identifier, email, password, loginTy
 export async function registerWithServiceNow({ email, password, name, role = 'caregiver' }) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const rawPassword = String(password || '');
-  const normalizedRole = isFamilyRole(role) ? 'family' : 'caregiver';
+  const requestedRole = normalizeRole(role);
+  const normalizedRole = ['caregiver', 'children', 'volunteer'].includes(requestedRole)
+    ? requestedRole
+    : isFamilyRole(role)
+      ? 'children'
+      : 'caregiver';
 
   if (!normalizedEmail || !rawPassword) {
     throw Object.assign(new Error('Email and password are required.'), { status: 400 });
@@ -1041,6 +1068,14 @@ export async function verifyFamilyVerification({ verificationId, seniorId, famil
     }),
   });
 
+  const role = getRoleFromRelationship(relationship);
+  await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(normalizedFamilyUserId)}`), {
+    method: 'PATCH',
+    body: JSON.stringify({
+      [LOGIN_FIELD_MAP.role]: role,
+    }),
+  });
+
   const connection = await createCaregiverConnection({
     caregiverId: normalizedFamilyUserId,
     caregiverEmail: normalizedFamilyEmail,
@@ -1092,7 +1127,7 @@ function getDisplayValue(value) {
 function toActiveSosAlert(record = {}) {
   const status = getDisplayValue(record[SOS_ALERT_FIELD_MAP.status]) || 'New';
 
-  if (/resolved|closed|cancelled|canceled/i.test(status)) {
+  if (/resolved|closed|cancelled|canceled|reminder/i.test(status)) {
     return null;
   }
 

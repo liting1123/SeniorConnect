@@ -21,6 +21,12 @@ type Senior = {
 };
 
 function getRoleFromRelationship(relationship: string) {
+  const normalizedRelationship = relationship.trim().toLowerCase();
+
+  if (['children', 'volunteer', 'caregiver'].includes(normalizedRelationship)) {
+    return normalizedRelationship;
+  }
+
   return /next-of-kin|nok/i.test(relationship) ? 'NOK' : 'Family';
 }
 
@@ -36,7 +42,7 @@ export default function CarePortalScreen({
   const [seniorId, setSeniorId] = useState('');
   const [verificationId, setVerificationId] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
-  const [relationship, setRelationship] = useState('Next-of-Kin');
+  const [relationship, setRelationship] = useState('children');
   const [confirmed, setConfirmed] = useState(false);
   const [registered, setRegistered] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
@@ -170,8 +176,9 @@ export default function CarePortalScreen({
                 onChange={(event) => setRelationship(event.target.value)}
                 className="w-full appearance-none border-none bg-transparent text-lg text-[#1b1c1c] outline-none focus:ring-0 min-[390px]:text-xl"
               >
-                <option>Next-of-Kin</option>
-                <option>Family Member</option>
+                <option value="children">CHILDREN</option>
+                <option value="volunteer">VOLUNTEER</option>
+                <option value="caregiver">CAREGIVER</option>
               </select>
               <ChevronDown className="pointer-events-none h-6 w-6 text-[#717971] min-[390px]:h-7 min-[390px]:w-7" />
             </div>

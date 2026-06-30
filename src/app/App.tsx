@@ -37,7 +37,7 @@ function normalizeRole(role = '') {
 }
 
 function isFamilyRole(role = '') {
-  return ['family', 'families', 'familymember', 'familymembers'].includes(normalizeRole(role));
+  return ['children', 'family', 'families', 'familymember', 'familymembers', 'volunteer'].includes(normalizeRole(role));
 }
 
 function isCaregiverRole(role = '') {

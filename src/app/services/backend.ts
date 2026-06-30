@@ -79,6 +79,7 @@ function isCaregiverOrFamilyRole(role = '') {
   return [
     'caregiver',
     'caregivers',
+    'children',
     'nok',
     'nextofkin',
     'family',
@@ -86,6 +87,7 @@ function isCaregiverOrFamilyRole(role = '') {
     'familymember',
     'familymembers',
     'caregiverfamily',
+    'volunteer',
   ].includes(normalizeRole(role));
 }
 

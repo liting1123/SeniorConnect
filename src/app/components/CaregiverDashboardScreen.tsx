@@ -109,6 +109,7 @@ export default function CaregiverDashboardScreen({
   const [seniorError, setSeniorError] = useState('');
   const [selectedSenior, setSelectedSenior] = useState<Senior | null>(null);
   const [resolvingAlertIds, setResolvingAlertIds] = useState<string[]>([]);
+  const [sendingReminderIds, setSendingReminderIds] = useState<string[]>([]);
   const [sosHistory, setSosHistory] = useState<SosAlertHistory[]>(() => getStoredSosHistory(caregiverEmail));
 //Senior data loading and polling logic
   useEffect(() => {
@@ -312,6 +313,40 @@ export default function CaregiverDashboardScreen({
     }
   };
 
+  const handleSendCheckInReminder = async (senior: Senior) => {
+    const reminderKey = senior.userId || senior.id || senior.connectionId || senior.name;
+
+    setSendingReminderIds((ids) => [...ids, reminderKey]);
+
+    try {
+      const response = await fetch('/api/servicenow/sos-alert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          seniorName: senior.name,
+          seniorPhone: senior.phone,
+          location: senior.location || '',
+          status: 'Reminder Sent',
+          message: 'Please complete your check-in for today.',
+        }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to send check-in reminder');
+      }
+
+      alert(`Reminder sent to ${senior.name || 'Senior'}.`);
+    } catch (error) {
+      console.error('Send reminder failed:', error);
+      alert(error instanceof Error ? error.message : 'Unable to send check-in reminder');
+    } finally {
+      setSendingReminderIds((ids) => ids.filter((id) => id !== reminderKey));
+    }
+  };
+
   const alertCount = seniors.filter((senior) => isAlertStatus(senior.status)).length;
 
   return (
@@ -330,6 +365,8 @@ export default function CaregiverDashboardScreen({
             isLoading={isLoadingSeniors}
             error={seniorError}
             onOpenProfile={setSelectedSenior}
+            onSendReminder={handleSendCheckInReminder}
+            sendingReminderIds={sendingReminderIds}
           />
         )}
         {!selectedSenior && activeTab === 'alerts' && (
@@ -441,6 +478,24 @@ function parseServiceNowDate(value = '') {
   return date;
 }
 
+function hasCheckedInToday(value = '') {
+  const date = parseServiceNowDate(value);
+
+  if (!date) {
+    return false;
+  }
+
+  const formatDate = (dateValue: Date) =>
+    new Intl.DateTimeFormat('en-CA', {
+      day: '2-digit',
+      month: '2-digit',
+      timeZone: 'Asia/Singapore',
+      year: 'numeric',
+    }).format(dateValue);
+
+  return formatDate(date) === formatDate(new Date());
+}
+
 function formatAlertTime(value = '') {
   const date = parseServiceNowDate(value);
 
@@ -479,22 +534,26 @@ function CaregiverDashboardHome({
   isLoading,
   error,
   onOpenProfile,
+  onSendReminder,
+  sendingReminderIds,
 }: {
   caregiverName: string;
   seniors: Senior[];
   isLoading: boolean;
   error: string;
   onOpenProfile: (senior: Senior) => void;
+  onSendReminder: (senior: Senior) => void;
+  sendingReminderIds: string[];
 }) {
-  const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status));
+  const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status) || !hasCheckedInToday(senior.lastCheckIn));
   const alertSenior = alertSeniors[0];
-  const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status));
+  const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status) && hasCheckedInToday(senior.lastCheckIn));
   const featuredSeniors = [...alertSeniors, ...stableSeniors];
 
   return (
     <div className="flex flex-col gap-6">
       <section className="flex items-center justify-between gap-4">
-        <h2 className="text-[30px] font-bold leading-9 text-black">Monitored Residents</h2>
+        <h2 className="text-[30px] font-bold leading-9 text-black">Seniors</h2>
         <p className="shrink-0 text-right text-base font-bold text-[#71717a]">
           {seniors.length} Residents Active
         </p>
@@ -512,10 +571,11 @@ function CaregiverDashboardHome({
               key={senior.id}
               senior={senior}
               name={senior.name}
-              status={getSeniorStatus(senior)}
               location={senior.location || 'Unknown'}
-              tone={isAlertStatus(senior.status) ? 'alert' : 'good'}
+              tone={isAlertStatus(senior.status) || !hasCheckedInToday(senior.lastCheckIn) ? 'alert' : 'good'}
               onOpenProfile={onOpenProfile}
+              onSendReminder={onSendReminder}
+              isSendingReminder={sendingReminderIds.includes(senior.userId || senior.id || senior.connectionId || senior.name)}
             />
           ))
         ) : (
@@ -1242,19 +1302,22 @@ function getInitials(name: string) {
 function SeniorCard({
   senior,
   name,
-  status,
   location,
   tone,
+  isSendingReminder,
   onOpenProfile,
+  onSendReminder,
 }: {
   senior: Senior;
   name: string;
-  status: string;
   location: string;
   tone: 'good' | 'alert';
+  isSendingReminder: boolean;
   onOpenProfile: (senior: Senior) => void;
+  onSendReminder: (senior: Senior) => void;
 }) {
   const isAlert = tone === 'alert';
+  const checkedInToday = hasCheckedInToday(senior.lastCheckIn);
   const phoneHref = getPhoneHref(senior.phone);
 
   return (
@@ -1265,9 +1328,9 @@ function SeniorCard({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start">
             <div className="min-w-0">
-              <h3 className="truncate text-[28px] font-bold leading-8 text-black">{name}</h3>
+              <h3 className="whitespace-normal break-words text-[28px] font-bold leading-8 text-black">{name}</h3>
               <p className={`mt-3 flex items-center gap-2 text-lg font-bold ${isAlert ? 'text-[#c8171d]' : 'text-[#30343a]'}`}>
                 {isAlert ? (
                   <TriangleAlert className="h-5 w-5 flex-shrink-0" />
@@ -1277,9 +1340,6 @@ function SeniorCard({
                 <span className="truncate">{isAlert ? 'No check-in today' : 'Checked in today'}</span>
               </p>
             </div>
-            <span className={`shrink-0 rounded-[12px] px-3 py-2 text-base font-bold uppercase ${isAlert ? 'bg-[#ffdada] text-[#a90000]' : 'bg-[#e2e5e9] text-[#30343a]'}`}>
-              {isAlert ? 'SOS Active' : status || 'Stable'}
-            </span>
           </div>
         </div>
       </div>
@@ -1299,7 +1359,7 @@ function SeniorCard({
         />
       </div>
 
-      <div className="mt-5 grid grid-cols-[1fr_128px] gap-3">
+      <div className={`mt-5 grid gap-3 ${checkedInToday ? 'grid-cols-[1fr_128px]' : 'grid-cols-2'}`}>
         <a
           href={phoneHref}
           aria-disabled={!phoneHref}
@@ -1314,10 +1374,21 @@ function SeniorCard({
           <Phone className="h-6 w-6" />
           {isAlert ? 'Call Emergency' : 'Call'}
         </a>
+        {!checkedInToday && (
+          <button
+            type="button"
+            disabled={isSendingReminder}
+            onClick={() => onSendReminder(senior)}
+            className="flex h-16 items-center justify-center gap-3 rounded-[10px] border border-[#075fc7] bg-[#075fc7] text-xl font-bold uppercase text-white transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
+          >
+            <Bell className="h-6 w-6" />
+            {isSendingReminder ? 'Sending' : 'Remind'}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onOpenProfile(senior)}
-          className="flex h-16 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-lg font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98]"
+          className={`flex h-16 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-lg font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98] ${checkedInToday ? '' : 'col-span-2'}`}
         >
           Details
         </button>

@@ -8,6 +8,7 @@ import {
   createFamilyVerification,
   createSosAlert,
   deleteMedicineForUser,
+  getAllSeniorProfiles,
   getCaregiverSeniorConnections,
   getPendingFamilyVerificationCodesForSenior,
   getMedicinesForUser,
@@ -26,6 +27,41 @@ import {
 loadEnv();
 
 const PORT = Number(process.env.API_PORT) || 3001;
+const checkInReminders = [];
+
+function normalizeReminderValue(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function createCheckInReminder(body = {}) {
+  const reminder = {
+    id: `reminder-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    seniorUserId: String(body.seniorUserId || '').trim(),
+    seniorProfileId: String(body.seniorProfileId || '').trim(),
+    seniorName: String(body.seniorName || '').trim(),
+    seniorPhone: String(body.seniorPhone || '').trim(),
+    message: body.message || 'Please complete your check-in for today.',
+    status: 'Reminder Sent',
+    createdAt: new Date().toISOString(),
+  };
+
+  checkInReminders.unshift(reminder);
+  checkInReminders.splice(50);
+  return reminder;
+}
+
+function getCheckInRemindersForUser(uid) {
+  const normalizedUid = normalizeReminderValue(uid);
+
+  return checkInReminders
+    .filter((reminder) => {
+      return (
+        normalizeReminderValue(reminder.seniorUserId) === normalizedUid ||
+        normalizeReminderValue(reminder.seniorProfileId) === normalizedUid
+      );
+    })
+    .map(({ id, message, status, createdAt }) => ({ id, message, status, createdAt }));
+}
 
 function sendJson(response, status, body) {
   response.writeHead(status, {
@@ -57,7 +93,7 @@ function requireAuth(request) {
 }
 
 function getUidFromPath(pathname) {
-  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|game|profile|medicines|family-verification-codes))?$/);
+  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|check-in-reminders|game|profile|medicines|family-verification-codes))?$/);
   return match ? { uid: decodeURIComponent(match[1]), action: match[2] || null } : null;
 }
 
@@ -135,6 +171,14 @@ export async function handleRequest(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/check-in-reminders' && request.method === 'POST') {
+    const body = await readJson(request);
+    const reminder = createCheckInReminder(body);
+
+    sendJson(response, 200, { reminder });
+    return;
+  }
+
   if (url.pathname === '/api/servicenow/connect-senior' && request.method === 'POST') {
     const body = await readJson(request);
     const connection = await createCaregiverConnection({
@@ -196,6 +240,12 @@ export async function handleRequest(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/servicenow/admin-seniors' && request.method === 'GET') {
+    const seniors = await getAllSeniorProfiles();
+    sendJson(response, 200, { seniors });
+    return;
+  }
+
   if (url.pathname === '/api/servicenow/seniors-search' && request.method === 'GET') {
     const seniors = await searchSeniorProfiles({
       searchName: url.searchParams.get('searchName'),
@@ -248,6 +298,12 @@ export async function handleRequest(request, response) {
   if (request.method === 'GET' && route.action === 'family-verification-codes') {
     const verifications = await getPendingFamilyVerificationCodesForSenior(route.uid);
     sendJson(response, 200, { verifications });
+    return;
+  }
+
+  if (request.method === 'GET' && route.action === 'check-in-reminders') {
+    const reminders = getCheckInRemindersForUser(route.uid);
+    sendJson(response, 200, { reminders });
     return;
   }
 

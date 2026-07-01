@@ -19,6 +19,13 @@ type UserProfileResponse = {
   user?: BackendUser | null;
 };
 
+export type CheckInReminder = {
+  id: string;
+  message: string;
+  status: string;
+  createdAt: string;
+};
+
 export type Medicine = {
   id: string;
   name: string;
@@ -88,6 +95,7 @@ function isCaregiverOrFamilyRole(role = '') {
     'familymembers',
     'caregiverfamily',
     'volunteer',
+    'admin',
   ].includes(normalizeRole(role));
 }
 
@@ -282,6 +290,11 @@ export async function redeemPoints(user: AppUser, pointsToRedeem: number) {
 export async function getSeniorProfile(user: AppUser) {
   const data = await request<UserProfileResponse>(user, `/api/users/${user.uid}/profile`);
   return data.user || null;
+}
+
+export async function getCheckInReminders(user: AppUser) {
+  const data = await request<{ reminders: CheckInReminder[] }>(user, `/api/users/${user.uid}/check-in-reminders`);
+  return data.reminders || [];
 }
 
 export async function getMedicines(user: AppUser) {

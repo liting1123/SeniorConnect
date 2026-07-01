@@ -18,10 +18,12 @@ import {
   Phone,
   Pill,
   Pencil,
+  Plus,
   ShieldAlert,
   Shield,
   TriangleAlert,
   User,
+  X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getStoredUser } from '../services/backend';
@@ -79,7 +81,7 @@ function getStoredSosHistory(caregiverEmail: string) {
   }
 
   try {
-    return JSON.parse(rawHistory) as SosAlertHistory[];
+    return (JSON.parse(rawHistory) as SosAlertHistory[]).filter((item) => !isCheckInReminderAlert(item));
   } catch {
     localStorage.removeItem(getSosHistoryKey(caregiverEmail));
     return [];
@@ -87,17 +89,25 @@ function getStoredSosHistory(caregiverEmail: string) {
 }
 
 function saveSosHistory(caregiverEmail: string, history: SosAlertHistory[]) {
-  localStorage.setItem(getSosHistoryKey(caregiverEmail), JSON.stringify(history));
+  localStorage.setItem(getSosHistoryKey(caregiverEmail), JSON.stringify(history.filter((item) => !isCheckInReminderAlert(item))));
 }
 
 export default function CaregiverDashboardScreen({
+  dashboardLabel = 'Dashboard',
+  emptyMessage,
+  loadMode = 'caregiver',
   onBack,
   onChangeLanguage,
   onLogout,
+  alertsLabel = 'Alerts',
 }: {
+  dashboardLabel?: string;
+  emptyMessage?: string;
+  loadMode?: 'caregiver' | 'admin';
   onBack: () => void;
   onChangeLanguage: () => void;
   onLogout: () => void;
+  alertsLabel?: string;
 }) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'alerts' | 'profile'>('dashboard');
   const currentUser = getStoredUser();
@@ -111,9 +121,15 @@ export default function CaregiverDashboardScreen({
   const [resolvingAlertIds, setResolvingAlertIds] = useState<string[]>([]);
   const [sendingReminderIds, setSendingReminderIds] = useState<string[]>([]);
   const [sosHistory, setSosHistory] = useState<SosAlertHistory[]>(() => getStoredSosHistory(caregiverEmail));
+  const [showAddSenior, setShowAddSenior] = useState(false);
+  const [addSeniorId, setAddSeniorId] = useState('');
+  const [addSeniorRelationship, setAddSeniorRelationship] = useState('caregiver');
+  const [isAddingSenior, setIsAddingSenior] = useState(false);
+  const [addSeniorError, setAddSeniorError] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
 //Senior data loading and polling logic
   useEffect(() => {
-    if (!caregiverEmail) {
+    if (loadMode !== 'admin' && !caregiverEmail) {
       setSeniors([]);
       return;
     }
@@ -138,13 +154,16 @@ export default function CaregiverDashboardScreen({
 
       try {
         const params = new URLSearchParams({ caregiverId, caregiverEmail });
-        const response = await fetch(`/api/servicenow/caregiver-seniors?${params.toString()}`, {
+        const url = loadMode === 'admin'
+          ? '/api/servicenow/admin-seniors'
+          : `/api/servicenow/caregiver-seniors?${params.toString()}`;
+        const response = await fetch(url, {
           signal: controller.signal,
         });
         const data = await response.json().catch(() => null);
 
         if (!response.ok) {
-          throw new Error(data?.error || 'Unable to load caregiver dashboard');
+          throw new Error(data?.error || `Unable to load ${loadMode === 'admin' ? 'admin' : 'caregiver'} dashboard`);
         }
 
         if (isMounted) {
@@ -158,7 +177,7 @@ export default function CaregiverDashboardScreen({
 
         console.error('Caregiver dashboard load failed:', error);
         if (isMounted) {
-          setSeniorError(error instanceof Error ? error.message : 'Unable to load caregiver dashboard');
+          setSeniorError(error instanceof Error ? error.message : `Unable to load ${loadMode === 'admin' ? 'admin' : 'caregiver'} dashboard`);
 
           if (!hasLoadedOnce) {
             setSeniors([]);
@@ -190,7 +209,7 @@ export default function CaregiverDashboardScreen({
       document.removeEventListener('visibilitychange', refreshWhenVisible);
       controller.abort();
     };
-  }, [caregiverEmail, caregiverId]);
+  }, [caregiverEmail, caregiverId, loadMode, refreshKey]);
 
   useEffect(() => {
     setSosHistory(getStoredSosHistory(caregiverEmail));
@@ -319,16 +338,16 @@ export default function CaregiverDashboardScreen({
     setSendingReminderIds((ids) => [...ids, reminderKey]);
 
     try {
-      const response = await fetch('/api/servicenow/sos-alert', {
+      const response = await fetch('/api/check-in-reminders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          seniorUserId: senior.userId,
+          seniorProfileId: senior.id,
           seniorName: senior.name,
           seniorPhone: senior.phone,
-          location: senior.location || '',
-          status: 'Reminder Sent',
           message: 'Please complete your check-in for today.',
         }),
       });
@@ -347,7 +366,56 @@ export default function CaregiverDashboardScreen({
     }
   };
 
-  const alertCount = seniors.filter((senior) => isAlertStatus(senior.status)).length;
+  const handleAddSenior = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!addSeniorId.trim()) {
+      setAddSeniorError('Please enter the Senior ID.');
+      return;
+    }
+
+    if (!caregiverId && !caregiverEmail) {
+      setAddSeniorError('Please log in again before adding a senior.');
+      return;
+    }
+
+    setIsAddingSenior(true);
+    setAddSeniorError('');
+
+    try {
+      const response = await fetch('/api/servicenow/connect-senior', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          caregiverId,
+          caregiverEmail,
+          caregiverName,
+          seniorId: addSeniorId.trim(),
+          relationship: addSeniorRelationship,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to add senior.');
+      }
+
+      setShowAddSenior(false);
+      setAddSeniorId('');
+      setAddSeniorRelationship('caregiver');
+      setRefreshKey((currentValue) => currentValue + 1);
+    } catch (error) {
+      console.error('Add senior failed:', error);
+      setAddSeniorError(error instanceof Error ? error.message : 'Unable to add senior.');
+    } finally {
+      setIsAddingSenior(false);
+    }
+  };
+
+  const alertCount = seniors.filter((senior) => isAlertStatus(senior.status, senior)).length;
+  const canAddSenior = loadMode !== 'admin';
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f6f8] pb-24 text-[#101418]">
@@ -360,17 +428,24 @@ export default function CaregiverDashboardScreen({
           />
         ) : activeTab === 'dashboard' && (
           <CaregiverDashboardHome
+            canAddSenior={canAddSenior}
             caregiverName={caregiverName}
+            emptyMessage={emptyMessage}
             seniors={seniors}
             isLoading={isLoadingSeniors}
             error={seniorError}
             onOpenProfile={setSelectedSenior}
+            onOpenAddSenior={() => {
+              setAddSeniorError('');
+              setShowAddSenior(true);
+            }}
             onSendReminder={handleSendCheckInReminder}
             sendingReminderIds={sendingReminderIds}
           />
         )}
         {!selectedSenior && activeTab === 'alerts' && (
           <CaregiverAlerts
+            alertsLabel={alertsLabel}
             seniors={seniors}
             sosHistory={sosHistory}
             resolvingAlertIds={resolvingAlertIds}
@@ -387,11 +462,79 @@ export default function CaregiverDashboardScreen({
         )}
       </main>
 
+      {showAddSenior && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+          <form
+            onSubmit={handleAddSenior}
+            className="w-full max-w-[360px] rounded-[28px] bg-white p-5 shadow-[0_18px_45px_rgba(0,0,0,0.18)]"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
+                  <Plus className="h-6 w-6" />
+                </div>
+                <h2 className="text-xl font-black leading-7 text-[#151515]">Add a Senior</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddSenior(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eef2ee] text-[#416642] active:scale-95"
+                aria-label="Close add senior"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <label className="mt-5 block">
+              <span className="mb-2 block text-base font-bold text-[#111827]">Senior ID</span>
+              <input
+                value={addSeniorId}
+                onChange={(event) => {
+                  setAddSeniorId(event.target.value);
+                  setAddSeniorError('');
+                }}
+                placeholder="Enter Senior ID"
+                className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-lg font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
+              />
+            </label>
+
+            <label className="mt-4 block">
+              <span className="mb-2 block text-base font-bold text-[#111827]">Relationship</span>
+              <select
+                value={addSeniorRelationship}
+                onChange={(event) => setAddSeniorRelationship(event.target.value)}
+                className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-lg font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
+              >
+                <option value="caregiver">Caregiver</option>
+                <option value="children">Children</option>
+                <option value="volunteer">Volunteer</option>
+                <option value="NOK">Next-of-Kin</option>
+              </select>
+            </label>
+
+            {addSeniorError && (
+              <p className="mt-4 rounded-2xl bg-red-50 p-3 text-center text-sm font-bold text-red-700">
+                {addSeniorError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={isAddingSenior || !addSeniorId.trim()}
+              className="mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-full bg-[#416642] text-lg font-black text-white active:scale-95 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
+            >
+              <Plus className="h-5 w-5" />
+              {isAddingSenior ? 'Adding...' : 'Add Senior'}
+            </button>
+          </form>
+        </div>
+      )}
+
       <nav className="absolute bottom-0 left-0 right-0 z-20 flex min-h-24 items-center justify-around bg-[#f4f6f8] pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_20px_rgba(0,0,0,0.04)]">
         <DashboardNavItem
           active={activeTab === 'dashboard'}
           icon={<LayoutDashboard className="h-6 w-6" />}
-          label="Dashboard"
+          label={dashboardLabel}
           onClick={() => {
             setSelectedSenior(null);
             setActiveTab('dashboard');
@@ -400,7 +543,7 @@ export default function CaregiverDashboardScreen({
         <DashboardNavItem
           active={activeTab === 'alerts'}
           icon={<TriangleAlert className="h-6 w-6" />}
-          label="Alerts"
+          label={alertsLabel}
           hasAlert={alertCount > 0}
           onClick={() => {
             setSelectedSenior(null);
@@ -421,7 +564,20 @@ export default function CaregiverDashboardScreen({
   );
 }
 
-function isAlertStatus(status = '') {
+function isCheckInReminderAlert(alert: Pick<SosAlertHistory, 'status' | 'message'> | Pick<Senior, 'status' | 'alertMessage'>) {
+  const status = 'status' in alert ? String(alert.status || '') : '';
+  const message = 'message' in alert
+    ? String(alert.message || '')
+    : String('alertMessage' in alert ? alert.alertMessage || '' : '');
+
+  return /reminder/i.test(status) || /check[-\s]?in/i.test(message);
+}
+
+function isAlertStatus(status = '', senior?: Senior) {
+  if (senior && isCheckInReminderAlert(senior)) {
+    return false;
+  }
+
   return /alert|sos|urgent|miss|no reply|attention/i.test(status);
 }
 
@@ -529,34 +685,52 @@ function formatDetailDateTime(value = '') {
 }
 
 function CaregiverDashboardHome({
+  canAddSenior,
   caregiverName,
+  emptyMessage,
   seniors,
   isLoading,
   error,
   onOpenProfile,
+  onOpenAddSenior,
   onSendReminder,
   sendingReminderIds,
 }: {
+  canAddSenior: boolean;
   caregiverName: string;
+  emptyMessage?: string;
   seniors: Senior[];
   isLoading: boolean;
   error: string;
   onOpenProfile: (senior: Senior) => void;
+  onOpenAddSenior: () => void;
   onSendReminder: (senior: Senior) => void;
   sendingReminderIds: string[];
 }) {
-  const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status) || !hasCheckedInToday(senior.lastCheckIn));
+  const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn));
   const alertSenior = alertSeniors[0];
-  const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status) && hasCheckedInToday(senior.lastCheckIn));
+  const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status, senior) && hasCheckedInToday(senior.lastCheckIn));
   const featuredSeniors = [...alertSeniors, ...stableSeniors];
 
   return (
     <div className="flex flex-col gap-6">
       <section className="flex items-center justify-between gap-4">
-        <h2 className="text-[30px] font-bold leading-9 text-black">Seniors</h2>
-        <p className="shrink-0 text-right text-base font-bold text-[#71717a]">
-          {seniors.length} Residents Active
-        </p>
+        <div>
+          <h2 className="text-[30px] font-bold leading-9 text-black">Seniors</h2>
+          <p className="mt-1 text-base font-bold text-[#71717a]">
+            {seniors.length} Residents Active
+          </p>
+        </div>
+        {canAddSenior && (
+          <button
+            type="button"
+            onClick={onOpenAddSenior}
+            className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-[#416642] px-5 text-lg font-black text-white shadow-sm active:scale-95"
+          >
+            <Plus className="h-6 w-6" />
+            Add a Senior
+          </button>
+        )}
       </section>
       <section className="flex flex-col gap-5">
         {isLoading ? (
@@ -572,7 +746,7 @@ function CaregiverDashboardHome({
               senior={senior}
               name={senior.name}
               location={senior.location || 'Unknown'}
-              tone={isAlertStatus(senior.status) || !hasCheckedInToday(senior.lastCheckIn) ? 'alert' : 'good'}
+              tone={isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn) ? 'alert' : 'good'}
               onOpenProfile={onOpenProfile}
               onSendReminder={onSendReminder}
               isSendingReminder={sendingReminderIds.includes(senior.userId || senior.id || senior.connectionId || senior.name)}
@@ -580,9 +754,9 @@ function CaregiverDashboardHome({
           ))
         ) : (
           <div className="rounded-[18px] border border-[#d8dbe0] bg-white p-6 text-center shadow-sm">
-            <p className="text-lg font-bold text-[#30343a]">No seniors found for this caregiver account.</p>
+            <p className="text-lg font-bold text-[#30343a]">{emptyMessage || 'No seniors found for this caregiver account.'}</p>
             <p className="mt-2 text-sm font-semibold leading-5 text-[#71717a]">
-              {caregiverName} is not linked to a resident profile yet.
+              {emptyMessage ? 'Senior records will appear here after they are added in ServiceNow.' : `${caregiverName} is not linked to a resident profile yet.`}
             </p>
           </div>
         )}
@@ -594,20 +768,29 @@ function CaregiverDashboardHome({
 
 // Placeholder component for senior card - can be expanded with more details and actions
 function CaregiverAlerts({
+  alertsLabel,
   seniors,
   sosHistory,
   resolvingAlertIds,
   onResolveAlert,
 }: {
+  alertsLabel: string;
   seniors: Senior[];
   sosHistory: SosAlertHistory[];
   resolvingAlertIds: string[];
   onResolveAlert: (senior: Senior) => void;
 }) {
-  const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status));
+  const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior));
+  const filteredSosHistory = sosHistory.filter((alert) => !isCheckInReminderAlert(alert));
 
   return (
     <div className="flex flex-col gap-7">
+      <section className="flex items-center justify-between gap-4">
+        <h2 className="text-[30px] font-bold leading-9 text-black">{alertsLabel}</h2>
+        <p className="shrink-0 text-right text-base font-bold text-[#71717a]">
+          {seniors.length} Total
+        </p>
+      </section>
       <section className="flex flex-col gap-5">
         {alertSeniors.length > 0 ? (
           alertSeniors.map((senior) => (
@@ -633,8 +816,8 @@ function CaregiverAlerts({
 
       <section className="flex flex-col gap-4">
         <h2 className="text-2xl font-bold text-[#1b1c1c]">SOS History</h2>
-        {sosHistory.length > 0 ? (
-          sosHistory.map((alert) => (
+        {filteredSosHistory.length > 0 ? (
+          filteredSosHistory.map((alert) => (
             <AlertHistoryItem
               key={alert.id}
               name={alert.seniorName}
@@ -870,14 +1053,6 @@ function ResidentProfileDetails({
           <ArrowLeft className="h-6 w-6" />
         </button>
         <h1 className="truncate text-2xl font-bold text-black">Senior Details</h1>
-        <button
-          type="button"
-          onClick={() => setIsEditing((currentValue) => !currentValue)}
-          className="ml-auto flex items-center gap-2 rounded-[10px] border border-[#d5dde8] bg-white px-4 py-2 text-base font-bold text-[#14213d] shadow-sm active:scale-95"
-        >
-          {!isEditing && <Pencil className="h-4 w-4" />}
-          {isEditing ? 'Cancel' : 'Edit'}
-        </button>
       </div>
 
       <section className="px-5 pt-5">
@@ -955,7 +1130,7 @@ function ResidentProfileDetails({
               className="flex h-16 w-full items-center justify-center gap-3 rounded-[10px] bg-[#4b8508] text-xl font-bold text-white shadow-sm active:scale-[0.98]"
             >
               <Pencil className="h-6 w-6" />
-              Edit Information
+              Update Senior Profiles
             </button>
           </>
         )}
@@ -1350,7 +1525,7 @@ function SeniorCard({
         />
       </div>
 
-      <div className={`mt-5 grid gap-3 ${checkedInToday ? 'grid-cols-[1fr_128px]' : 'grid-cols-2'}`}>
+      <div className="mt-5 grid grid-cols-2 gap-3">
         <a
           href={phoneHref}
           aria-disabled={!phoneHref}
@@ -1365,21 +1540,19 @@ function SeniorCard({
           <Phone className="h-6 w-6" />
           {isAlert ? 'Call Emergency' : 'Call'}
         </a>
-        {!checkedInToday && (
-          <button
-            type="button"
-            disabled={isSendingReminder}
-            onClick={() => onSendReminder(senior)}
-            className="flex h-16 items-center justify-center gap-3 rounded-[10px] border border-[#075fc7] bg-[#075fc7] text-xl font-bold uppercase text-white transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
-          >
-            <Bell className="h-6 w-6" />
-            {isSendingReminder ? 'Sending' : 'Remind'}
-          </button>
-        )}
+        <button
+          type="button"
+          disabled={isSendingReminder}
+          onClick={() => onSendReminder(senior)}
+          className="flex h-16 items-center justify-center gap-3 rounded-[10px] border border-[#075fc7] bg-[#075fc7] text-xl font-bold uppercase text-white transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
+        >
+          <Bell className="h-6 w-6" />
+          {isSendingReminder ? 'Sending' : 'Remind'}
+        </button>
         <button
           type="button"
           onClick={() => onOpenProfile(senior)}
-          className={`flex h-16 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-lg font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98] ${checkedInToday ? '' : 'col-span-2'}`}
+          className="col-span-2 flex h-16 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-lg font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98]"
         >
           Details
         </button>

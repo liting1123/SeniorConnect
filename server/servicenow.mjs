@@ -61,6 +61,7 @@ const CHECK_IN_WINDOWS = [
 ];
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
+const ADMIN_PROFILE_TABLE = process.env.SERVICE_NOW_ADMIN_PROFILE_TABLE || 'u_admin_profiles';
 const SOS_ALERT_TABLE = process.env.SERVICE_NOW_SOS_ALERT_TABLE || 'u_sos_alert';
 const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregiver_profiles';
 const MEDICINE_TABLE = process.env.SERVICE_NOW_MEDICINE_TABLE || 'u_medicine';
@@ -75,6 +76,13 @@ const LOGIN_FIELD_MAP = {
   role: process.env.SERVICE_NOW_LOGIN_FIELD_ROLE || 'u_role',
   active: process.env.SERVICE_NOW_LOGIN_FIELD_ACTIVE || 'u_active',
   lastLogin: process.env.SERVICE_NOW_LOGIN_FIELD_LAST_LOGIN || 'u_last_login',
+};
+
+const ADMIN_PROFILE_FIELD_MAP = {
+  username: process.env.SERVICE_NOW_ADMIN_PROFILE_FIELD_USERNAME || 'u_staff_id',
+  email: process.env.SERVICE_NOW_ADMIN_PROFILE_FIELD_EMAIL || 'u_staff_email',
+  password: process.env.SERVICE_NOW_ADMIN_PROFILE_FIELD_PASSWORD || 'u_staff_password',
+  name: process.env.SERVICE_NOW_ADMIN_PROFILE_FIELD_NAME || 'u_staff_name',
 };
 
 const SOS_ALERT_FIELD_MAP = {
@@ -512,6 +520,23 @@ function toLoginUser(record = {}) {
   };
 }
 
+function toAdminProfileLoginUser(record = {}) {
+  const email = getDisplayValue(record[ADMIN_PROFILE_FIELD_MAP.email]);
+  const username = getDisplayValue(record[ADMIN_PROFILE_FIELD_MAP.username]);
+
+  return {
+    id: record.sys_id,
+    username,
+    email,
+    name:
+      getDisplayValue(record[ADMIN_PROFILE_FIELD_MAP.name]) ||
+      username ||
+      email.split('@')[0] ||
+      'Admin',
+    role: 'admin',
+  };
+}
+
 function getReferenceValue(value) {
   if (!value) {
     return '';
@@ -698,20 +723,25 @@ async function updateLoginTimestamp(record) {
   return data?.result || record;
 }
 
-async function findSeniorLoginUser(normalizedIdentifier, rawPassword) {
-  const query = `(${LOGIN_FIELD_MAP.email}=${normalizedIdentifier}^OR${LOGIN_FIELD_MAP.username}=${normalizedIdentifier})`;
+async function findSeniorLoginUser(normalizedIdentifier, rawPassword, rawIdentifier = normalizedIdentifier) {
+  const trimmedRawIdentifier = String(rawIdentifier || '').trim();
+  const queryValues = Array.from(new Set([trimmedRawIdentifier, normalizedIdentifier].filter(Boolean)));
+  const query = queryValues
+    .map((value) => `${LOGIN_FIELD_MAP.email}=${value}^OR${LOGIN_FIELD_MAP.username}=${value}`)
+    .join('^OR');
   const params = new URLSearchParams({
     sysparm_query: query,
     sysparm_limit: '10',
   });
   const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${params.toString()}`));
   const record = data?.result?.find((user) => {
+    const email = normalizeLoginValue(getDisplayValue(user[LOGIN_FIELD_MAP.email]));
+    const username = normalizeLoginValue(getDisplayValue(user[LOGIN_FIELD_MAP.username]));
+    const password = getDisplayValue(user[LOGIN_FIELD_MAP.password]);
+
     return (
-      (
-        user[LOGIN_FIELD_MAP.email] === normalizedIdentifier ||
-        user[LOGIN_FIELD_MAP.username] === normalizedIdentifier
-      ) &&
-      String(user[LOGIN_FIELD_MAP.password] || '') === String(rawPassword)
+      (email === normalizedIdentifier || username === normalizedIdentifier) &&
+      String(password || '') === String(rawPassword)
     );
   });
 
@@ -728,6 +758,27 @@ async function findSeniorLoginUser(normalizedIdentifier, rawPassword) {
   const updatedRecord = await updateLoginTimestamp(record);
 
   return toLoginUser(updatedRecord);
+}
+
+async function findAdminProfileLoginUser(normalizedIdentifier, rawPassword) {
+  const query = `(${ADMIN_PROFILE_FIELD_MAP.email}=${normalizedIdentifier}^OR${ADMIN_PROFILE_FIELD_MAP.username}=${normalizedIdentifier})`;
+  const params = new URLSearchParams({
+    sysparm_query: query,
+    sysparm_limit: '10',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(ADMIN_PROFILE_TABLE, `?${params.toString()}`));
+  const record = data?.result?.find((user) => {
+    const email = normalizeLoginValue(getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.email]));
+    const username = normalizeLoginValue(getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.username]));
+    const password = getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.password]);
+
+    return (
+      (email === normalizedIdentifier || username === normalizedIdentifier) &&
+      String(password || '') === String(rawPassword)
+    );
+  });
+
+  return record ? toAdminProfileLoginUser(record) : null;
 }
 
 async function findLoginRecordByIdentifier(normalizedIdentifier) {
@@ -752,7 +803,15 @@ export async function loginWithServiceNow({ identifier, email, password, loginTy
     throw Object.assign(new Error('Email/username and password are required.'), { status: 400 });
   }
 
-  const seniorUser = await findSeniorLoginUser(comparableIdentifier, rawPassword);
+  if (normalizedLoginType === 'family') {
+    const adminProfileUser = await findAdminProfileLoginUser(comparableIdentifier, rawPassword);
+
+    if (adminProfileUser) {
+      return adminProfileUser;
+    }
+  }
+
+  const seniorUser = await findSeniorLoginUser(comparableIdentifier, rawPassword, normalizedIdentifier);
 
   if (seniorUser) {
     if (normalizedLoginType === 'family' && !isFamilyRole(seniorUser.role) && !isCaregiverRole(seniorUser.role)) {
@@ -1166,15 +1225,16 @@ function getDisplayValue(value) {
 
 function toActiveSosAlert(record = {}) {
   const status = getDisplayValue(record[SOS_ALERT_FIELD_MAP.status]) || 'New';
+  const message = getDisplayValue(record[SOS_ALERT_FIELD_MAP.message]);
 
-  if (/resolved|closed|cancelled|canceled|reminder/i.test(status)) {
+  if (/resolved|closed|cancelled|canceled|reminder/i.test(status) || /check[-\s]?in/i.test(message)) {
     return null;
   }
 
   return {
     id: record.sys_id,
     location: getDisplayValue(record[SOS_ALERT_FIELD_MAP.location]),
-    message: getDisplayValue(record[SOS_ALERT_FIELD_MAP.message]),
+    message,
     status,
     createdAt: record.sys_created_on || '',
   };
@@ -1209,12 +1269,83 @@ async function getLatestActiveSosAlertForSenior(senior = {}) {
   return activeAlert || null;
 }
 
+function normalizePhone(value = '') {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function toCheckInReminder(record = {}) {
+  return {
+    id: record.sys_id,
+    message: getDisplayValue(record[SOS_ALERT_FIELD_MAP.message]) || 'Please complete your check-in for today.',
+    status: getDisplayValue(record[SOS_ALERT_FIELD_MAP.status]) || 'Reminder Sent',
+    createdAt: record.sys_created_on || '',
+  };
+}
+
+export async function getCheckInRemindersForSenior(userId) {
+  const seniorProfile = await findSeniorProfileByIdOrUserId(userId);
+
+  if (!seniorProfile?.sys_id) {
+    return [];
+  }
+
+  const seniorName = normalizeLoginValue(getDisplayValue(seniorProfile[FIELD_MAP.name]));
+  const seniorPhone = normalizePhone(getDisplayValue(seniorProfile[FIELD_MAP.phone]));
+  const params = new URLSearchParams({
+    sysparm_query: 'ORDERBYDESCsys_created_on',
+    sysparm_limit: '50',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE, `?${params.toString()}`));
+
+  return (data?.result || [])
+    .filter((record) => {
+      const reminderStatus = normalizeLoginValue(getDisplayValue(record[SOS_ALERT_FIELD_MAP.status]));
+      const reminderMessage = normalizeLoginValue(getDisplayValue(record[SOS_ALERT_FIELD_MAP.message]));
+      const reminderName = normalizeLoginValue(getDisplayValue(record[SOS_ALERT_FIELD_MAP.seniorName]));
+      const reminderPhone = normalizePhone(getDisplayValue(record[SOS_ALERT_FIELD_MAP.seniorPhone]));
+      const isReminderRecord = reminderStatus.includes('reminder') || reminderMessage.includes('checkin');
+      const isSameSenior =
+        (seniorPhone && reminderPhone && seniorPhone === reminderPhone) ||
+        (seniorName && reminderName && seniorName === reminderName);
+
+      return isReminderRecord && isSameSenior;
+    })
+    .map(toCheckInReminder);
+}
+
+export async function getAllSeniorProfiles() {
+  const params = new URLSearchParams({
+    sysparm_limit: '100',
+    sysparm_query: 'ORDERBY' + FIELD_MAP.name,
+  });
+  const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
+  const seniors = (data?.result || []).map((seniorProfile) => toCaregiverSeniorRecord({}, seniorProfile, {}));
+
+  return Promise.all(seniors.map(async (senior) => {
+    const activeAlert = await getLatestActiveSosAlertForSenior(senior);
+
+    return activeAlert
+      ? {
+          ...senior,
+          alertId: activeAlert.id,
+          alertMessage: activeAlert.message,
+          alertStatus: activeAlert.status,
+          alertTime: activeAlert.createdAt,
+          location: activeAlert.location || senior.location,
+          status: /sos|urgent/i.test(activeAlert.status) ? 'SOS Active' : activeAlert.status,
+        }
+      : senior;
+  }));
+}
+
 export async function createCaregiverConnection(data) {
   const caregiverIdentifier = normalizeLoginValue(data.caregiverEmail || data.caregiverUsername);
   const seniorIdentifier = normalizeLoginValue(data.seniorEmail || data.seniorUsername);
   const caregiverUser = data.caregiverId ? { sys_id: data.caregiverId } : await findLoginRecordByIdentifier(caregiverIdentifier);
   const seniorUser = data.seniorUserId ? { sys_id: data.seniorUserId } : await findLoginRecordByIdentifier(seniorIdentifier);
-  const seniorProfile = data.seniorId ? { sys_id: data.seniorId } : await findSeniorProfileByUserId(seniorUser?.sys_id);
+  const seniorProfile = data.seniorId
+    ? await findSeniorProfileByIdOrUserId(data.seniorId)
+    : await findSeniorProfileByUserId(seniorUser?.sys_id);
 
   if (!caregiverUser?.sys_id) {
     throw Object.assign(new Error('Caregiver user was not found.'), { status: 404 });
@@ -1437,6 +1568,11 @@ export function getServiceNowLoginConfig() {
     nameField: LOGIN_FIELD_MAP.name,
     roleField: LOGIN_FIELD_MAP.role,
     lastLoginField: LOGIN_FIELD_MAP.lastLogin,
+    adminProfileTable: ADMIN_PROFILE_TABLE,
+    adminProfileUsernameField: ADMIN_PROFILE_FIELD_MAP.username,
+    adminProfileEmailField: ADMIN_PROFILE_FIELD_MAP.email,
+    adminProfilePasswordField: ADMIN_PROFILE_FIELD_MAP.password,
+    adminProfileNameField: ADMIN_PROFILE_FIELD_MAP.name,
     caregiverTable: CAREGIVER_CONNECTION_TABLE,
     caregiverUserField: CAREGIVER_CONNECTION_FIELD_MAP.user,
     caregiverSeniorField: CAREGIVER_CONNECTION_FIELD_MAP.senior,

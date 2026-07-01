@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
+import { Bell, Clock, Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { LANGUAGE_STORAGE_KEY } from '../i18n';
@@ -12,13 +12,16 @@ import PointsScreen from './components/PointsScreen';
 import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel } from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
 import CaregiverDashboardScreen from './components/CaregiverDashboardScreen';
+import AdminDashboardScreen from './components/AdminDashboardScreen';
 import GameScreen from './components/GameScreen';
 import {
   type AppUser,
+  type CheckInReminder,
   type Medicine,
   addCheckIn,
   clearStoredUser,
   deleteMedicine,
+  getCheckInReminders,
   getMedicines,
   getSeniorProfile,
   getStoredUser,
@@ -28,8 +31,8 @@ import {
 } from './services/backend';
 import { createSosAlert } from './services/serviceNow';
 
-type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
-type LanguageReturnScreen = 'home' | 'caregiverDashboard';
+type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard' | 'adminDashboard';
+type LanguageReturnScreen = 'home' | 'caregiverDashboard' | 'adminDashboard';
 const MEDICINE_REMINDER_EARLY_MINUTES = 5;
 
 function normalizeRole(role = '') {
@@ -40,8 +43,16 @@ function isFamilyRole(role = '') {
   return ['children', 'family', 'families', 'familymember', 'familymembers', 'volunteer'].includes(normalizeRole(role));
 }
 
+function isSeniorRole(role = '') {
+  return ['elderly', 'senior', 'seniors'].includes(normalizeRole(role));
+}
+
 function isCaregiverRole(role = '') {
   return ['caregiver', 'caregivers', 'nok', 'nextofkin', 'caregiverfamily'].includes(normalizeRole(role));
+}
+
+function isAdminRole(role = '') {
+  return normalizeRole(role) === 'admin';
 }
 
 function getSavedPersonalInfo() {
@@ -100,6 +111,31 @@ function saveMedicineNameOverride(user: AppUser, medicineId: string, name: strin
   localStorage.setItem(getMedicineNameOverridesKey(user), JSON.stringify(overrides));
 }
 
+function getSeenCheckInRemindersKey(user: AppUser) {
+  return `careconnect.seenCheckInReminders.${getUserStorageIdentity(user)}`;
+}
+
+function getSeenCheckInReminderIds(user: AppUser) {
+  const rawIds = localStorage.getItem(getSeenCheckInRemindersKey(user));
+
+  if (!rawIds) {
+    return [];
+  }
+
+  try {
+    const parsedIds = JSON.parse(rawIds);
+    return Array.isArray(parsedIds) ? parsedIds.map(String) : [];
+  } catch {
+    localStorage.removeItem(getSeenCheckInRemindersKey(user));
+    return [];
+  }
+}
+
+function saveSeenCheckInReminderId(user: AppUser, reminderId: string) {
+  const nextIds = [reminderId, ...getSeenCheckInReminderIds(user).filter((id) => id !== reminderId)].slice(0, 50);
+  localStorage.setItem(getSeenCheckInRemindersKey(user), JSON.stringify(nextIds));
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
@@ -113,8 +149,10 @@ export default function App() {
   const takenMedicineIdsRef = useRef<string[]>([]);
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const hasLoadedMedicinesRef = useRef(false);
+  const loadedMedicinesUserIdRef = useRef<string | null>(null);
   const [activeMedicineReminderId, setActiveMedicineReminderId] = useState<string | null>(null);
   const activeMedicineReminderIdRef = useRef<string | null>(null);
+  const [activeCheckInReminder, setActiveCheckInReminder] = useState<CheckInReminder | null>(null);
   const [snoozedMedicineUntil, setSnoozedMedicineUntil] = useState<Record<string, number>>({});
   const snoozedMedicineUntilRef = useRef<Record<string, number>>({});
   const [familyRegistrationNotice, setFamilyRegistrationNotice] = useState('');
@@ -122,6 +160,18 @@ export default function App() {
   const activeMedicineReminder = useMemo(() => {
     return medicines.find((medicine) => medicine.id === activeMedicineReminderId) || null;
   }, [activeMedicineReminderId]);
+
+  const resetMedicineState = () => {
+    hasLoadedMedicinesRef.current = false;
+    loadedMedicinesUserIdRef.current = null;
+    takenMedicineIdsRef.current = [];
+    activeMedicineReminderIdRef.current = null;
+    snoozedMedicineUntilRef.current = {};
+    setMedicines([]);
+    setTakenMedicineIds([]);
+    setActiveMedicineReminderId(null);
+    setSnoozedMedicineUntil({});
+  };
 
   const markMedicineTaken = (medicineId: string) => {
     if (!takenMedicineIdsRef.current.includes(medicineId)) {
@@ -204,16 +254,24 @@ export default function App() {
   useEffect(() => {
     const user = getStoredUser();
 
-    if (!user || isCaregiverRole(user.role) || isFamilyRole(user.role) || hasLoadedMedicinesRef.current) {
+    if (!user || isAdminRole(user.role) || isCaregiverRole(user.role) || isFamilyRole(user.role)) {
+      return;
+    }
+
+    const medicineUserId = getUserStorageIdentity(user);
+
+    if (hasLoadedMedicinesRef.current && loadedMedicinesUserIdRef.current === medicineUserId) {
       return;
     }
 
     let isMounted = true;
+    setMedicines([]);
 
     getMedicines(user)
       .then((serviceNowMedicines) => {
-        if (isMounted && serviceNowMedicines.length > 0) {
+        if (isMounted) {
           hasLoadedMedicinesRef.current = true;
+          loadedMedicinesUserIdRef.current = medicineUserId;
           setMedicines(applyMedicineNameOverrides(serviceNowMedicines, user));
         }
       })
@@ -259,6 +317,49 @@ export default function App() {
 
     return () => window.clearInterval(timer);
   }, [currentScreen, medicines]);
+
+  useEffect(() => {
+    const user = getStoredUser();
+    const seniorScreens: Screen[] = ['home', 'profile', 'points', 'medication', 'game'];
+
+    if (!user || !isSeniorRole(user.role) || !seniorScreens.includes(currentScreen)) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadCheckInReminders = async () => {
+      try {
+        const reminders = await getCheckInReminders(user);
+        const seenIds = getSeenCheckInReminderIds(user);
+        const unseenReminder = reminders.find((reminder) => !seenIds.includes(reminder.id));
+
+        if (isMounted && unseenReminder) {
+          setActiveCheckInReminder(unseenReminder);
+        }
+      } catch (error) {
+        console.error('Unable to load check-in reminders:', error);
+      }
+    };
+
+    loadCheckInReminders();
+    const timer = window.setInterval(loadCheckInReminders, 10000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
+  }, [currentScreen]);
+
+  const dismissCheckInReminder = () => {
+    const user = getStoredUser();
+
+    if (user && activeCheckInReminder?.id) {
+      saveSeenCheckInReminderId(user, activeCheckInReminder.id);
+    }
+
+    setActiveCheckInReminder(null);
+  };
 
   const handleSOSConfirm = async () => {
     if (isSendingSOSRef.current) {
@@ -316,6 +417,10 @@ export default function App() {
 
     try {
       const nextPoints = await addCheckIn(user);
+      if (activeCheckInReminder?.id) {
+        saveSeenCheckInReminderId(user, activeCheckInReminder.id);
+        setActiveCheckInReminder(null);
+      }
       setCachedUserPoints(user, nextPoints);
       window.dispatchEvent(
         new CustomEvent('careconnect-points-updated', {
@@ -334,6 +439,7 @@ export default function App() {
 
   const handleLogout = () => {
     clearStoredUser();
+    resetMedicineState();
     setCurrentScreen('welcome');
   };
 
@@ -353,6 +459,13 @@ export default function App() {
   };
 
   const handleLoginSuccess = async (user: AppUser) => {
+    resetMedicineState();
+
+    if (isAdminRole(user.role)) {
+      setCurrentScreen('adminDashboard');
+      return;
+    }
+
     if (isCaregiverRole(user.role) || isFamilyRole(user.role)) {
       setCurrentScreen('caregiverDashboard');
       return;
@@ -426,6 +539,13 @@ export default function App() {
             onLogout={handleLogout}
           />
         );
+      case 'adminDashboard':
+        return (
+          <AdminDashboardScreen
+            onChangeLanguage={() => openLanguageSelection('adminDashboard')}
+            onLogout={handleLogout}
+          />
+        );
       default:
         return (
           <HomePage
@@ -444,7 +564,7 @@ export default function App() {
           {renderScreen()}
         </div>
 
-        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && currentScreen !== 'caregiverDashboard' && (
+        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && currentScreen !== 'caregiverDashboard' && currentScreen !== 'adminDashboard' && (
           <nav className="shrink-0 bg-white border-t-2 border-gray-200 flex justify-around items-center">
             <NavButton
               icon={<Home className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
@@ -516,6 +636,37 @@ export default function App() {
                   className="flex h-14 items-center justify-center rounded-full border-2 border-[#f04a24] bg-white text-xl font-bold text-[#f04a24] active:scale-95"
                 >
                   {t('remindLater')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {['home', 'profile', 'points', 'medication', 'game'].includes(currentScreen) && activeCheckInReminder && !showSOSConfirmation && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+            <div className="w-full rounded-[28px] bg-white p-6 text-center shadow-2xl">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
+                <Bell className="h-9 w-9" />
+              </div>
+              <h2 className="mt-4 text-3xl font-bold text-[#07122e]">
+                Check-In Reminder
+              </h2>
+              <p className="mt-3 text-xl leading-7 text-gray-600">
+                {activeCheckInReminder.message || 'Please complete your check-in for today.'}
+              </p>
+              <div className="mt-6 flex flex-col gap-3">
+                <button
+                  onClick={handleCheckIn}
+                  disabled={isCheckingIn}
+                  className="flex h-14 items-center justify-center rounded-full bg-[#18833b] text-xl font-bold text-white active:scale-95 disabled:cursor-wait disabled:opacity-70"
+                >
+                  {isCheckingIn ? 'Checking...' : 'Check In Now'}
+                </button>
+                <button
+                  onClick={dismissCheckInReminder}
+                  className="flex h-14 items-center justify-center rounded-full border-2 border-[#416642] bg-white text-xl font-bold text-[#416642] active:scale-95"
+                >
+                  Later
                 </button>
               </div>
             </div>

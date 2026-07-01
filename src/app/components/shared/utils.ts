@@ -11,15 +11,6 @@ export function shuffle<T>(array: T[]): T[] {
   return arr;
 }
 
-export function speak(text: string, soundOn: boolean = true): void {
-  if (!soundOn) return;
-  if ('speechSynthesis' in window) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }
-}
-
 export function countInversions(values: number[]): number {
   let count = 0;
   for (let i = 0; i < values.length; i += 1) {

@@ -1,22 +1,124 @@
-import { Calendar, Car, CheckCircle2, Lock, ShoppingCart, Star, User } from 'lucide-react';
+import { Calendar, Car, CheckCircle2, Clock3, Gift, Lock, ShoppingCart, Star, User, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getCachedUserPoints, getPoints, getStoredUser } from '../services/backend';
+import {
+  getCachedUserPoints,
+  getUserStorageIdentity,
+  getPoints,
+  getStoredUser,
+  redeemPoints,
+  setCachedUserPoints,
+  type AppUser,
+} from '../services/backend';
+
+type RedemptionHistoryItem = {
+  id: string;
+  title: string;
+  cost: number;
+  redeemedAt: string;
+};
+
+function getRewardHistoryKey(user: AppUser) {
+  return `careconnect.rewardHistory.${getUserStorageIdentity(user)}`;
+}
+
+function getRewardHistory(user: AppUser): RedemptionHistoryItem[] {
+  const rawHistory = localStorage.getItem(getRewardHistoryKey(user));
+
+  if (!rawHistory) {
+    return [];
+  }
+
+  try {
+    const parsedHistory = JSON.parse(rawHistory);
+    return Array.isArray(parsedHistory) ? parsedHistory : [];
+  } catch {
+    localStorage.removeItem(getRewardHistoryKey(user));
+    return [];
+  }
+}
+
+function saveRewardHistory(user: AppUser, history: RedemptionHistoryItem[]) {
+  localStorage.setItem(getRewardHistoryKey(user), JSON.stringify(history));
+}
+
+function formatRedeemedAt(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString([], {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default function PointsScreen() {
   const { t } = useTranslation();
+  const [rewardHistory, setRewardHistory] = useState(() => {
+    const user = getStoredUser();
+    return user ? getRewardHistory(user) : [];
+  });
   const [points, setPoints] = useState(() => {
     const user = getStoredUser();
     return user ? getCachedUserPoints(user) : 0;
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [redeemingReward, setRedeemingReward] = useState('');
+  const [successReward, setSuccessReward] = useState('');
+  const [showRewardHistory, setShowRewardHistory] = useState(false);
   const [error, setError] = useState('');
+
+  const handleRedeem = async (title: string, cost: number) => {
+    const user = getStoredUser();
+
+    if (!user) {
+      setError('Please log in again before redeeming rewards.');
+      return;
+    }
+
+    setError('');
+    setRedeemingReward(title);
+
+    try {
+      const nextPoints = await redeemPoints(user, cost);
+      setPoints(nextPoints);
+      setCachedUserPoints(user, nextPoints);
+      window.dispatchEvent(
+        new CustomEvent('careconnect-points-updated', {
+          detail: { uid: user.uid, points: nextPoints },
+        }),
+      );
+      const nextHistory = [
+        {
+          id: `${Date.now()}-${title}`,
+          title,
+          cost,
+          redeemedAt: new Date().toISOString(),
+        },
+        ...getRewardHistory(user),
+      ];
+      saveRewardHistory(user, nextHistory);
+      setRewardHistory(nextHistory);
+      setSuccessReward(title);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Unable to redeem reward.');
+    } finally {
+      setRedeemingReward('');
+    }
+  };
 
   const loadPoints = async () => {
     const user = getStoredUser();
 
     if (!user) {
       setPoints(0);
+      setRewardHistory([]);
       return;
     }
 
@@ -34,6 +136,11 @@ export default function PointsScreen() {
 
   useEffect(() => {
     loadPoints();
+    const user = getStoredUser();
+
+    if (user) {
+      setRewardHistory(getRewardHistory(user));
+    }
 
     const handlePointsUpdate = (event: Event) => {
       const detail = (event as CustomEvent<{ points?: number }>).detail;
@@ -54,6 +161,17 @@ export default function PointsScreen() {
     <div className="h-full overflow-y-auto bg-[#fbf9f8] text-[#1b1c1c]">
       <main className="flex flex-col gap-7 px-5 pb-8 pt-5 min-[390px]:gap-8 min-[390px]:px-6">
         <section className="rounded-[30px] bg-white px-5 py-7 text-center shadow-[0_10px_28px_rgba(49,99,66,0.08)] min-[390px]:rounded-[34px] min-[390px]:py-8">
+          <div className="mb-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowRewardHistory(true)}
+              className="flex h-12 items-center justify-center gap-2 rounded-full bg-[#e7f3e8] px-4 text-base font-black text-[#416642] shadow-[0_6px_16px_rgba(49,99,66,0.12)] active:scale-95"
+              aria-label="View redeemed rewards history"
+            >
+              <Gift className="h-6 w-6" />
+              History
+            </button>
+          </div>
           <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-full bg-[#eda256] text-[#6b3a12] min-[390px]:h-32 min-[390px]:w-32">
             <User className="h-16 w-16 fill-current stroke-[1.5] min-[390px]:h-20 min-[390px]:w-20" />
           </div>
@@ -94,6 +212,8 @@ export default function PointsScreen() {
               pointsLabel={t('points')}
               redeemLabel={t('redeem')}
               userPoints={points}
+              isRedeeming={redeemingReward === '$5 NTUC Voucher'}
+              onRedeem={handleRedeem}
             />
             <RewardCard
               icon={<Car className="h-8 w-8" />}
@@ -102,10 +222,89 @@ export default function PointsScreen() {
               pointsLabel={t('points')}
               redeemLabel={t('redeem')}
               userPoints={points}
+              isRedeeming={redeemingReward === '$10 Grab Voucher'}
+              onRedeem={handleRedeem}
             />
           </div>
         </section>
       </main>
+      {successReward === '$5 NTUC Voucher' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+          <div className="w-full max-w-[340px] rounded-[28px] bg-white p-6 text-center shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
+            <button
+              type="button"
+              onClick={() => setSuccessReward('')}
+              className="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-[#eef2ee] text-[#416642] active:scale-95"
+              aria-label="Close reward popup"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <div className="mx-auto mt-2 flex h-20 w-20 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
+              <CheckCircle2 className="h-12 w-12" />
+            </div>
+            <h2 className="mt-5 text-3xl font-black leading-9 text-[#151515]">Congrats!</h2>
+            <p className="mt-3 text-xl font-bold leading-7 text-[#416642]">
+              Here is your NTUC $5 voucher.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSuccessReward('')}
+              className="mt-6 h-12 w-full rounded-full bg-[#416642] text-lg font-black text-white active:scale-95"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+      {showRewardHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+          <div className="w-full max-w-[360px] rounded-[28px] bg-white p-5 shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
+                  <Gift className="h-6 w-6" />
+                </div>
+                <h2 className="text-xl font-black leading-7 text-[#151515]">Reward History</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRewardHistory(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eef2ee] text-[#416642] active:scale-95"
+                aria-label="Close reward history"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {rewardHistory.length > 0 ? (
+              <div className="mt-5 max-h-[360px] space-y-3 overflow-y-auto pr-1">
+                {rewardHistory.map((item) => (
+                  <div key={item.id} className="rounded-2xl bg-[#f4f2f2] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-black leading-6 text-[#151515]">{item.title}</p>
+                        <p className="mt-1 text-sm font-bold leading-5 text-[#5d655d]">
+                          {item.cost} {t('points')} redeemed
+                        </p>
+                      </div>
+                      <CheckCircle2 className="h-6 w-6 shrink-0 text-[#416642]" />
+                    </div>
+                    <div className="mt-3 flex items-center gap-2 text-sm font-semibold leading-5 text-[#6d746d]">
+                      <Clock3 className="h-4 w-4" />
+                      {formatRedeemedAt(item.redeemedAt)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-5 rounded-2xl bg-[#f4f2f2] p-5 text-center">
+                <p className="text-base font-bold leading-6 text-[#5d655d]">
+                  No redeemed rewards yet.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -117,6 +316,8 @@ function RewardCard({
   userPoints,
   pointsLabel,
   redeemLabel,
+  isRedeeming,
+  onRedeem,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -124,6 +325,8 @@ function RewardCard({
   userPoints: number;
   pointsLabel: string;
   redeemLabel: string;
+  isRedeeming: boolean;
+  onRedeem: (title: string, cost: number) => void;
 }) {
   const canRedeem = userPoints >= cost;
 
@@ -149,7 +352,9 @@ function RewardCard({
         </p>
       </div>
       <button
-        disabled={!canRedeem}
+        type="button"
+        disabled={!canRedeem || isRedeeming}
+        onClick={() => onRedeem(title, cost)}
         className={`flex min-w-[92px] items-center justify-center rounded-full px-5 py-3 text-sm font-black uppercase leading-5 shadow-sm transition-transform ${
           canRedeem
             ? 'bg-[#416642] text-white active:scale-95'
@@ -158,7 +363,7 @@ function RewardCard({
       >
         <span className="sr-only">{canRedeem ? 'Available' : 'Locked'}</span>
         {canRedeem ? <CheckCircle2 className="hidden h-4 w-4" /> : <Lock className="hidden h-4 w-4" />}
-        {redeemLabel}
+        {isRedeeming ? '...' : redeemLabel}
       </button>
     </div>
   );

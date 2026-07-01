@@ -1213,17 +1213,9 @@ function CaregiverProfile({
             title="Select Language"
             onClick={onChangeLanguage}
           />
-          <SettingsItem
-            icon={<Shield className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
-            title="Privacy & Security"
-          />
+          
         </div>
 
-        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-          <SettingsItem
-            icon={<HelpCircle className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
-            title="Help & Support"
-          />
           <SettingsItem
             icon={<LogOut className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
             title="Log Out"
@@ -1232,7 +1224,6 @@ function CaregiverProfile({
           />
         </div>
       </div>
-    </div>
   );
 }
 

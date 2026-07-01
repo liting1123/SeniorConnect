@@ -14,6 +14,7 @@ import {
   getServiceNowLoginConfig,
   getUserById,
   loginWithServiceNow,
+  redeemUserPoints,
   registerWithServiceNow,
   saveMedicineForUser,
   searchSeniorProfiles,
@@ -217,6 +218,18 @@ export async function handleRequest(request, response) {
   if (request.method === 'GET' && route.action === 'points') {
     const user = await getUserById(route.uid);
     sendJson(response, 200, { points: user?.points || 0, user });
+    return;
+  }
+
+  if (request.method === 'POST' && route.action === 'points') {
+    const body = await readJson(request);
+    const user = await redeemUserPoints({
+      userId: route.uid,
+      email: body.email,
+      name: body.name,
+      pointsToRedeem: body.pointsToRedeem,
+    });
+    sendJson(response, 200, { points: user.points, user });
     return;
   }
 

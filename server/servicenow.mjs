@@ -197,15 +197,31 @@ function parseServiceNowJson(text, response) {
 
 async function serviceNowFetch(path, options = {}) {
   const config = getConfig();
-  const response = await fetch(`${config.instanceUrl}${path}`, {
-    ...options,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: getAuthHeader(config.username, config.password),
-      ...options.headers,
-    },
-  });
+  let response;
+
+  try {
+    response = await fetch(`${config.instanceUrl}${path}`, {
+      ...options,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: getAuthHeader(config.username, config.password),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    throw Object.assign(
+      new Error(
+        `Unable to connect to ServiceNow at ${config.instanceUrl}. Check that the instance is awake and reachable, then try again.`,
+      ),
+      {
+        status: 503,
+        details: {
+          cause: error instanceof Error ? error.message : String(error),
+        },
+      },
+    );
+  }
 
   const text = await response.text();
   const data = parseServiceNowJson(text, response);
@@ -399,6 +415,30 @@ export async function addUserPoints({ userId, email, name, pointsToAdd = 1 }) {
   const data = await serviceNowFetch(getTablePath(`/${profile.sysId}`), {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+
+  return toUserRecord(data.result);
+}
+
+export async function redeemUserPoints({ userId, email, name, pointsToRedeem = 0 }) {
+  const redeemCost = Number(pointsToRedeem) || 0;
+
+  if (redeemCost <= 0) {
+    throw Object.assign(new Error('Reward point cost is invalid.'), { status: 400 });
+  }
+
+  const profile = await upsertUserProfile({ userId, email, name });
+
+  if (profile.points < redeemCost) {
+    throw Object.assign(new Error('You do not have enough points to redeem this reward.'), { status: 409 });
+  }
+
+  const nextPoints = profile.points - redeemCost;
+  const data = await serviceNowFetch(getTablePath(`/${profile.sysId}`), {
+    method: 'PATCH',
+    body: JSON.stringify({
+      [FIELD_MAP.points]: String(nextPoints),
+    }),
   });
 
   return toUserRecord(data.result);

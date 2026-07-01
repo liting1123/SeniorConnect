@@ -266,6 +266,19 @@ export async function getPoints(user: AppUser) {
   return Number(data.points) || 0;
 }
 
+export async function redeemPoints(user: AppUser, pointsToRedeem: number) {
+  const data = await request<PointsResponse>(user, `/api/users/${user.uid}/points`, {
+    method: 'POST',
+    body: JSON.stringify({
+      email: user.email,
+      name: getDisplayName(user),
+      pointsToRedeem,
+    }),
+  });
+
+  return Number(data.points) || 0;
+}
+
 export async function getSeniorProfile(user: AppUser) {
   const data = await request<UserProfileResponse>(user, `/api/users/${user.uid}/profile`);
   return data.user || null;

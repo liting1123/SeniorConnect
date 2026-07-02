@@ -737,6 +737,16 @@ function isAlertStatus(status = '', senior?: Senior) {
   return /alert|sos|urgent|miss|no reply|attention/i.test(status);
 }
 
+function isSosTriggered(senior: Senior) {
+  const statusText = [
+    senior.status,
+    senior.alertStatus,
+    senior.alertMessage,
+  ].join(' ');
+
+  return /sos|urgent|emergency/i.test(statusText);
+}
+
 function getSeniorStatus(senior: Senior) {
   return senior.status?.trim() || 'Connected';
 }
@@ -1019,6 +1029,7 @@ function CaregiverAlerts({
                 label={senior.status || 'Needs Attention'}
                 location={senior.location}
                 message={senior.alertMessage}
+                phone={senior.phone}
                 time={formatAlertTime(senior.alertTime)}
                 date={formatAlertDate(senior.alertTime)}
                 icon={/sos|urgent/i.test(senior.status || '') ? <ShieldAlert className="h-8 w-8" /> : <Bell className="h-8 w-8" />}
@@ -1073,6 +1084,7 @@ function AlertCard({
   label,
   location,
   message,
+  phone,
   time,
   icon,
   isResolving,
@@ -1084,12 +1096,14 @@ function AlertCard({
   label: string;
   location?: string;
   message?: string;
+  phone?: string;
   time?: string;
   icon: React.ReactNode;
   isResolving: boolean;
   onResolve: () => void;
 }) {
   const isSos = kind === 'sos';
+  const phoneHref = getPhoneHref(phone || '');
 
   return (
     <div
@@ -1133,7 +1147,12 @@ function AlertCard({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <AlertActionButton icon={<Phone className="h-5 w-5" />} label="Call" variant={isSos ? 'light' : 'warning'} />
+        <AlertActionButton
+          href={phoneHref}
+          icon={<Phone className="h-5 w-5" />}
+          label="Call"
+          variant={isSos ? 'light' : 'warning'}
+        />
         <AlertActionButton
           icon={<CheckCircle className="h-5 w-5" />}
           label={isResolving ? 'Resolving' : 'Resolve'}
@@ -1149,12 +1168,14 @@ function AlertCard({
 // Action button component used in alert cards with different styles based on variant
 function AlertActionButton({
   disabled = false,
+  href,
   icon,
   label,
   onClick,
   variant,
 }: {
   disabled?: boolean;
+  href?: string;
   icon: React.ReactNode;
   label: string;
   onClick?: () => void;
@@ -1168,13 +1189,23 @@ function AlertActionButton({
       : variant === 'warning'
         ? 'bg-[#954a00] text-white'
         : 'bg-white text-[#831318]';
+  const buttonClass = `flex h-14 items-center justify-center gap-2 rounded-full text-base font-bold shadow-sm transition-transform active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100 ${className}`;
+
+  if (href && !disabled) {
+    return (
+      <a href={href} className={buttonClass}>
+        {icon}
+        <span>{label}</span>
+      </a>
+    );
+  }
 
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-14 items-center justify-center gap-2 rounded-full text-base font-bold shadow-sm transition-transform active:scale-95 disabled:cursor-not-allowed disabled:active:scale-100 ${className}`}
+      className={buttonClass}
     >
       {icon}
       <span>{label}</span>
@@ -1646,11 +1677,13 @@ function CaregiverProfile({
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
           <SettingsItem
             icon={<User className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            isAdminMode={isAdminMode}
             title="Personal Information"
             onClick={() => setShowPersonalInfo(true)}
           />
           <SettingsItem
             icon={<Languages className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            isAdminMode={isAdminMode}
             title="Select Language"
             onClick={onChangeLanguage}
           />
@@ -1659,6 +1692,7 @@ function CaregiverProfile({
 
           <SettingsItem
             icon={<LogOut className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            isAdminMode={isAdminMode}
             title="Log Out"
             textColor="text-red-500"
             onClick={onLogout}
@@ -1696,26 +1730,45 @@ function ProfileField({
 
 function SettingsItem({
   icon,
+  isAdminMode = false,
   title,
   textColor = 'text-gray-900',
   onClick,
 }: {
   icon: React.ReactNode;
+  isAdminMode?: boolean;
   title: string;
   textColor?: string;
   onClick?: () => void;
 }) {
+  const isDestructive = textColor.includes('red');
+  const hoverClass = isDestructive
+    ? 'hover:bg-red-50'
+    : isAdminMode
+      ? 'hover:bg-[#e4eefb]'
+      : 'hover:bg-green-50';
+  const iconHoverClass = isDestructive
+    ? 'group-hover:text-red-500'
+    : isAdminMode
+      ? 'group-hover:text-[#0b2f57]'
+      : 'group-hover:text-green-700';
+  const chevronHoverClass = isDestructive
+    ? 'group-hover:text-red-400'
+    : isAdminMode
+      ? 'group-hover:text-[#0b2f57]'
+      : 'group-hover:text-green-600';
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-4 border-b border-gray-100 px-5 py-4 transition-colors last:border-b-0 active:bg-gray-50 min-[390px]:gap-6 min-[390px]:px-8 min-[390px]:py-6"
+      className={`group flex w-full items-center gap-4 border-b border-gray-100 px-5 py-4 transition-colors last:border-b-0 active:bg-gray-50 min-[390px]:gap-6 min-[390px]:px-8 min-[390px]:py-6 ${hoverClass}`}
     >
-      <div className="text-gray-600">{icon}</div>
+      <div className={`text-gray-600 ${iconHoverClass}`}>{icon}</div>
       <span className={`flex-1 text-left text-xl font-bold min-[390px]:text-2xl ${textColor}`}>
         {title}
       </span>
-      <ChevronRight className="h-7 w-7 text-gray-400 min-[390px]:h-8 min-[390px]:w-8" />
+      <ChevronRight className={`h-7 w-7 text-gray-400 min-[390px]:h-8 min-[390px]:w-8 ${chevronHoverClass}`} />
     </button>
   );
 }
@@ -1757,15 +1810,20 @@ function SeniorCard({
   onRequestDeleteSenior: (senior: Senior) => void;
 }) {
   const isAlert = tone === 'alert';
+  const isSosAlert = isSosTriggered(senior);
   const checkedInToday = hasCheckedInToday(senior.lastCheckIn);
   const phoneHref = getPhoneHref(senior.phone);
-  const cardClass = isAlert
-    ? 'border-2 border-[#c8171d]'
+  const cardClass = isSosAlert
+    ? 'border-4 border-[#c8171d] bg-[#fff1f1] shadow-[0_0_0_4px_rgba(200,23,29,0.12),0_14px_30px_rgba(200,23,29,0.16)]'
+    : isAlert
+      ? 'border-2 border-[#c8171d] bg-white'
     : isAdminMode
       ? 'border-[#bed0e8] bg-[#f8fbff]'
       : 'border-[#d0d3d8] bg-white';
-  const avatarClass = isAlert
-    ? 'bg-[#14353d] text-white'
+  const avatarClass = isSosAlert
+    ? 'bg-[#c8171d] text-white'
+    : isAlert
+      ? 'bg-[#14353d] text-white'
     : isAdminMode
       ? 'bg-[#dbe8f8] text-[#12365f]'
       : 'bg-[#dcecef] text-[#17353d]';
@@ -1779,6 +1837,12 @@ function SeniorCard({
   const primaryActionClass = isAdminMode
     ? 'border-[#0b2f57] bg-[#0b2f57] text-white'
     : 'border-[#075fc7] bg-[#075fc7] text-white';
+  const alertLabel = isSosAlert ? 'SOS triggered' : isAlert ? 'No check-in today' : 'Checked in today';
+  const alertTextClass = isSosAlert
+    ? 'rounded-full bg-[#c8171d] px-3 py-2 text-white'
+    : isAlert
+      ? 'text-[#c8171d]'
+      : 'text-[#30343a]';
 
   return (
     <div className={`relative rounded-[18px] border p-5 shadow-sm ${cardClass}`}>
@@ -1802,20 +1866,43 @@ function SeniorCard({
           <div className="flex items-start">
             <div className="min-w-0">
               <h3 className="whitespace-normal break-words text-[28px] font-bold leading-8 text-black">{name}</h3>
-              <p className={`mt-3 flex items-center gap-2 text-lg font-bold ${isAlert ? 'text-[#c8171d]' : 'text-[#30343a]'}`}>
-                {isAlert ? (
+              <p className={`mt-3 inline-flex items-center gap-2 text-lg font-bold ${alertTextClass}`}>
+                {isSosAlert ? (
+                  <ShieldAlert className="h-5 w-5 flex-shrink-0" />
+                ) : isAlert ? (
                   <TriangleAlert className="h-5 w-5 flex-shrink-0" />
                 ) : (
                   <CheckCircle className="h-5 w-5 flex-shrink-0 text-[#12c759]" />
                 )}
-                <span className="truncate">{isAlert ? 'No check-in today' : 'Checked in today'}</span>
+                <span className="truncate">{alertLabel}</span>
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      {!isAdminMode && (
+      {isSosAlert && (
+        <div className="mt-4 flex items-center gap-3 rounded-[14px] border border-[#f3a2a5] bg-white px-4 py-3 text-[#8f1015]">
+          <ShieldAlert className="h-6 w-6 flex-shrink-0" />
+          <p className="text-base font-black leading-5">
+            Emergency SOS is active for this senior.
+          </p>
+        </div>
+      )}
+
+      {isSosAlert && !isAdminMode && (
+        <div className="mt-4 rounded-[14px] border border-[#f3a2a5] bg-white px-4 py-3">
+          <div className="mb-2 flex items-center gap-2 text-[#c8171d]">
+            <MapPin className="h-6 w-6 flex-shrink-0" />
+            <p className="text-base font-black">Address</p>
+          </div>
+          <p className="whitespace-normal break-words text-lg font-bold leading-7 text-black">
+            {senior.address || location || 'Unknown'}
+          </p>
+        </div>
+      )}
+
+      {!isAdminMode && !isSosAlert && (
         <div className="mt-4 grid grid-cols-2 gap-3">
           <ResidentInfoTile
             icon={<Pill className="h-8 w-8" />}
@@ -1841,7 +1928,7 @@ function SeniorCard({
           className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${callActionClass}`}
         >
           <Phone className="h-6 w-6" />
-          {isAlert ? 'Call Emergency' : 'Call'}
+          Call
         </a>
         <button
           type="button"
@@ -1928,13 +2015,16 @@ function DashboardNavItem({
   const activeClass = isAdminMode
     ? 'bg-[#0b2f57] text-white shadow-sm'
     : 'bg-[#2875e0] text-white shadow-sm';
+  const inactiveClass = isAdminMode
+    ? 'text-[#3f4147] hover:bg-[#e4eefb] hover:text-[#0b2f57]'
+    : 'text-[#3f4147] hover:bg-blue-50 hover:text-[#075fc7]';
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={`relative flex min-w-[96px] flex-col items-center justify-center gap-1 rounded-[18px] px-4 py-3 transition-transform active:scale-95 ${
-        active ? activeClass : 'text-[#3f4147]'
+        active ? activeClass : inactiveClass
       }`}
     >
       {icon}

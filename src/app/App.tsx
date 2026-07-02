@@ -691,8 +691,8 @@ function NavButton({
   return (
     <button
       onClick={onClick}
-      className={`flex min-w-[72px] flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors active:scale-95 min-[390px]:gap-2 min-[390px]:px-2 ${
-        active ? 'text-green-600' : 'text-gray-400'
+      className={`flex min-w-[72px] flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors hover:bg-green-50 hover:text-green-700 active:scale-95 min-[390px]:gap-2 min-[390px]:px-2 ${
+        active ? 'bg-green-50 text-green-700' : 'text-gray-400'
       }`}
     >
       {icon}

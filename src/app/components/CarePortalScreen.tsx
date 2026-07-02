@@ -774,17 +774,21 @@ function SettingsItem({
   textColor?: string;
   onClick?: () => void;
 }) {
+  const isDestructive = textColor.includes('red');
+
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-4 border-b border-gray-100 px-5 py-4 transition-colors last:border-b-0 active:bg-gray-50 min-[390px]:gap-6 min-[390px]:px-8 min-[390px]:py-6"
+      className={`group flex w-full items-center gap-4 border-b border-gray-100 px-5 py-4 transition-colors last:border-b-0 active:bg-gray-50 min-[390px]:gap-6 min-[390px]:px-8 min-[390px]:py-6 ${
+        isDestructive ? 'hover:bg-red-50' : 'hover:bg-green-50'
+      }`}
     >
-      <div className="text-gray-600">{icon}</div>
+      <div className={isDestructive ? 'text-gray-600 group-hover:text-red-500' : 'text-gray-600 group-hover:text-green-700'}>{icon}</div>
       <span className={`flex-1 text-left text-xl font-bold min-[390px]:text-2xl ${textColor}`}>
         {title}
       </span>
-      <ChevronRight className="h-7 w-7 text-gray-400 min-[390px]:h-8 min-[390px]:w-8" />
+      <ChevronRight className={isDestructive ? 'h-7 w-7 text-gray-400 group-hover:text-red-400 min-[390px]:h-8 min-[390px]:w-8' : 'h-7 w-7 text-gray-400 group-hover:text-green-600 min-[390px]:h-8 min-[390px]:w-8'} />
     </button>
   );
 }
@@ -864,7 +868,7 @@ function DashboardNavItem({
       type="button"
       onClick={onClick}
       className={`relative flex min-w-[84px] flex-col items-center justify-center gap-1 rounded-2xl px-3 py-2 transition-transform active:scale-95 ${
-        active ? 'bg-[#fd8a2a] text-[#632f00]' : 'text-[#414942]'
+        active ? 'bg-[#fd8a2a] text-[#632f00]' : 'text-[#414942] hover:bg-[#fff0e3] hover:text-[#8a4200]'
       }`}
     >
       {icon}

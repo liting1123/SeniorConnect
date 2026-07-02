@@ -530,9 +530,11 @@ export default function CaregiverDashboardScreen({
   const alertCount = seniors.filter((senior) => isAlertStatus(senior.status, senior)).length;
   const canAddSenior = loadMode !== 'admin';
   const canDeleteSenior = true;
+  const isAdminMode = loadMode === 'admin';
+  const dashboardSurfaceClass = isAdminMode ? 'bg-[#eef3fb]' : 'bg-[#f4f6f8]';
 
   return (
-    <div className="h-full overflow-y-auto bg-[#f4f6f8] pb-24 text-[#101418]">
+    <div className={`h-full overflow-y-auto ${dashboardSurfaceClass} pb-24 text-[#101418]`}>
       <main className="px-5 py-5">
         {selectedSenior ? (
           <ResidentProfileDetails
@@ -558,6 +560,7 @@ export default function CaregiverDashboardScreen({
             sendingReminderIds={sendingReminderIds}
             deletingSeniorIds={deletingSeniorIds}
             canDeleteSenior={canDeleteSenior}
+            isAdminMode={isAdminMode}
           />
         )}
         {!selectedSenior && activeTab === 'alerts' && (
@@ -573,6 +576,7 @@ export default function CaregiverDashboardScreen({
           <CaregiverProfile
             caregiverName={caregiverName}
             caregiverEmail={caregiverEmail}
+            isAdminMode={isAdminMode}
             onChangeLanguage={onChangeLanguage}
             onLogout={onLogout}
           />
@@ -675,10 +679,11 @@ export default function CaregiverDashboardScreen({
         </div>
       )}
 
-      <nav className="absolute bottom-0 left-0 right-0 z-20 flex min-h-24 items-center justify-around bg-[#f4f6f8] pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_20px_rgba(0,0,0,0.04)]">
+      <nav className={`absolute bottom-0 left-0 right-0 z-20 flex min-h-24 items-center justify-around ${dashboardSurfaceClass} pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_20px_rgba(0,0,0,0.04)]`}>
         <DashboardNavItem
           active={activeTab === 'dashboard'}
           icon={<LayoutDashboard className="h-6 w-6" />}
+          isAdminMode={isAdminMode}
           label={dashboardLabel}
           onClick={() => {
             setSelectedSenior(null);
@@ -688,6 +693,7 @@ export default function CaregiverDashboardScreen({
         <DashboardNavItem
           active={activeTab === 'alerts'}
           icon={<TriangleAlert className="h-6 w-6" />}
+          isAdminMode={isAdminMode}
           label={alertsLabel}
           hasAlert={alertCount > 0}
           onClick={() => {
@@ -698,6 +704,7 @@ export default function CaregiverDashboardScreen({
         <DashboardNavItem
           active={activeTab === 'profile'}
           icon={<User className="h-6 w-6" />}
+          isAdminMode={isAdminMode}
           label="Profile"
           onClick={() => {
             setSelectedSenior(null);
@@ -862,6 +869,7 @@ function CaregiverDashboardHome({
   sendingReminderIds,
   deletingSeniorIds,
   canDeleteSenior,
+  isAdminMode,
 }: {
   canAddSenior: boolean;
   caregiverName: string;
@@ -876,6 +884,7 @@ function CaregiverDashboardHome({
   sendingReminderIds: string[];
   deletingSeniorIds: string[];
   canDeleteSenior: boolean;
+  isAdminMode: boolean;
 }) {
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn));
   const alertSenior = alertSeniors[0];
@@ -923,6 +932,7 @@ function CaregiverDashboardHome({
               isSendingReminder={sendingReminderIds.includes(senior.userId || senior.id || senior.connectionId || senior.name)}
               isDeleting={deletingSeniorIds.includes(canDeleteSenior && !senior.connectionId ? senior.id : senior.connectionId || '')}
               canDelete={canDeleteSenior}
+              isAdminMode={isAdminMode}
             />
           ))
         ) : (
@@ -1459,11 +1469,13 @@ function SeniorDetailField({
 function CaregiverProfile({
   caregiverName,
   caregiverEmail,
+  isAdminMode,
   onChangeLanguage,
   onLogout,
 }: {
   caregiverName: string;
   caregiverEmail: string;
+  isAdminMode: boolean;
   onChangeLanguage: () => void;
   onLogout: () => void;
 }) {
@@ -1526,13 +1538,18 @@ function CaregiverProfile({
   };
 
   if (showPersonalInfo) {
+    const backButtonClass = isAdminMode ? 'text-[#0b2f57] active:bg-[#dfeaf8]' : 'text-[#075fc7] active:bg-blue-50';
+    const profileAccentTextClass = isAdminMode ? 'text-[#0b2f57]' : 'text-[#075fc7]';
+    const profilePlaceholderClass = isAdminMode ? 'bg-[#e4eefb] text-[#0b2f57]' : 'bg-[#edf4ff] text-[#075fc7]';
+    const profileActionClass = isAdminMode ? 'bg-[#0b2f57]' : 'bg-[#2875e0]';
+
     return (
       <div className="-mx-5 -my-6 min-h-full bg-gray-50 min-[390px]:-mx-6">
         <div className="sticky top-0 z-10 flex h-16 items-center gap-3 bg-gray-50 px-5 shadow-sm">
           <button
             type="button"
             onClick={() => setShowPersonalInfo(false)}
-            className="flex h-11 w-11 items-center justify-center rounded-full text-[#075fc7] active:bg-blue-50"
+            className={`flex h-11 w-11 items-center justify-center rounded-full ${backButtonClass}`}
             aria-label="Back to profile"
           >
             <ArrowLeft className="h-6 w-6" />
@@ -1542,7 +1559,7 @@ function CaregiverProfile({
 
         <div className="p-5 min-[390px]:p-8">
           <div className="mb-5 rounded-3xl bg-white p-5 shadow-sm">
-            <h2 className="mb-5 text-2xl font-bold text-[#075fc7]">Profile Photo</h2>
+            <h2 className={`mb-5 text-2xl font-bold ${profileAccentTextClass}`}>Profile Photo</h2>
 
             <div className="flex flex-col items-center">
               {profileImage ? (
@@ -1552,12 +1569,12 @@ function CaregiverProfile({
                   className="mb-4 h-32 w-32 rounded-full object-cover"
                 />
               ) : (
-                <div className="mb-4 flex h-32 w-32 items-center justify-center rounded-full bg-[#edf4ff] text-[#075fc7]">
+                <div className={`mb-4 flex h-32 w-32 items-center justify-center rounded-full ${profilePlaceholderClass}`}>
                   <User className="h-16 w-16" />
                 </div>
               )}
 
-              <label className="cursor-pointer rounded-full bg-[#2875e0] px-6 py-3 text-lg font-semibold text-white shadow-sm active:scale-95">
+              <label className={`cursor-pointer rounded-full px-6 py-3 text-lg font-semibold text-white shadow-sm active:scale-95 ${profileActionClass}`}>
                 Change Photo
                 <input
                   type="file"
@@ -1576,7 +1593,7 @@ function CaregiverProfile({
           </div>
 
           <div className="rounded-3xl bg-white p-5 shadow-sm">
-            <h2 className="mb-5 text-2xl font-bold text-[#075fc7]">Basic Information</h2>
+            <h2 className={`mb-5 text-2xl font-bold ${profileAccentTextClass}`}>Basic Information</h2>
 
             <ProfileField label="Phone Number" value={phone} onChange={setPhone} type="tel" />
             <ProfileField label="Email" value={personalEmail} onChange={setPersonalEmail} type="email" />
@@ -1585,7 +1602,7 @@ function CaregiverProfile({
             <button
               type="button"
               onClick={handleSavePersonalInfo}
-              className="mt-5 w-full rounded-2xl bg-[#2875e0] py-3 text-lg font-semibold text-white active:scale-95"
+              className={`mt-5 w-full rounded-2xl py-3 text-lg font-semibold text-white active:scale-95 ${profileActionClass}`}
             >
               Save Changes
             </button>
@@ -1595,9 +1612,15 @@ function CaregiverProfile({
     );
   }
 
+  const profileHeaderClass = isAdminMode
+    ? 'bg-[#0b2f57]'
+    : 'bg-gradient-to-br from-[#4f8ff0] to-[#2875e0]';
+  const profileAvatarClass = isAdminMode ? 'text-[#0b2f57]' : 'text-[#075fc7]';
+  const profileEmailClass = isAdminMode ? 'text-blue-100' : 'text-blue-100';
+
   return (
     <div className="-mx-5 -my-6 min-h-full bg-gray-50 min-[390px]:-mx-6">
-      <div className="bg-gradient-to-br from-[#4f8ff0] to-[#2875e0] px-5 pb-5 pt-6 text-white min-[390px]:px-7 min-[390px]:pb-7 min-[390px]:pt-8">
+      <div className={`${profileHeaderClass} px-5 pb-5 pt-6 text-white min-[390px]:px-7 min-[390px]:pb-7 min-[390px]:pt-8`}>
         <div className="mb-4 flex items-center gap-4 min-[390px]:gap-5">
           {profileImage ? (
             <img
@@ -1606,13 +1629,13 @@ function CaregiverProfile({
               className="h-16 w-16 rounded-full bg-white object-cover min-[390px]:h-20 min-[390px]:w-20"
             />
           ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-[#075fc7] min-[390px]:h-20 min-[390px]:w-20">
+            <div className={`flex h-16 w-16 items-center justify-center rounded-full bg-white ${profileAvatarClass} min-[390px]:h-20 min-[390px]:w-20`}>
               <User className="h-8 w-8 min-[390px]:h-10 min-[390px]:w-10" />
             </div>
           )}
           <div className="min-w-0">
             <h2 className="truncate text-2xl font-bold min-[390px]:text-3xl">{caregiverName}</h2>
-            <p className="mt-1 truncate text-sm text-blue-100 min-[390px]:text-base">
+            <p className={`mt-1 truncate text-sm ${profileEmailClass} min-[390px]:text-base`}>
               {caregiverEmail || 'Registered caregiver'}
             </p>
           </div>
@@ -1716,6 +1739,7 @@ function SeniorCard({
   isSendingReminder,
   isDeleting,
   canDelete,
+  isAdminMode,
   onOpenProfile,
   onSendReminder,
   onRequestDeleteSenior,
@@ -1727,6 +1751,7 @@ function SeniorCard({
   isSendingReminder: boolean;
   isDeleting: boolean;
   canDelete: boolean;
+  isAdminMode: boolean;
   onOpenProfile: (senior: Senior) => void;
   onSendReminder: (senior: Senior) => void;
   onRequestDeleteSenior: (senior: Senior) => void;
@@ -1734,9 +1759,29 @@ function SeniorCard({
   const isAlert = tone === 'alert';
   const checkedInToday = hasCheckedInToday(senior.lastCheckIn);
   const phoneHref = getPhoneHref(senior.phone);
+  const cardClass = isAlert
+    ? 'border-2 border-[#c8171d]'
+    : isAdminMode
+      ? 'border-[#bed0e8] bg-[#f8fbff]'
+      : 'border-[#d0d3d8] bg-white';
+  const avatarClass = isAlert
+    ? 'bg-[#14353d] text-white'
+    : isAdminMode
+      ? 'bg-[#dbe8f8] text-[#12365f]'
+      : 'bg-[#dcecef] text-[#17353d]';
+  const callActionClass = !phoneHref
+    ? 'pointer-events-none border-[#c7cbd1] bg-[#f0f2f5] text-[#71717a]'
+    : isAlert
+      ? 'border-[#075fc7] bg-[#075fc7] text-white'
+      : isAdminMode
+        ? 'border-[#1f4f82] bg-white text-[#1f4f82]'
+        : 'border-[#075fc7] bg-white text-[#075fc7]';
+  const primaryActionClass = isAdminMode
+    ? 'border-[#0b2f57] bg-[#0b2f57] text-white'
+    : 'border-[#075fc7] bg-[#075fc7] text-white';
 
   return (
-    <div className={`relative rounded-[18px] border bg-white p-5 shadow-sm ${isAlert ? 'border-2 border-[#c8171d]' : 'border-[#d0d3d8]'}`}>
+    <div className={`relative rounded-[18px] border p-5 shadow-sm ${cardClass}`}>
       {canDelete && (
         <button
           type="button"
@@ -1749,7 +1794,7 @@ function SeniorCard({
         </button>
       )}
       <div className="flex items-start gap-4">
-        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${canDelete ? 'mt-5' : ''} ${isAlert ? 'bg-[#14353d] text-white' : 'bg-[#dcecef] text-[#17353d]'}`}>
+        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${canDelete ? 'mt-5' : ''} ${avatarClass}`}>
           {getInitials(name)}
         </div>
 
@@ -1770,32 +1815,30 @@ function SeniorCard({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <ResidentInfoTile
-          icon={<Pill className="h-8 w-8" />}
-          iconColor={isAlert ? 'text-[#c8171d]' : 'text-[#12b962]'}
-          label="Medication"
-          value={isAlert ? 'Missed' : 'Taken'}
-        />
-        <ResidentInfoTile
-          icon={<MapPin className="h-8 w-8" />}
-          iconColor="text-[#075fc7]"
-          label="Location"
-          value={location || 'Unknown'}
-        />
-      </div>
+      {!isAdminMode && (
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <ResidentInfoTile
+            icon={<Pill className="h-8 w-8" />}
+            iconColor={isAlert ? 'text-[#c8171d]' : 'text-[#12b962]'}
+            isAdminMode={isAdminMode}
+            label="Medication"
+            value={isAlert ? 'Missed' : 'Taken'}
+          />
+          <ResidentInfoTile
+            icon={<MapPin className="h-8 w-8" />}
+            iconColor={isAdminMode ? 'text-[#1f4f82]' : 'text-[#075fc7]'}
+            isAdminMode={isAdminMode}
+            label="Location"
+            value={location || 'Unknown'}
+          />
+        </div>
+      )}
 
       <div className="mt-5 grid grid-cols-2 gap-3">
         <a
           href={phoneHref}
           aria-disabled={!phoneHref}
-          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${
-            !phoneHref
-              ? 'pointer-events-none border-[#c7cbd1] bg-[#f0f2f5] text-[#71717a]'
-              : isAlert
-                ? 'border-[#075fc7] bg-[#075fc7] text-white'
-                : 'border-[#075fc7] bg-white text-[#075fc7]'
-          }`}
+          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${callActionClass}`}
         >
           <Phone className="h-6 w-6" />
           {isAlert ? 'Call Emergency' : 'Call'}
@@ -1804,7 +1847,7 @@ function SeniorCard({
           type="button"
           disabled={isSendingReminder}
           onClick={() => onSendReminder(senior)}
-          className="flex h-16 items-center justify-center gap-3 rounded-[10px] border border-[#075fc7] bg-[#075fc7] text-xl font-bold uppercase text-white transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
+          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 ${primaryActionClass}`}
         >
           <Bell className="h-6 w-6" />
           {isSendingReminder ? 'Sending' : 'Remind'}
@@ -1824,16 +1867,18 @@ function SeniorCard({
 function ResidentInfoTile({
   icon,
   iconColor,
+  isAdminMode,
   label,
   value,
 }: {
   icon: React.ReactNode;
   iconColor: string;
+  isAdminMode: boolean;
   label: string;
   value: string;
 }) {
   return (
-    <div className="flex min-h-[76px] items-center gap-3 rounded-[12px] bg-[#f0f2f5] px-4">
+    <div className={`flex min-h-[76px] items-center gap-3 rounded-[12px] px-4 ${isAdminMode ? 'bg-[#e4eefb]' : 'bg-[#f0f2f5]'}`}>
       <div className={iconColor}>{icon}</div>
       <div className="min-w-0">
         <p className="text-base font-semibold text-[#71717a]">{label}</p>
@@ -1867,23 +1912,29 @@ function DashboardMetricCard({
 
 function DashboardNavItem({
   icon,
+  isAdminMode = false,
   label,
   onClick,
   active = false,
   hasAlert = false,
 }: {
   icon: React.ReactNode;
+  isAdminMode?: boolean;
   label: string;
   onClick?: () => void;
   active?: boolean;
   hasAlert?: boolean;
 }) {
+  const activeClass = isAdminMode
+    ? 'bg-[#0b2f57] text-white shadow-sm'
+    : 'bg-[#2875e0] text-white shadow-sm';
+
   return (
     <button
       type="button"
       onClick={onClick}
       className={`relative flex min-w-[96px] flex-col items-center justify-center gap-1 rounded-[18px] px-4 py-3 transition-transform active:scale-95 ${
-        active ? 'bg-[#2875e0] text-white shadow-sm' : 'text-[#3f4147]'
+        active ? activeClass : 'text-[#3f4147]'
       }`}
     >
       {icon}

@@ -11,7 +11,7 @@ export default function AdminDashboardScreen({
     <CaregiverDashboardScreen
       alertsLabel="History"
       dashboardLabel="Seniors"
-      emptyMessage="No seniors found in ServiceNow."
+      emptyMessage=""
       loadMode="admin"
       onBack={() => {}}
       onChangeLanguage={onChangeLanguage}

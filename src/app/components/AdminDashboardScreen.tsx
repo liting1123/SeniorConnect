@@ -9,7 +9,7 @@ export default function AdminDashboardScreen({
 }) {
   return (
     <CaregiverDashboardScreen
-      alertsLabel="Users"
+      alertsLabel="History"
       dashboardLabel="Seniors"
       emptyMessage="No seniors found in ServiceNow."
       loadMode="admin"

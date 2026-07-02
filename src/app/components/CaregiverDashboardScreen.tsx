@@ -122,6 +122,8 @@ export default function CaregiverDashboardScreen({
   const [sendingReminderIds, setSendingReminderIds] = useState<string[]>([]);
   const [sosHistory, setSosHistory] = useState<SosAlertHistory[]>(() => getStoredSosHistory(caregiverEmail));
   const [showAddSenior, setShowAddSenior] = useState(false);
+  const [seniorPendingDelete, setSeniorPendingDelete] = useState<Senior | null>(null);
+  const [deletingSeniorIds, setDeletingSeniorIds] = useState<string[]>([]);
   const [addSeniorId, setAddSeniorId] = useState('');
   const [addSeniorRelationship, setAddSeniorRelationship] = useState('caregiver');
   const [isAddingSenior, setIsAddingSenior] = useState(false);
@@ -212,8 +214,62 @@ export default function CaregiverDashboardScreen({
   }, [caregiverEmail, caregiverId, loadMode, refreshKey]);
 
   useEffect(() => {
-    setSosHistory(getStoredSosHistory(caregiverEmail));
-  }, [caregiverEmail]);
+    if (loadMode !== 'admin') {
+      setSosHistory(getStoredSosHistory(caregiverEmail));
+      return;
+    }
+
+    const controller = new AbortController();
+    let isMounted = true;
+    let isRefreshing = false;
+
+    async function loadSosHistory() {
+      if (isRefreshing) {
+        return;
+      }
+
+      isRefreshing = true;
+
+      try {
+        const response = await fetch('/api/servicenow/sos-alert-history?limit=50', {
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          throw new Error(data?.error || 'Unable to load SOS history');
+        }
+
+        if (isMounted) {
+          setSosHistory((data?.history || []).filter((item: SosAlertHistory) => !isCheckInReminderAlert(item)));
+        }
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          console.error('SOS history load failed:', error);
+        }
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    loadSosHistory();
+    const refreshTimer = window.setInterval(loadSosHistory, CAREGIVER_DASHBOARD_REFRESH_MS);
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        loadSosHistory();
+      }
+    };
+
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      controller.abort();
+    };
+  }, [caregiverEmail, loadMode]);
 
   const handleUpdateSeniorDetails = async (senior: Senior, details: SeniorDetailsInput) => {
     const seniorId = senior.userId || senior.id;
@@ -294,7 +350,7 @@ export default function CaregiverDashboardScreen({
       const resolvedHistoryItem: SosAlertHistory = {
         id: senior.alertId,
         seniorName: senior.name || 'Senior',
-        status: senior.status || senior.alertStatus || 'SOS Active',
+        status: 'Resolved',
         location: senior.location,
         message: senior.alertMessage,
         alertTime: senior.alertTime,
@@ -414,8 +470,66 @@ export default function CaregiverDashboardScreen({
     }
   };
 
+  const handleDeleteSenior = async () => {
+    if (!seniorPendingDelete) {
+      return;
+    }
+
+    const deleteKey = loadMode === 'admin'
+      ? seniorPendingDelete.id
+      : seniorPendingDelete.connectionId;
+
+    if (!deleteKey) {
+      alert('This senior cannot be deleted because its ServiceNow ID is missing.');
+      setSeniorPendingDelete(null);
+      return;
+    }
+
+    const seniorName = seniorPendingDelete.name || 'Senior';
+    setDeletingSeniorIds((ids) => [...ids, deleteKey]);
+
+    try {
+      const response = await fetch(loadMode === 'admin' ? '/api/servicenow/admin-senior' : '/api/servicenow/caregiver-senior', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: loadMode === 'admin'
+          ? JSON.stringify({
+              seniorId: seniorPendingDelete.id,
+            })
+          : JSON.stringify({
+              connectionId: seniorPendingDelete.connectionId,
+              caregiverId,
+              caregiverEmail,
+            }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to delete senior.');
+      }
+
+      setSeniors((currentSeniors) =>
+        currentSeniors.filter((senior) => {
+          const currentDeleteKey = loadMode === 'admin' ? senior.id : senior.connectionId;
+          return currentDeleteKey !== deleteKey;
+        }),
+      );
+      setSeniorPendingDelete(null);
+      alert(`${seniorName} has been deleted!`);
+      setRefreshKey((currentValue) => currentValue + 1);
+    } catch (error) {
+      console.error('Delete senior failed:', error);
+      alert(error instanceof Error ? error.message : 'Unable to delete senior.');
+    } finally {
+      setDeletingSeniorIds((ids) => ids.filter((id) => id !== deleteKey));
+    }
+  };
+
   const alertCount = seniors.filter((senior) => isAlertStatus(senior.status, senior)).length;
   const canAddSenior = loadMode !== 'admin';
+  const canDeleteSenior = true;
 
   return (
     <div className="h-full overflow-y-auto bg-[#f4f6f8] pb-24 text-[#101418]">
@@ -440,7 +554,10 @@ export default function CaregiverDashboardScreen({
               setShowAddSenior(true);
             }}
             onSendReminder={handleSendCheckInReminder}
+            onRequestDeleteSenior={setSeniorPendingDelete}
             sendingReminderIds={sendingReminderIds}
+            deletingSeniorIds={deletingSeniorIds}
+            canDeleteSenior={canDeleteSenior}
           />
         )}
         {!selectedSenior && activeTab === 'alerts' && (
@@ -530,6 +647,34 @@ export default function CaregiverDashboardScreen({
         </div>
       )}
 
+      {seniorPendingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+          <div className="w-full max-w-[360px] rounded-[24px] bg-white p-5 shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
+            <p className="text-xl font-black leading-7 text-[#151515]">
+              Do you want to delete "{seniorPendingDelete.name || 'Senior'}"?
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={handleDeleteSenior}
+                disabled={deletingSeniorIds.includes(loadMode === 'admin' ? seniorPendingDelete.id : seniorPendingDelete.connectionId || '')}
+                className="flex h-12 items-center justify-center rounded-[10px] bg-[#c8171d] text-base font-black text-white active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => setSeniorPendingDelete(null)}
+                disabled={deletingSeniorIds.includes(loadMode === 'admin' ? seniorPendingDelete.id : seniorPendingDelete.connectionId || '')}
+                className="flex h-12 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-base font-black text-[#30343a] active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
+              >
+                No
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <nav className="absolute bottom-0 left-0 right-0 z-20 flex min-h-24 items-center justify-around bg-[#f4f6f8] pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_20px_rgba(0,0,0,0.04)]">
         <DashboardNavItem
           active={activeTab === 'dashboard'}
@@ -571,6 +716,10 @@ function isCheckInReminderAlert(alert: Pick<SosAlertHistory, 'status' | 'message
     : String('alertMessage' in alert ? alert.alertMessage || '' : '');
 
   return /reminder/i.test(status) || /check[-\s]?in/i.test(message);
+}
+
+function isResolvedSosAlert(status = '') {
+  return /resolved|closed|cancelled|canceled/i.test(status);
 }
 
 function isAlertStatus(status = '', senior?: Senior) {
@@ -666,6 +815,21 @@ function formatAlertTime(value = '') {
   }).format(date);
 }
 
+function formatAlertDate(value = '') {
+  const date = parseServiceNowDate(value);
+
+  if (!date) {
+    return undefined;
+  }
+
+  return new Intl.DateTimeFormat('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+  }).format(date);
+}
+
 function formatDetailDateTime(value = '') {
   if (!value) {
     return 'Not provided';
@@ -694,7 +858,10 @@ function CaregiverDashboardHome({
   onOpenProfile,
   onOpenAddSenior,
   onSendReminder,
+  onRequestDeleteSenior,
   sendingReminderIds,
+  deletingSeniorIds,
+  canDeleteSenior,
 }: {
   canAddSenior: boolean;
   caregiverName: string;
@@ -705,7 +872,10 @@ function CaregiverDashboardHome({
   onOpenProfile: (senior: Senior) => void;
   onOpenAddSenior: () => void;
   onSendReminder: (senior: Senior) => void;
+  onRequestDeleteSenior: (senior: Senior) => void;
   sendingReminderIds: string[];
+  deletingSeniorIds: string[];
+  canDeleteSenior: boolean;
 }) {
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn));
   const alertSenior = alertSeniors[0];
@@ -749,7 +919,10 @@ function CaregiverDashboardHome({
               tone={isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn) ? 'alert' : 'good'}
               onOpenProfile={onOpenProfile}
               onSendReminder={onSendReminder}
+              onRequestDeleteSenior={onRequestDeleteSenior}
               isSendingReminder={sendingReminderIds.includes(senior.userId || senior.id || senior.connectionId || senior.name)}
+              isDeleting={deletingSeniorIds.includes(canDeleteSenior && !senior.connectionId ? senior.id : senior.connectionId || '')}
+              canDelete={canDeleteSenior}
             />
           ))
         ) : (
@@ -780,8 +953,13 @@ function CaregiverAlerts({
   resolvingAlertIds: string[];
   onResolveAlert: (senior: Senior) => void;
 }) {
+  const [historyView, setHistoryView] = useState<'pending' | 'resolved'>('pending');
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior));
   const filteredSosHistory = sosHistory.filter((alert) => !isCheckInReminderAlert(alert));
+  const activeAlertIds = new Set(alertSeniors.map((senior) => senior.alertId).filter(Boolean));
+  const pendingSosHistory = filteredSosHistory.filter((alert) => !isResolvedSosAlert(alert.status) && !activeAlertIds.has(alert.id));
+  const resolvedSosHistory = filteredSosHistory.filter((alert) => isResolvedSosAlert(alert.status));
+  const isPendingView = historyView === 'pending';
 
   return (
     <div className="flex flex-col gap-7">
@@ -791,44 +969,86 @@ function CaregiverAlerts({
           {seniors.length} Total
         </p>
       </section>
-      <section className="flex flex-col gap-5">
-        {alertSeniors.length > 0 ? (
-          alertSeniors.map((senior) => (
-            <AlertCard
-              key={senior.id}
-              kind={/sos|urgent/i.test(senior.status || '') ? 'sos' : 'missed'}
-              title={senior.name}
-              label={senior.status || 'Needs Attention'}
-              location={senior.location}
-              message={senior.alertMessage}
-              time={formatAlertTime(senior.alertTime)}
-              icon={/sos|urgent/i.test(senior.status || '') ? <ShieldAlert className="h-8 w-8" /> : <Bell className="h-8 w-8" />}
-              isResolving={senior.alertId ? resolvingAlertIds.includes(senior.alertId) : false}
-              onResolve={() => onResolveAlert(senior)}
-            />
-          ))
-        ) : (
-          <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-            No active alerts from your caregiver dashboard records.
-          </p>
-        )}
-      </section>
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-2xl font-bold text-[#1b1c1c]">SOS History</h2>
-        {filteredSosHistory.length > 0 ? (
-          filteredSosHistory.map((alert) => (
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold text-[#1b1c1c]">SOS History</h2>
+          <div className="grid h-11 grid-cols-2 rounded-full bg-white p-1 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setHistoryView('pending')}
+              className={`rounded-full px-4 text-sm font-black transition-colors ${
+                isPendingView
+                  ? 'bg-[#954a00] text-white'
+                  : 'text-[#713700]'
+              }`}
+            >
+              Pending
+            </button>
+            <button
+              type="button"
+              onClick={() => setHistoryView('resolved')}
+              className={`rounded-full px-4 text-sm font-black transition-colors ${
+                !isPendingView
+                  ? 'bg-[#18833b] text-white'
+                  : 'text-[#124f25]'
+              }`}
+            >
+              Resolved
+            </button>
+          </div>
+        </div>
+
+        {isPendingView && (alertSeniors.length > 0 || pendingSosHistory.length > 0) ? (
+          <>
+            {alertSeniors.map((senior) => (
+              <AlertCard
+                key={senior.id}
+                kind={/sos|urgent/i.test(senior.status || '') ? 'sos' : 'missed'}
+                title={senior.name}
+                label={senior.status || 'Needs Attention'}
+                location={senior.location}
+                message={senior.alertMessage}
+                time={formatAlertTime(senior.alertTime)}
+                date={formatAlertDate(senior.alertTime)}
+                icon={/sos|urgent/i.test(senior.status || '') ? <ShieldAlert className="h-8 w-8" /> : <Bell className="h-8 w-8" />}
+                isResolving={senior.alertId ? resolvingAlertIds.includes(senior.alertId) : false}
+                onResolve={() => onResolveAlert(senior)}
+              />
+            ))}
+            {pendingSosHistory.map((alert) => (
+              <AlertHistoryItem
+                key={alert.id}
+                name={alert.seniorName}
+                time={formatAlertTime(alert.alertTime) || 'Pending'}
+                date={formatAlertDate(alert.alertTime)}
+                message={alert.message || alert.status || 'SOS alert pending'}
+                location={alert.location}
+                statusLabel={alert.status || 'Pending'}
+                variant="pending"
+              />
+            ))}
+          </>
+        ) : isPendingView ? (
+          <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
+            No pending SOS alerts.
+          </p>
+        ) : resolvedSosHistory.length > 0 ? (
+          resolvedSosHistory.map((alert) => (
             <AlertHistoryItem
               key={alert.id}
               name={alert.seniorName}
               time={formatAlertTime(alert.alertTime) || formatAlertTime(alert.resolvedAt) || 'Resolved'}
-              message={alert.message || `${alert.status} resolved`}
+              date={formatAlertDate(alert.alertTime) || formatAlertDate(alert.resolvedAt)}
+              message={alert.message || `${alert.status} SOS alert`}
               location={alert.location}
+              statusLabel={alert.status || 'Resolved'}
+              variant="resolved"
             />
           ))
         ) : (
           <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-            Resolved SOS alerts will appear here.
+            No resolved SOS alerts yet.
           </p>
         )}
       </section>
@@ -837,6 +1057,7 @@ function CaregiverAlerts({
 }
 
 function AlertCard({
+  date,
   kind,
   title,
   label,
@@ -847,6 +1068,7 @@ function AlertCard({
   isResolving,
   onResolve,
 }: {
+  date?: string;
   kind: 'sos' | 'missed';
   title: string;
   label: string;
@@ -880,7 +1102,12 @@ function AlertCard({
             <h2 className="text-2xl font-bold text-current">{title}</h2>
           </div>
         </div>
-        {time && <span className="rounded-full bg-white/15 px-3 py-1 text-sm font-bold text-current">{time}</span>}
+        {(time || date) && (
+          <div className="flex flex-shrink-0 flex-col items-end gap-1 text-right">
+            {time && <span className="rounded-full bg-white/15 px-3 py-1 text-sm font-bold text-current">{time}</span>}
+            {date && <span className="text-xs font-bold text-current opacity-80">{date}</span>}
+          </div>
+        )}
       </div>
 
       {isSos ? (
@@ -946,28 +1173,44 @@ function AlertActionButton({
 }
 
 function AlertHistoryItem({
+  date,
   location,
   name,
+  statusLabel,
   time,
   message,
+  variant = 'resolved',
 }: {
+  date?: string;
   location?: string;
   name: string;
+  statusLabel?: string;
   time: string;
   message: string;
+  variant?: 'pending' | 'resolved';
 }) {
+  const isPending = variant === 'pending';
+
   return (
-    <div className="flex items-start gap-4 rounded-[28px] bg-[#e9f6ed] p-4 shadow-sm min-[390px]:rounded-[32px]">
-      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#18833b] text-white">
-        <CheckCircle className="h-6 w-6" />
+    <div className={`flex items-start gap-4 rounded-[28px] p-4 shadow-sm min-[390px]:rounded-[32px] ${isPending ? 'bg-[#fff2e8]' : 'bg-[#e9f6ed]'}`}>
+      <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-white ${isPending ? 'bg-[#954a00]' : 'bg-[#18833b]'}`}>
+        {isPending ? <TriangleAlert className="h-6 w-6" /> : <CheckCircle className="h-6 w-6" />}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
-          <p className="font-bold text-[#124f25]">{name}</p>
-          <span className="flex-shrink-0 text-sm font-semibold text-[#18833b]">{time}</span>
+          <p className={`font-bold ${isPending ? 'text-[#713700]' : 'text-[#124f25]'}`}>{name}</p>
+          <div className="flex flex-shrink-0 flex-col items-end gap-1 text-right">
+            <span className={`text-sm font-semibold ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>{time}</span>
+            {date && <span className={`text-xs font-bold ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>{date}</span>}
+          </div>
         </div>
-        <p className="mt-1 text-sm leading-5 text-[#1d5031]">{message}</p>
-        {location && <p className="mt-1 text-sm font-semibold leading-5 text-[#2e6f42]">{location}</p>}
+        {statusLabel && (
+          <p className={`mt-1 text-xs font-bold uppercase ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>
+            {statusLabel}
+          </p>
+        )}
+        <p className={`mt-1 text-sm leading-5 ${isPending ? 'text-[#301400]' : 'text-[#1d5031]'}`}>{message}</p>
+        {location && <p className={`mt-1 text-sm font-semibold leading-5 ${isPending ? 'text-[#713700]' : 'text-[#2e6f42]'}`}>{location}</p>}
       </div>
     </div>
   );
@@ -1471,25 +1714,42 @@ function SeniorCard({
   location,
   tone,
   isSendingReminder,
+  isDeleting,
+  canDelete,
   onOpenProfile,
   onSendReminder,
+  onRequestDeleteSenior,
 }: {
   senior: Senior;
   name: string;
   location: string;
   tone: 'good' | 'alert';
   isSendingReminder: boolean;
+  isDeleting: boolean;
+  canDelete: boolean;
   onOpenProfile: (senior: Senior) => void;
   onSendReminder: (senior: Senior) => void;
+  onRequestDeleteSenior: (senior: Senior) => void;
 }) {
   const isAlert = tone === 'alert';
   const checkedInToday = hasCheckedInToday(senior.lastCheckIn);
   const phoneHref = getPhoneHref(senior.phone);
 
   return (
-    <div className={`rounded-[18px] border bg-white p-5 shadow-sm ${isAlert ? 'border-2 border-[#c8171d]' : 'border-[#d0d3d8]'}`}>
+    <div className={`relative rounded-[18px] border bg-white p-5 shadow-sm ${isAlert ? 'border-2 border-[#c8171d]' : 'border-[#d0d3d8]'}`}>
+      {canDelete && (
+        <button
+          type="button"
+          onClick={() => onRequestDeleteSenior(senior)}
+          disabled={isDeleting}
+          aria-label={`Delete ${name}`}
+          className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-[#d7dbe0] bg-white text-[#c8171d] shadow-sm transition-colors hover:border-[#c8171d] hover:bg-[#fee2e2] hover:text-[#c8171d] active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:active:scale-100"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      )}
       <div className="flex items-start gap-4">
-        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${isAlert ? 'bg-[#14353d] text-white' : 'bg-[#dcecef] text-[#17353d]'}`}>
+        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${canDelete ? 'mt-5' : ''} ${isAlert ? 'bg-[#14353d] text-white' : 'bg-[#dcecef] text-[#17353d]'}`}>
           {getInitials(name)}
         </div>
 

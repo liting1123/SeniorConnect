@@ -922,6 +922,38 @@ export async function updateSosAlertStatus({ alertId, status }) {
   return data?.result || data;
 }
 
+function toSosAlertHistory(record = {}) {
+  const status = getDisplayValue(record[SOS_ALERT_FIELD_MAP.status]) || 'New';
+  const message = getDisplayValue(record[SOS_ALERT_FIELD_MAP.message]);
+
+  if (/reminder/i.test(status) || /check[-\s]?in/i.test(message)) {
+    return null;
+  }
+
+  return {
+    id: record.sys_id,
+    seniorName: getDisplayValue(record[SOS_ALERT_FIELD_MAP.seniorName]) || 'Senior',
+    status,
+    location: getDisplayValue(record[SOS_ALERT_FIELD_MAP.location]),
+    message,
+    alertTime: record.sys_created_on || '',
+    resolvedAt: record.sys_updated_on || record.sys_created_on || '',
+  };
+}
+
+export async function getSosAlertHistory({ limit = 50 } = {}) {
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 50, 100));
+  const params = new URLSearchParams({
+    sysparm_query: 'ORDERBYDESCsys_created_on',
+    sysparm_limit: String(normalizedLimit),
+  });
+  const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE, `?${params.toString()}`));
+
+  return (data?.result || [])
+    .map(toSosAlertHistory)
+    .filter(Boolean);
+}
+
 async function getLoginRecordById(userId) {
   if (!userId) {
     return null;
@@ -1338,6 +1370,20 @@ export async function getAllSeniorProfiles() {
   }));
 }
 
+export async function deleteSeniorProfile(seniorId) {
+  const normalizedSeniorId = String(seniorId || '').trim();
+
+  if (!normalizedSeniorId) {
+    throw Object.assign(new Error('Senior profile ID is required.'), { status: 400 });
+  }
+
+  await serviceNowFetch(getTablePath(`/${encodeURIComponent(normalizedSeniorId)}`), {
+    method: 'DELETE',
+  });
+
+  return { id: normalizedSeniorId };
+}
+
 export async function createCaregiverConnection(data) {
   const caregiverIdentifier = normalizeLoginValue(data.caregiverEmail || data.caregiverUsername);
   const seniorIdentifier = normalizeLoginValue(data.seniorEmail || data.seniorUsername);
@@ -1366,6 +1412,31 @@ export async function createCaregiverConnection(data) {
   });
 
   return response;
+}
+
+export async function deleteCaregiverConnection(data = {}) {
+  const connectionId = String(data.connectionId || '').trim();
+  const normalizedCaregiverId = String(data.caregiverId || '').trim();
+  const normalizedEmail = normalizeLoginValue(data.caregiverEmail);
+
+  if (!connectionId) {
+    throw Object.assign(new Error('Caregiver connection ID is required.'), { status: 400 });
+  }
+
+  const caregiverUserId = normalizedCaregiverId || (normalizedEmail ? (await findLoginRecordByIdentifier(normalizedEmail))?.sys_id : '');
+  const connectionData = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `/${encodeURIComponent(connectionId)}`));
+  const connection = connectionData?.result || {};
+  const connectionCaregiverId = getReferenceValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.user]);
+
+  if (caregiverUserId && connectionCaregiverId && connectionCaregiverId !== caregiverUserId) {
+    throw Object.assign(new Error('This senior is not linked to the current caregiver.'), { status: 403 });
+  }
+
+  await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `/${encodeURIComponent(connectionId)}`), {
+    method: 'DELETE',
+  });
+
+  return { id: connectionId };
 }
 
 export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmail, searchName, phone }) {

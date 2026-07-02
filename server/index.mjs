@@ -5,14 +5,17 @@ import {
   addCheckInPoints,
   addGamePoint,
   createCaregiverConnection,
+  deleteCaregiverConnection,
   createFamilyVerification,
   createSosAlert,
   deleteMedicineForUser,
+  deleteSeniorProfile,
   getAllSeniorProfiles,
   getCaregiverSeniorConnections,
   getPendingFamilyVerificationCodesForSenior,
   getMedicinesForUser,
   getServiceNowLoginConfig,
+  getSosAlertHistory,
   getUserById,
   loginWithServiceNow,
   redeemUserPoints,
@@ -171,6 +174,15 @@ export async function handleRequest(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/servicenow/sos-alert-history' && request.method === 'GET') {
+    const history = await getSosAlertHistory({
+      limit: url.searchParams.get('limit'),
+    });
+
+    sendJson(response, 200, { history });
+    return;
+  }
+
   if (url.pathname === '/api/check-in-reminders' && request.method === 'POST') {
     const body = await readJson(request);
     const reminder = createCheckInReminder(body);
@@ -196,6 +208,18 @@ export async function handleRequest(request, response) {
     });
 
     sendJson(response, 200, { connection });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/caregiver-senior' && request.method === 'DELETE') {
+    const body = await readJson(request);
+    const deletedConnection = await deleteCaregiverConnection({
+      connectionId: body.connectionId,
+      caregiverId: body.caregiverId,
+      caregiverEmail: body.caregiverEmail,
+    });
+
+    sendJson(response, 200, { connection: deletedConnection });
     return;
   }
 
@@ -243,6 +267,13 @@ export async function handleRequest(request, response) {
   if (url.pathname === '/api/servicenow/admin-seniors' && request.method === 'GET') {
     const seniors = await getAllSeniorProfiles();
     sendJson(response, 200, { seniors });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/admin-senior' && request.method === 'DELETE') {
+    const body = await readJson(request);
+    const deletedSenior = await deleteSeniorProfile(body.seniorId);
+    sendJson(response, 200, { senior: deletedSenior });
     return;
   }
 

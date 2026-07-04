@@ -20,6 +20,7 @@ import {
   loginWithServiceNow,
   redeemUserPoints,
   registerWithServiceNow,
+  resetPasswordWithServiceNow,
   saveMedicineForUser,
   searchSeniorProfiles,
   updateSosAlertStatus,
@@ -146,6 +147,17 @@ export async function handleRequest(request, response) {
       role: 'Family',
     });
     sendJson(response, 200, { user, token: `servicenow:${user.id}` });
+    return;
+  }
+
+  if (url.pathname === '/api/forgot-password' && request.method === 'POST') {
+    const body = await readJson(request);
+    await resetPasswordWithServiceNow({
+      identifier: body.identifier,
+      password: body.password,
+      loginType: body.loginType,
+    });
+    sendJson(response, 200, { ok: true });
     return;
   }
 

@@ -1,6 +1,6 @@
 import { Eye, EyeOff, LogIn, Lock, Mail, UserPlus } from 'lucide-react';
 import { useState } from 'react';
-import { type AppUser, login, registerFamilyMember } from '../services/backend';
+import { type AppUser, login, registerFamilyMember, resetPassword } from '../services/backend';
 
 export default function LoginScreen({
   onGetStarted,
@@ -13,12 +13,17 @@ export default function LoginScreen({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isResetMode, setIsResetMode] = useState(false);
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
   const [selectedLoginType, setSelectedLoginType] = useState<'senior' | 'family'>('senior');
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
+    setNotice('');
     setIsLoggingIn(true);
 
     try {
@@ -38,7 +43,49 @@ export default function LoginScreen({
   };
 
   const handleForgotPassword = () => {
-    setError('Forgot password is not connected yet.');
+    setError('');
+    setNotice('');
+    setPassword('');
+    setResetPasswordValue('');
+    setResetConfirmPassword('');
+    setIsResetMode(true);
+  };
+
+  const handleResetPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!identifier.trim()) {
+      setError('Please enter your username or email.');
+      return;
+    }
+
+    if (!resetPasswordValue || !resetConfirmPassword) {
+      setError('Please enter and confirm your new password.');
+      return;
+    }
+
+    if (resetPasswordValue !== resetConfirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setError('');
+    setNotice('');
+    setIsLoggingIn(true);
+
+    try {
+      await resetPassword(identifier.trim(), resetPasswordValue, selectedLoginType);
+      setPassword('');
+      setResetPasswordValue('');
+      setResetConfirmPassword('');
+      setIsResetMode(false);
+      setNotice('Password updated. Please log in with your new password.');
+    } catch (error) {
+      console.error('Password reset failed:', error);
+      setError(error instanceof Error ? error.message : 'Unable to reset password.');
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const handleFamilyRegister = async () => {
@@ -48,6 +95,7 @@ export default function LoginScreen({
     }
 
     setError('');
+    setNotice('');
     setIsLoggingIn(true);
 
     try {
@@ -78,6 +126,7 @@ export default function LoginScreen({
               onClick={() => {
                 setSelectedLoginType('senior');
                 setError('');
+                setNotice('');
               }}
               className={`flex-1 rounded-2xl px-2 py-4 transition active:scale-[0.98] ${
                 selectedLoginType === 'senior' ? 'bg-white shadow-sm' : 'bg-transparent'
@@ -96,6 +145,7 @@ export default function LoginScreen({
               onClick={() => {
                 setSelectedLoginType('family');
                 setError('');
+                setNotice('');
               }}
               className={`flex-1 rounded-2xl px-2 py-4 transition active:scale-[0.98] ${
                 selectedLoginType === 'family' ? 'bg-white shadow-sm' : 'bg-transparent'
@@ -111,7 +161,7 @@ export default function LoginScreen({
             </button>
           </div>
 
-          <form onSubmit={handleLogin}>
+          <form onSubmit={isResetMode ? handleResetPassword : handleLogin}>
             <div className="mt-10">
               <label className="mb-3 block text-[18px] font-bold text-black">
                 Username / Email
@@ -128,7 +178,66 @@ export default function LoginScreen({
               </div>
             </div>
 
-            <div className="mt-6">
+            {isResetMode ? (
+              <>
+                <div className="mt-6">
+                  <label className="mb-3 block text-[18px] font-bold text-black">
+                    New Password
+                  </label>
+                  <div className="flex h-14 items-center rounded-2xl bg-[#f3f4f6] px-4 ring-1 ring-transparent focus-within:bg-white focus-within:ring-[#2d6b2f]">
+                    <Lock className="h-6 w-6 shrink-0 text-[#7a7a7a]" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={resetPasswordValue}
+                      onChange={(event) => setResetPasswordValue(event.target.value)}
+                      placeholder="Enter new password"
+                      autoComplete="new-password"
+                      className="ml-3 min-w-0 flex-1 bg-transparent text-[18px] font-semibold text-black outline-none placeholder:text-[#8c8c8c]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((currentValue) => !currentValue)}
+                      className="ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#5f6368] active:bg-gray-200"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="h-6 w-6" /> : <Eye className="h-6 w-6" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <label className="mb-3 block text-[18px] font-bold text-black">
+                    Confirm Password
+                  </label>
+                  <div className="flex h-14 items-center rounded-2xl bg-[#f3f4f6] px-4 ring-1 ring-transparent focus-within:bg-white focus-within:ring-[#2d6b2f]">
+                    <Lock className="h-6 w-6 shrink-0 text-[#7a7a7a]" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={resetConfirmPassword}
+                      onChange={(event) => setResetConfirmPassword(event.target.value)}
+                      placeholder="Confirm new password"
+                      autoComplete="new-password"
+                      className="ml-3 min-w-0 flex-1 bg-transparent text-[18px] font-semibold text-black outline-none placeholder:text-[#8c8c8c]"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsResetMode(false);
+                    setError('');
+                    setNotice('');
+                    setResetPasswordValue('');
+                    setResetConfirmPassword('');
+                  }}
+                  className="mt-4 text-[16px] font-semibold text-[#2d6b2f] active:opacity-70"
+                >
+                  Back to login
+                </button>
+              </>
+            ) : (
+              <div className="mt-6">
               <label className="mb-3 block text-[18px] font-bold text-black">
                 Password
               </label>
@@ -151,15 +260,18 @@ export default function LoginScreen({
                   {showPassword ? <EyeOff className="h-6 w-6" /> : <Eye className="h-6 w-6" />}
                 </button>
               </div>
-            </div>
+              </div>
+            )}
 
-            <button
-              type="button"
-              onClick={handleForgotPassword}
-              className="mt-4 text-[16px] font-semibold text-[#2d6b2f] active:opacity-70"
-            >
-              Forgot password?
-            </button>
+            {!isResetMode && (
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                className="mt-4 text-[16px] font-semibold text-[#2d6b2f] active:opacity-70"
+              >
+                Forgot password?
+              </button>
+            )}
 
             {error && (
               <p className="mt-4 rounded-2xl bg-red-50 p-3 text-center text-sm font-bold text-red-700">
@@ -167,16 +279,26 @@ export default function LoginScreen({
               </p>
             )}
 
+            {notice && (
+              <p className="mt-4 rounded-2xl bg-green-50 p-3 text-center text-sm font-bold text-green-700">
+                {notice}
+              </p>
+            )}
+
             <button
               type="submit"
-              disabled={!identifier.trim() || !password || isLoggingIn}
+              disabled={
+                isLoggingIn ||
+                !identifier.trim() ||
+                (isResetMode ? (!resetPasswordValue || !resetConfirmPassword) : !password)
+              }
               className="mt-8 flex h-14 w-full items-center justify-center gap-3 rounded-full bg-[#2d6b2f] text-[20px] font-bold text-white shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
             >
               <LogIn className="h-6 w-6" />
-              {isLoggingIn ? 'Please wait...' : 'Login'}
+              {isLoggingIn ? 'Please wait...' : isResetMode ? 'Update Password' : 'Login'}
             </button>
 
-            {selectedLoginType === 'family' && (
+            {selectedLoginType === 'family' && !isResetMode && (
               <div className="mt-6 border-t border-[#eeeeee] pt-5">
                 <p className="text-center text-[15px] font-semibold text-[#666666]">
                   Registering as a family member?

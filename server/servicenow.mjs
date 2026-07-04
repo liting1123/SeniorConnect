@@ -781,16 +781,99 @@ async function findAdminProfileLoginUser(normalizedIdentifier, rawPassword) {
   return record ? toAdminProfileLoginUser(record) : null;
 }
 
-async function findLoginRecordByIdentifier(normalizedIdentifier) {
-  const query = `(${LOGIN_FIELD_MAP.email}=${normalizedIdentifier}^OR${LOGIN_FIELD_MAP.username}=${normalizedIdentifier})`;
+async function findAdminProfileRecordByIdentifier(normalizedIdentifier, rawIdentifier = normalizedIdentifier) {
+  const queryValues = Array.from(new Set([String(rawIdentifier || '').trim(), normalizedIdentifier].filter(Boolean)));
+  const query = queryValues
+    .map((value) => `${ADMIN_PROFILE_FIELD_MAP.email}=${value}^OR${ADMIN_PROFILE_FIELD_MAP.username}=${value}`)
+    .join('^OR');
   const params = new URLSearchParams({
     sysparm_query: query,
-    sysparm_limit: '1',
+    sysparm_limit: '10',
+  });
+
+  const data = await serviceNowFetch(getNamedTablePath(ADMIN_PROFILE_TABLE, `?${params.toString()}`));
+
+  return (data?.result || []).find((user) => {
+    const email = normalizeLoginValue(getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.email]));
+    const username = normalizeLoginValue(getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.username]));
+
+    return email === normalizedIdentifier || username === normalizedIdentifier;
+  }) || null;
+}
+
+async function findLoginRecordByIdentifier(normalizedIdentifier, rawIdentifier = normalizedIdentifier) {
+  const queryValues = Array.from(new Set([String(rawIdentifier || '').trim(), normalizedIdentifier].filter(Boolean)));
+  const query = queryValues
+    .map((value) => `${LOGIN_FIELD_MAP.email}=${value}^OR${LOGIN_FIELD_MAP.username}=${value}`)
+    .join('^OR');
+  const params = new URLSearchParams({
+    sysparm_query: query,
+    sysparm_limit: '10',
   });
 
   const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${params.toString()}`));
 
-  return data?.result?.[0] || null;
+  return (data?.result || []).find((user) => {
+    const email = normalizeLoginValue(getDisplayValue(user[LOGIN_FIELD_MAP.email]));
+    const username = normalizeLoginValue(getDisplayValue(user[LOGIN_FIELD_MAP.username]));
+
+    return email === normalizedIdentifier || username === normalizedIdentifier;
+  }) || null;
+}
+
+export async function resetPasswordWithServiceNow({ identifier, password, loginType = 'senior' }) {
+  const normalizedIdentifier = String(identifier || '').trim();
+  const comparableIdentifier = normalizeLoginValue(normalizedIdentifier);
+  const rawPassword = String(password || '');
+  const normalizedLoginType = String(loginType || 'senior').trim().toLowerCase();
+
+  if (!normalizedIdentifier || !rawPassword) {
+    throw Object.assign(new Error('Username/email and new password are required.'), { status: 400 });
+  }
+
+  if (rawPassword.length < 4) {
+    throw Object.assign(new Error('New password must be at least 4 characters.'), { status: 400 });
+  }
+
+  if (normalizedLoginType === 'family') {
+    const adminProfile = await findAdminProfileRecordByIdentifier(comparableIdentifier, normalizedIdentifier);
+
+    if (adminProfile?.sys_id) {
+      await serviceNowFetch(getNamedTablePath(ADMIN_PROFILE_TABLE, `/${adminProfile.sys_id}`), {
+        method: 'PATCH',
+        body: JSON.stringify({
+          [ADMIN_PROFILE_FIELD_MAP.password]: rawPassword,
+        }),
+      });
+
+      return { ok: true };
+    }
+  }
+
+  const record = await findLoginRecordByIdentifier(comparableIdentifier, normalizedIdentifier);
+
+  if (!record?.sys_id) {
+    throw Object.assign(new Error('Account was not found.'), { status: 404 });
+  }
+
+  const role = getDisplayValue(record[LOGIN_FIELD_MAP.role]) || getReferenceValue(record[LOGIN_FIELD_MAP.role]);
+
+  if (normalizedLoginType === 'family' && !isFamilyRole(role) && !isCaregiverRole(role)) {
+    throw Object.assign(new Error('This account is for Seniors. Please use Seniors login tab.'), { status: 403 });
+  }
+
+  if (normalizedLoginType !== 'family' && !isSeniorRole(role)) {
+    throw Object.assign(new Error('Only senior accounts can use the Senior login tab. Please use Caregiver / Family.'), { status: 403 });
+  }
+
+  await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${record.sys_id}`), {
+    method: 'PATCH',
+    body: JSON.stringify({
+      [LOGIN_FIELD_MAP.password]: rawPassword,
+    }),
+  });
+
+  return { ok: true };
 }
 
 export async function loginWithServiceNow({ identifier, email, password, loginType = 'senior' }) {

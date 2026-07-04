@@ -269,6 +269,22 @@ export async function registerFamilyMember(email: string, password: string) {
   return user;
 }
 
+//Forgot password endpoint
+export async function resetPassword(identifier: string, password: string, loginType: 'senior' | 'family' = 'senior') {
+  const response = await fetch('/api/forgot-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier, password, loginType }),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data as { ok: true };
+}
+
 export async function getPoints(user: AppUser) {
   const data = await request<PointsResponse>(user, `/api/users/${user.uid}/points`);
   return Number(data.points) || 0;

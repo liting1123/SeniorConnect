@@ -784,14 +784,20 @@ function getTimeGreeting() {
   return 'Good Evening';
 }
 
-function parseServiceNowDate(value = '') {
+function parseServiceNowDate(value = '', options: { localServiceNowTime?: boolean } = {}) {
   if (!value) {
     return null;
   }
 
   const normalizedValue = value.trim().replace(' ', 'T');
   const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedValue);
-  const date = new Date(hasTimezone ? normalizedValue : `${normalizedValue}Z`);
+  const date = new Date(
+    hasTimezone
+      ? normalizedValue
+      : options.localServiceNowTime
+        ? `${normalizedValue}+08:00`
+        : `${normalizedValue}Z`,
+  );
 
   if (Number.isNaN(date.getTime())) {
     return null;
@@ -801,7 +807,7 @@ function parseServiceNowDate(value = '') {
 }
 
 function hasCheckedInToday(value = '') {
-  const date = parseServiceNowDate(value);
+  const date = parseServiceNowDate(value, { localServiceNowTime: true });
 
   if (!date) {
     return false;
@@ -852,7 +858,7 @@ function formatDetailDateTime(value = '') {
     return 'Not provided';
   }
 
-  const date = parseServiceNowDate(value);
+  const date = parseServiceNowDate(value, { localServiceNowTime: true });
 
   if (!date) {
     return value;

@@ -1,6 +1,10 @@
-import { Eye, EyeOff, LogIn, Lock, Mail, UserPlus } from 'lucide-react';
+import { Eye, EyeOff, LogIn, Lock, Mail, ShieldCheck, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { type AppUser, login, registerFamilyMember, resetPassword } from '../services/backend';
+
+function createMfaCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
 
 export default function LoginScreen({
   onGetStarted,
@@ -19,6 +23,9 @@ export default function LoginScreen({
   const [resetPasswordValue, setResetPasswordValue] = useState('');
   const [resetConfirmPassword, setResetConfirmPassword] = useState('');
   const [selectedLoginType, setSelectedLoginType] = useState<'senior' | 'family'>('senior');
+  const [mfaCodeInput, setMfaCodeInput] = useState('');
+  const [pendingMfaCode, setPendingMfaCode] = useState('');
+  const [pendingMfaUser, setPendingMfaUser] = useState<AppUser | null>(null);
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -28,6 +35,16 @@ export default function LoginScreen({
 
     try {
       const user = await login(identifier.trim(), password, selectedLoginType);
+
+      if (selectedLoginType === 'family') {
+        const nextCode = createMfaCode();
+        setPendingMfaUser(user);
+        setPendingMfaCode(nextCode);
+        setMfaCodeInput('');
+        setNotice(`Verification code: ${nextCode}`);
+        return;
+      }
+
       onGetStarted(user);
     } catch (error) {
       console.error('Login failed:', error);
@@ -40,6 +57,44 @@ export default function LoginScreen({
     } finally {
       setIsLoggingIn(false);
     }
+  };
+
+  const handleVerifyMfa = (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!pendingMfaUser) {
+      setError('No pending verification found. Please log in again.');
+      return;
+    }
+
+    if (mfaCodeInput.trim() !== pendingMfaCode) {
+      setError('Incorrect verification code. Please try again.');
+      return;
+    }
+
+    setError('');
+    setNotice('Verification successful.');
+    const verifiedUser = pendingMfaUser;
+    setPendingMfaUser(null);
+    setPendingMfaCode('');
+    setMfaCodeInput('');
+    onGetStarted(verifiedUser);
+  };
+
+  const handleResendMfaCode = () => {
+    const nextCode = createMfaCode();
+    setPendingMfaCode(nextCode);
+    setMfaCodeInput('');
+    setError('');
+    setNotice(`Verification code: ${nextCode}`);
+  };
+
+  const handleCancelMfa = () => {
+    setPendingMfaUser(null);
+    setPendingMfaCode('');
+    setMfaCodeInput('');
+    setNotice('');
+    setError('');
   };
 
   const handleForgotPassword = () => {
@@ -161,6 +216,67 @@ export default function LoginScreen({
             </button>
           </div>
 
+          {pendingMfaUser ? (
+            <form onSubmit={handleVerifyMfa}>
+              <div className="mt-10">
+                <label className="mb-3 block text-[18px] font-bold text-black">
+                  Caregiver Verification Code
+                </label>
+                <div className="flex h-14 items-center rounded-2xl bg-[#f3f4f6] px-4 ring-1 ring-transparent focus-within:bg-white focus-within:ring-[#2d6b2f]">
+                  <ShieldCheck className="h-6 w-6 shrink-0 text-[#7a7a7a]" />
+                  <input
+                    value={mfaCodeInput}
+                    onChange={(event) => setMfaCodeInput(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="Enter 6-digit code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className="ml-3 min-w-0 flex-1 bg-transparent text-[18px] font-semibold tracking-[0.25em] text-black outline-none placeholder:tracking-normal placeholder:text-[#8c8c8c]"
+                  />
+                </div>
+                <p className="mt-3 text-sm font-semibold text-[#5f6368]">
+                  Please enter the one-time code to continue.
+                </p>
+              </div>
+
+              {error && (
+                <p className="mt-4 rounded-2xl bg-red-50 p-3 text-center text-sm font-bold text-red-700">
+                  {error}
+                </p>
+              )}
+
+              {notice && (
+                <p className="mt-4 rounded-2xl bg-green-50 p-3 text-center text-sm font-bold text-green-700">
+                  {notice}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={mfaCodeInput.trim().length !== 6}
+                className="mt-8 flex h-14 w-full items-center justify-center gap-3 rounded-full bg-[#2d6b2f] text-[20px] font-bold text-white shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
+              >
+                <ShieldCheck className="h-6 w-6" />
+                Verify and Continue
+              </button>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={handleResendMfaCode}
+                  className="h-12 rounded-full border-2 border-[#2d6b2f] bg-white text-sm font-bold text-[#2d6b2f] transition active:scale-[0.98]"
+                >
+                  Resend Code
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelMfa}
+                  className="h-12 rounded-full border border-[#c7cbd1] bg-white text-sm font-bold text-[#30343a] transition active:scale-[0.98]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
           <form onSubmit={isResetMode ? handleResetPassword : handleLogin}>
             <div className="mt-10">
               <label className="mb-3 block text-[18px] font-bold text-black">
@@ -315,6 +431,7 @@ export default function LoginScreen({
               </div>
             )}
           </form>
+          )}
         </div>
       </div>
     </div>

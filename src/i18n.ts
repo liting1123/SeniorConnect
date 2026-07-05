@@ -40,6 +40,7 @@ const en = {
   friendlyGame: 'Friendly Game',
   game: 'Game',
   gamePointEarned: 'Game point earned.',
+  fallOutsideButton: 'Fall Alert',
   helpSupport: 'Help & Support',
   home: 'Home',
   howAreYouToday: 'How are you today?',
@@ -79,6 +80,7 @@ const en = {
   savingGamePoint: 'Saving game point...',
   seconds: 'seconds',
   selectLanguage: 'Select Language',
+  sendingFallAlert: 'Sending...',
   sosButton: 'SOS',
   taken: 'Taken',
   tamil: 'Tamil',
@@ -160,6 +162,7 @@ const zh = {
   dailyCheckIn: '每日报到',
   done: '完成',
   game: '游戏',
+  fallOutsideButton: '跌倒警报',
   home: '主页',
   howAreYouToday: '今天感觉如何？',
   iAmOk: '我没事',
@@ -167,6 +170,7 @@ const zh = {
   points: '积分',
   profile: '个人资料',
   selectLanguage: '选择语言',
+  sendingFallAlert: '发送中...',
   sosButton: '求助',
 };
 
@@ -206,6 +210,7 @@ const ms = {
   dailyCheckIn: 'Daftar Masuk Harian',
   done: 'Selesai',
   game: 'Permainan',
+  fallOutsideButton: 'Amaran Jatuh',
   home: 'Laman Utama',
   howAreYouToday: 'Apa khabar hari ini?',
   iAmOk: 'Saya OK',
@@ -213,6 +218,7 @@ const ms = {
   points: 'Mata',
   profile: 'Profil',
   selectLanguage: 'Pilih Bahasa',
+  sendingFallAlert: 'Menghantar...',
   sosButton: 'SOS',
 };
 
@@ -244,6 +250,7 @@ const ta = {
   dailyCheckIn: 'தினசரி பதிவு',
   done: 'முடிந்தது',
   game: 'விளையாட்டு',
+  fallOutsideButton: 'விழுதல் எச்சரிக்கை',
   home: 'முகப்பு',
   howAreYouToday: 'இன்று எப்படி இருக்கிறீர்கள்?',
   iAmOk: 'நான் நலமாக இருக்கிறேன்',
@@ -251,6 +258,7 @@ const ta = {
   points: 'புள்ளிகள்',
   profile: 'சுயவிவரம்',
   selectLanguage: 'மொழியைத் தேர்ந்தெடுக்கவும்',
+  sendingFallAlert: 'அனுப்புகிறது...',
   sosButton: 'SOS',
 };
 

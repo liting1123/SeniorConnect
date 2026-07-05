@@ -11,10 +11,14 @@ const svgPaths = {
 
 export default function HomePage({
   onSOSClick,
+  onFallOutsideClick,
+  isSendingFallAlert = false,
   onCheckIn,
   isCheckingIn = false,
 }: {
   onSOSClick?: () => void;
+  onFallOutsideClick?: () => void;
+  isSendingFallAlert?: boolean;
   onCheckIn?: () => void;
   isCheckingIn?: boolean;
 }) {
@@ -123,6 +127,18 @@ export default function HomePage({
                   </div>
                 </button>
 
+              </div>
+
+              <div className="mt-4 w-full min-[390px]:mt-5">
+                <button
+                  onClick={onFallOutsideClick}
+                  disabled={isSendingFallAlert}
+                  className="w-full rounded-[28px] bg-[#ba1a1a] px-5 py-5 text-center shadow-[0px_8px_10px_rgba(186,26,26,0.15)] transition active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 min-[390px]:rounded-[32px] min-[390px]:py-6"
+                >
+                  <p className="font-['Lexend:SemiBold',sans-serif] text-[28px] leading-9 text-white tracking-[0.4px] min-[390px]:text-[32px] min-[390px]:leading-[42px]">
+                    {isSendingFallAlert ? t('sendingFallAlert') : t('fallOutsideButton')}
+                  </p>
+                </button>
               </div>
             </div>
           </div>

@@ -170,12 +170,48 @@ function saveSeenCheckInReminderId(user: AppUser, reminderId: string) {
   localStorage.setItem(getSeenCheckInRemindersKey(user), JSON.stringify(nextIds));
 }
 
+function getCurrentPosition(options?: PositionOptions) {
+  return new Promise<GeolocationPosition>((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Geolocation is not available on this device.'));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+  });
+}
+
+async function getEmergencyLocation(fallbackLocation: string) {
+  try {
+    const position = await getCurrentPosition({
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 0,
+    });
+    const latitude = position.coords.latitude.toFixed(6);
+    const longitude = position.coords.longitude.toFixed(6);
+    const accuracy = Math.max(1, Math.round(position.coords.accuracy || 0));
+    const mapUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
+
+    return {
+      location: `Lat ${latitude}, Lng ${longitude} (accuracy ${accuracy}m). Map: ${mapUrl}`,
+      gpsAvailable: true,
+    };
+  } catch {
+    return {
+      location: fallbackLocation || 'Unknown location',
+      gpsAvailable: false,
+    };
+  }
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
   const [languageReturnScreen, setLanguageReturnScreen] = useState<LanguageReturnScreen>('home');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
   const [isSendingSOS, setIsSendingSOS] = useState(false);
+  const [isSendingFallAlert, setIsSendingFallAlert] = useState(false);
   const isSendingSOSRef = useRef(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const isCheckingInRef = useRef(false);
@@ -434,6 +470,49 @@ export default function App() {
     }
   };
 
+  const handleFallOutsideAlert = async () => {
+    if (isSendingSOSRef.current) {
+      return;
+    }
+
+    isSendingSOSRef.current = true;
+    setIsSendingFallAlert(true);
+
+    try {
+      const user = getStoredUser();
+      const personalInfo = getSavedPersonalInfo();
+      const seniorProfile = user ? await getSeniorProfile(user).catch((error) => {
+        console.error('Unable to load senior profile for fall alert:', error);
+        return null;
+      }) : null;
+      const seniorName = seniorProfile?.name || user?.displayName || user?.email?.split('@')[0] || 'Senior';
+      const seniorPhone = seniorProfile?.phone || personalInfo.phone || '';
+      const fallbackLocation = seniorProfile?.locationZones || personalInfo.address || 'Unknown location';
+      const { location, gpsAvailable } = await getEmergencyLocation(fallbackLocation);
+      const message = gpsAvailable
+        ? 'Fall alert: Senior may have fallen outside home. Current GPS location attached.'
+        : 'Fall alert: Senior may have fallen outside home. GPS unavailable, fallback location used.';
+
+      await createSosAlert({
+        location,
+        message,
+        seniorName,
+        seniorPhone,
+        status: 'New',
+      });
+
+      alert(gpsAvailable
+        ? 'Fall alert sent to caregiver with current location.'
+        : 'Fall alert sent to caregiver. Precise GPS could not be captured.');
+    } catch (error) {
+      console.error('Fall alert failed:', error);
+      alert(error instanceof Error ? error.message : 'Unable to send fall alert. Please try again.');
+    } finally {
+      isSendingSOSRef.current = false;
+      setIsSendingFallAlert(false);
+    }
+  };
+
   const handleCheckIn = async () => {
     if (isCheckingInRef.current) {
       return;
@@ -527,6 +606,8 @@ export default function App() {
         return (
           <HomePage
             onSOSClick={() => setShowSOSConfirmation(true)}
+            onFallOutsideClick={handleFallOutsideAlert}
+            isSendingFallAlert={isSendingFallAlert}
             onCheckIn={handleCheckIn}
             isCheckingIn={isCheckingIn}
           />

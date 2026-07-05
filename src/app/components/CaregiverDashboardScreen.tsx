@@ -764,6 +764,54 @@ function getPhoneHref(phone = '') {
   return cleanedPhone ? `tel:${cleanedPhone}` : undefined;
 }
 
+function extractCoordinates(location = '') {
+  const latLngMatch = /lat\s*(-?\d+(?:\.\d+)?)\s*,\s*lng\s*(-?\d+(?:\.\d+)?)/i.exec(location);
+
+  if (latLngMatch) {
+    return {
+      lat: Number(latLngMatch[1]),
+      lng: Number(latLngMatch[2]),
+    };
+  }
+
+  const plainCoordsMatch = /(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/.exec(location);
+
+  if (plainCoordsMatch) {
+    return {
+      lat: Number(plainCoordsMatch[1]),
+      lng: Number(plainCoordsMatch[2]),
+    };
+  }
+
+  return null;
+}
+
+function extractFirstUrl(text = '') {
+  const urlMatch = /(https?:\/\/[^\s]+)/i.exec(text);
+  return urlMatch ? urlMatch[1] : '';
+}
+
+function getDirectionsHref(location = '') {
+  const coordinates = extractCoordinates(location);
+
+  if (coordinates) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${coordinates.lat},${coordinates.lng}`;
+  }
+
+  const fallbackUrl = extractFirstUrl(location);
+  return fallbackUrl || undefined;
+}
+
+function getMapEmbedSrc(location = '') {
+  const coordinates = extractCoordinates(location);
+
+  if (!coordinates) {
+    return undefined;
+  }
+
+  return `https://www.google.com/maps?q=${coordinates.lat},${coordinates.lng}&z=16&output=embed`;
+}
+
 function getTimeGreeting() {
   const hour = Number(
     new Intl.DateTimeFormat('en-SG', {
@@ -1110,6 +1158,8 @@ function AlertCard({
 }) {
   const isSos = kind === 'sos';
   const phoneHref = getPhoneHref(phone || '');
+  const directionsHref = getDirectionsHref(location || message || '');
+  const mapEmbedSrc = getMapEmbedSrc(location || '');
 
   return (
     <div
@@ -1141,10 +1191,24 @@ function AlertCard({
       </div>
 
       {isSos ? (
-        <div className="mb-5 flex items-center gap-2 rounded-2xl bg-white/10 p-3">
-          <MapPin className="h-5 w-5 flex-shrink-0 text-[#ffdad7]" />
-          <span className="text-base font-semibold text-[#ffdad7]">{location || message || 'Location details unavailable'}</span>
-        </div>
+        <>
+          <div className="mb-3 flex items-center gap-2 rounded-2xl bg-white/10 p-3">
+            <MapPin className="h-5 w-5 flex-shrink-0 text-[#ffdad7]" />
+            <span className="text-base font-semibold text-[#ffdad7]">{location || message || 'Location details unavailable'}</span>
+          </div>
+
+          {mapEmbedSrc && (
+            <div className="mb-5 overflow-hidden rounded-2xl border border-white/20 bg-white/5">
+              <iframe
+                src={mapEmbedSrc}
+                title={`Map for ${title}`}
+                className="h-52 w-full"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            </div>
+          )}
+        </>
       ) : (
         <div className="mb-5 flex items-center gap-2">
           <Info className="h-5 w-5 flex-shrink-0 text-[#954a00]" />
@@ -1167,6 +1231,18 @@ function AlertCard({
           onClick={onResolve}
         />
       </div>
+
+      {isSos && directionsHref && (
+        <a
+          href={directionsHref}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 flex h-12 items-center justify-center gap-2 rounded-full bg-white text-[#831318] text-base font-bold shadow-sm transition-transform active:scale-95"
+        >
+          <MapPin className="h-5 w-5" />
+          <span>Get Directions</span>
+        </a>
+      )}
     </div>
   );
 }
@@ -1237,6 +1313,7 @@ function AlertHistoryItem({
   variant?: 'pending' | 'resolved';
 }) {
   const isPending = variant === 'pending';
+  const directionsHref = getDirectionsHref(location || '');
 
   return (
     <div className={`flex items-start gap-4 rounded-[28px] p-4 shadow-sm min-[390px]:rounded-[32px] ${isPending ? 'bg-[#fff2e8]' : 'bg-[#e9f6ed]'}`}>
@@ -1258,6 +1335,17 @@ function AlertHistoryItem({
         )}
         <p className={`mt-1 text-sm leading-5 ${isPending ? 'text-[#301400]' : 'text-[#1d5031]'}`}>{message}</p>
         {location && <p className={`mt-1 text-sm font-semibold leading-5 ${isPending ? 'text-[#713700]' : 'text-[#2e6f42]'}`}>{location}</p>}
+        {directionsHref && (
+          <a
+            href={directionsHref}
+            target="_blank"
+            rel="noreferrer"
+            className={`mt-2 inline-flex items-center gap-1 text-sm font-bold underline ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}
+          >
+            <MapPin className="h-4 w-4" />
+            <span>Open directions</span>
+          </a>
+        )}
       </div>
     </div>
   );

@@ -28,3 +28,59 @@ a[href]:hover,
 label.cursor-pointer:hover {
   filter: brightness(0.94);
 }
+
+@keyframes puzzleTileSettle {
+  0% {
+    transform: scale(1.04);
+    box-shadow: 0 12px 26px rgba(49, 99, 66, 0.2);
+  }
+  65% {
+    transform: scale(1.01);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(49, 99, 66, 0);
+  }
+}
+
+@keyframes puzzleImageReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.puzzle-board-solved {
+  position: relative;
+  overflow: hidden;
+  gap: 0 !important;
+  padding: 8px !important;
+  transition: gap 420ms ease, padding 420ms ease;
+}
+
+.puzzle-board-solved .puzzle-tile {
+  border-radius: 2px !important;
+  border-color: transparent !important;
+  animation: puzzleTileSettle 520ms ease;
+  transition: border-radius 380ms ease, border-color 380ms ease;
+}
+
+.puzzle-board-full-image {
+  position: absolute;
+  inset: 8px;
+  width: calc(100% - 16px);
+  height: calc(100% - 16px);
+  border-radius: 16px;
+  object-fit: cover;
+  pointer-events: none;
+  animation: puzzleImageReveal 420ms ease;
+}
+
+.puzzle-final-image {
+  animation: puzzleImageReveal 480ms ease;
+  background: linear-gradient(135deg, #f8fff8, #f1f9f4);
+}

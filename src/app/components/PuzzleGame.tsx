@@ -11,39 +11,32 @@ interface PuzzleGameProps {
   onBack?: () => void;
 }
 
-const IMAGE_LABEL: Record<number, string> = {
-  2: 'small mosaic',
-  3: 'color swirl',
-  5: 'abstract squares',
-  9: 'graphic mosaic',
+type PuzzleTheme = {
+  label: string;
+  imageUrl: string;
 };
 
-function generatePuzzleImage(gridN: number, seed: number): string {
-  const colors = ['#ff9800', '#8b4513', '#228b22', '#0088cc', '#c2185b', '#7b1fa2'];
-  const base = colors[seed % colors.length];
-  const accent = colors[(seed + gridN) % colors.length];
-  const pattern = seed % 4;
-  const shapes = [
-    `<circle cx="150" cy="150" r="90" fill="${accent}" opacity="0.55" />`,
-    `<path d="M0 75 L300 75 L300 225 L0 225 Z" fill="${accent}" opacity="0.35" />`,
-    `<path d="M75 0 L225 0 L225 300 L75 300 Z" fill="${accent}" opacity="0.35" />`,
-    `<polygon points="150,30 270,150 150,270 30,150" fill="${accent}" opacity="0.45" />`,
-  ];
-  const lines = Array.from({ length: gridN + 1 }, (_, index) => {
-    const offset = (300 / gridN) * index;
-    return `
-      <line x1="${offset}" y1="0" x2="${offset}" y2="300" stroke="rgba(255,255,255,0.5)" stroke-width="4" />
-      <line x1="0" y1="${offset}" x2="300" y2="${offset}" stroke="rgba(255,255,255,0.5)" stroke-width="4" />`;
-  }).join('');
+const PUZZLE_THEMES: PuzzleTheme[] = [
+  {
+    label: 'Marina Bay Sands',
+    imageUrl: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?auto=format&fit=crop&w=1200&q=80',
+  },
+  {
+    label: 'Merlion Park',
+    imageUrl: 'https://images.unsplash.com/photo-1565967511849-76a60a516170?auto=format&fit=crop&w=1200&q=80',
+  },
+  {
+    label: 'Gardens by the Bay',
+    imageUrl: 'https://images.unsplash.com/photo-1508964942454-1a56651d54ac?auto=format&fit=crop&w=1200&q=80',
+  },
+  {
+    label: 'Singapore Flyer',
+    imageUrl: 'https://images.unsplash.com/photo-1513245543132-31f507417b26?auto=format&fit=crop&w=1200&q=80',
+  },
+];
 
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">
-      <rect width="300" height="300" fill="${base}" />
-      ${shapes[pattern]}
-      ${lines}
-    </svg>`;
-
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+function buildThemeImage(theme: PuzzleTheme): string {
+  return theme.imageUrl;
 }
 
 const buttonClass = (highContrast: boolean, variant: 'primary' | 'secondary' = 'secondary') =>
@@ -62,9 +55,10 @@ const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
   const [seconds, setSeconds] = useState(0);
   const [message, setMessage] = useState('');
   const [highContrast, setHighContrast] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(() => generatePuzzleImage(3, Date.now()));
+  const [selectedImage, setSelectedImage] = useState(() => buildThemeImage(PUZZLE_THEMES[0]));
   const [easyMode, setEasyMode] = useState(true);
   const [dragSource, setDragSource] = useState<{ zone: 'board' | 'tray'; index: number } | null>(null);
+  const [isSolved, setIsSolved] = useState(false);
 
   const timerRef = useRef<number | undefined>(undefined);
   const movesRef = useRef(0);
@@ -199,16 +193,16 @@ const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
   };
 
   const regenerateImage = () => {
-    const image = generatePuzzleImage(gridN, Date.now());
+    const randomTheme = PUZZLE_THEMES[Math.floor(Math.random() * PUZZLE_THEMES.length)];
+    const image = buildThemeImage(randomTheme);
     setSelectedImage(image);
-    setMessage(t('newPuzzleImageGenerated'));
+    setMessage(`${t('newPuzzleImageGenerated')}: ${randomTheme.label}`);
   };
 
   const startGame = () => {
     const { board, tray } = buildPieces(gridN, easyMode);
-    const seed = Date.now();
-    const image = generatePuzzleImage(gridN, seed);
-    const label = IMAGE_LABEL[gridN] || 'image';
+    const randomTheme = PUZZLE_THEMES[Math.floor(Math.random() * PUZZLE_THEMES.length)];
+    const image = buildThemeImage(randomTheme);
 
     clearTimers();
     setBoardTiles(board);
@@ -218,14 +212,16 @@ const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
     movesRef.current = 0;
     secondsRef.current = 0;
     setDragSource(null);
+    setIsSolved(false);
     setSelectedImage(image);
-    setMessage(t('puzzleGameStarted', { label }));
+    setMessage(t('puzzleGameStarted', { label: randomTheme.label }));
 
     startTimer();
   };
 
   const endGame = (finalMoves: number) => {
     if (timerRef.current) clearInterval(timerRef.current);
+    setIsSolved(true);
     setMessage(t('puzzleSolvedIn', { moves: finalMoves, seconds: secondsRef.current }));
   };
 
@@ -320,7 +316,7 @@ const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
           <div
             className={`mx-auto grid w-full max-w-[420px] gap-1.5 rounded-3xl p-3 shadow-[0_8px_20px_rgba(49,99,66,0.08)] max-[430px]:p-2.5 ${
               highContrast ? 'bg-[#111]' : 'bg-white'
-            }`}
+            } ${isSolved ? 'puzzle-board-solved' : ''}`}
             style={{ gridTemplateColumns: `repeat(${gridN}, 1fr)` }}
           >
             {boardTiles.map((tile, index) => (
@@ -330,7 +326,7 @@ const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
                   tile === ''
                     ? 'cursor-default border-dashed border-[#d1d5db] bg-[#f8fafc]'
                     : 'cursor-pointer border-[#d1d5db] shadow-sm'
-                } ${tile !== '' ? 'overflow-hidden' : ''}`}
+                } ${tile !== '' ? 'overflow-hidden puzzle-tile' : ''}`}
                 onClick={() => handlePickFromBoard(index)}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={() => handleDrop({ zone: 'board', index })}
@@ -351,9 +347,17 @@ const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
                     : {}
                 }
               >
-                {tile}
+                {tile && <span className="sr-only">{tile}</span>}
               </button>
             ))}
+
+            {isSolved && (
+              <img
+                src={selectedImage}
+                alt={t('puzzleBoard')}
+                className="puzzle-board-full-image"
+              />
+            )}
           </div>
 
           <h2 className={`mb-3 mt-5 text-base font-semibold min-[390px]:text-lg ${highContrast ? 'text-white/90' : 'text-[#314f33]'}`}>
@@ -393,7 +397,7 @@ const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
                     : {}
                 }
               >
-                {tile}
+                {tile && <span className="sr-only">{tile}</span>}
               </button>
             ))}
           </div>

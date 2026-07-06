@@ -32,6 +32,7 @@ loadEnv();
 
 const PORT = Number(process.env.API_PORT) || 3001;
 const checkInReminders = [];
+const SOS_LOCATION_MAX_LENGTH = 40;
 
 function normalizeReminderValue(value = '') {
   return String(value || '').trim().toLowerCase();
@@ -101,6 +102,97 @@ function getUidFromPath(pathname) {
   return match ? { uid: decodeURIComponent(match[1]), action: match[2] || null } : null;
 }
 
+function shortenRoadName(value = '') {
+  return String(value || '')
+    .replace(/\bAvenue\b/gi, 'Ave')
+    .replace(/\bStreet\b/gi, 'St')
+    .replace(/\bRoad\b/gi, 'Rd')
+    .replace(/\bDrive\b/gi, 'Dr')
+    .replace(/\bCrescent\b/gi, 'Cres')
+    .replace(/\bBoulevard\b/gi, 'Blvd')
+    .replace(/\bSingapore\b/gi, 'SG')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function joinUniqueAddressParts(parts) {
+  const seen = new Set();
+
+  return parts
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .filter((part) => {
+      const normalized = part.toLowerCase();
+
+      if (seen.has(normalized)) {
+        return false;
+      }
+
+      seen.add(normalized);
+      return true;
+    })
+    .join(', ');
+}
+
+function formatCompactAddress(data = {}) {
+  const address = data.address || {};
+  const building = address.building || address.amenity || address.office || address.shop || address.tourism || '';
+  const streetAddress = shortenRoadName([address.house_number, address.road].filter(Boolean).join(' '));
+  const neighbourhoodAddress = shortenRoadName(joinUniqueAddressParts([
+    streetAddress,
+    address.neighbourhood || address.suburb,
+  ]));
+  const city = shortenRoadName(address.city || address.town || address.village || address.state || address.country || '');
+  const postcode = address.postcode || '';
+  const postalAddress = [city, postcode].filter(Boolean).join(' ');
+  const candidates = [
+    joinUniqueAddressParts([building, streetAddress, postalAddress]),
+    joinUniqueAddressParts([building, neighbourhoodAddress, postalAddress]),
+    joinUniqueAddressParts([streetAddress, postalAddress]),
+    joinUniqueAddressParts([building, streetAddress, city]),
+    joinUniqueAddressParts([building, neighbourhoodAddress, city]),
+    joinUniqueAddressParts([building, streetAddress]),
+  ].filter(Boolean);
+  const compactAddress = candidates.find((candidate) => candidate.length <= SOS_LOCATION_MAX_LENGTH) || candidates[0];
+
+  return compactAddress || shortenRoadName(data.display_name || '');
+}
+
+async function reverseGeocode(latitude, longitude) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    throw Object.assign(new Error('Valid latitude and longitude are required.'), { status: 400 });
+  }
+
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    lat: String(lat),
+    lon: String(lon),
+    zoom: '18',
+    addressdetails: '1',
+  });
+  const reverseGeocodeUrl = `https://nominatim.openstreetmap.org/reverse?${params.toString()}`;
+  const geocodeResponse = await fetch(reverseGeocodeUrl, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'SeniorConnect SOS location lookup',
+    },
+  });
+  const data = await geocodeResponse.json().catch(() => null);
+
+  if (!geocodeResponse.ok) {
+    throw Object.assign(new Error(data?.error || 'Unable to find address for this location.'), {
+      status: geocodeResponse.status,
+    });
+  }
+
+  return {
+    address: formatCompactAddress(data),
+  };
+}
+
 export async function handleRequest(request, response) {
   if (request.method === 'OPTIONS') {
     sendJson(response, 204, {});
@@ -111,6 +203,12 @@ export async function handleRequest(request, response) {
 
   if (url.pathname === '/api/health') {
     sendJson(response, 200, { ok: true, login: getServiceNowLoginConfig() });
+    return;
+  }
+
+  if (url.pathname === '/api/reverse-geocode' && request.method === 'GET') {
+    const location = await reverseGeocode(url.searchParams.get('lat'), url.searchParams.get('lon'));
+    sendJson(response, 200, location);
     return;
   }
 

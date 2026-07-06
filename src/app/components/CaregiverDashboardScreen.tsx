@@ -1900,10 +1900,10 @@ function SeniorCard({
         <div className="mt-4 rounded-[14px] border border-[#f3a2a5] bg-white px-4 py-3">
           <div className="mb-2 flex items-center gap-2 text-[#c8171d]">
             <MapPin className="h-6 w-6 flex-shrink-0" />
-            <p className="text-base font-black">Address</p>
+            <p className="text-base font-black">Current Location</p>
           </div>
           <p className="whitespace-normal break-words text-lg font-bold leading-7 text-black">
-            {senior.address || location || 'Unknown'}
+            {location || senior.address || 'Unknown'}
           </p>
         </div>
       )}

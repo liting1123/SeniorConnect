@@ -74,6 +74,40 @@ function getSavedPersonalInfo() {
   }
 }
 
+function getCurrentBrowserPosition() {
+  return new Promise<GeolocationPosition>((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Location sharing is not supported on this device.'));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 10000,
+    });
+  });
+}
+
+async function getSosLocation(fallbackLocation: string) {
+  try {
+    const position = await getCurrentBrowserPosition();
+    const latitude = position.coords.latitude.toFixed(6);
+    const longitude = position.coords.longitude.toFixed(6);
+    const response = await fetch(`/api/reverse-geocode?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`);
+    const data = await response.json().catch(() => null);
+
+    if (response.ok && data?.address) {
+      return data.address;
+    }
+
+    return `Map: https://maps.google.com/?q=${latitude},${longitude}`;
+  } catch (error) {
+    console.warn('Unable to capture current location for SOS:', error);
+    return fallbackLocation;
+  }
+}
+
 function getMedicineNameOverridesKey(user: AppUser) {
   return `medicine_names_${getUserStorageIdentity(user)}`;
 }
@@ -378,7 +412,8 @@ export default function App() {
       }) : null;
       const seniorName = seniorProfile?.name || user?.displayName || user?.email?.split('@')[0] || 'Senior';
       const seniorPhone = seniorProfile?.phone || personalInfo.phone || '';
-      const location = seniorProfile?.locationZones || personalInfo.address || 'Unknown location';
+      const fallbackLocation = seniorProfile?.locationZones || personalInfo.address || 'Unknown location';
+      const location = await getSosLocation(fallbackLocation);
 
       await createSosAlert({
         location,

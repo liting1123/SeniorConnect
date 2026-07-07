@@ -5,6 +5,7 @@ type BackendUser = {
   name: string;
   phone?: string;
   locationZones?: string;
+  address?: string;
   points: number;
   lastCheckInAt: string | null;
   gameRewardDate?: string | null;

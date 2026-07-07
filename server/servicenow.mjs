@@ -55,7 +55,7 @@ const CHECK_IN_WINDOWS = [
   {
     id: 'evening',
     label: 'evening',
-    startMinute: parseCheckInTime(process.env.CHECK_IN_EVENING_START, 17 * 60),
+    startMinute: parseCheckInTime(process.env.CHECK_IN_EVENING_START, 13 * 60),
     endMinute: parseCheckInTime(process.env.CHECK_IN_EVENING_END, 23 * 60 + 59),
   },
 ];
@@ -76,6 +76,7 @@ const LOGIN_FIELD_MAP = {
   role: process.env.SERVICE_NOW_LOGIN_FIELD_ROLE || 'u_role',
   active: process.env.SERVICE_NOW_LOGIN_FIELD_ACTIVE || 'u_active',
   lastLogin: process.env.SERVICE_NOW_LOGIN_FIELD_LAST_LOGIN || 'u_last_login',
+  lastCheckIn: process.env.SERVICE_NOW_LOGIN_FIELD_LAST_CHECK_IN || 'u_last_check_in',
 };
 
 const ADMIN_PROFILE_FIELD_MAP = {
@@ -487,19 +488,32 @@ export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 })
   const lastWindow = getCheckInWindow(profile.lastCheckInAt);
 
   if (lastWindow?.dateKey === currentWindow.dateKey && lastWindow.id === currentWindow.id) {
+    try {
+      await updateLoginCheckInTimestamp({ userId, email, name, checkInAt: profile.lastCheckInAt });
+    } catch (error) {
+      console.warn('Unable to sync existing login user last check-in timestamp:', error);
+    }
+
     throw Object.assign(new Error(`You have already completed your ${currentWindow.label} check-in today.`), {
       status: 409,
     });
   }
 
   const nextPoints = profile.points + pointsToAdd;
+  const checkInAt = getServiceNowDateTime();
   const data = await serviceNowFetch(getTablePath(`/${profile.sysId}`), {
     method: 'PATCH',
     body: JSON.stringify({
       [FIELD_MAP.points]: String(nextPoints),
-      [FIELD_MAP.lastCheckInAt]: getServiceNowDateTime(),
+      [FIELD_MAP.lastCheckInAt]: checkInAt,
     }),
   });
+
+  try {
+    await updateLoginCheckInTimestamp({ userId, email, name, checkInAt });
+  } catch (error) {
+    console.warn('Unable to update login user last check-in timestamp:', error);
+  }
 
   return toUserRecord(data.result);
 }
@@ -721,6 +735,44 @@ async function updateLoginTimestamp(record) {
   });
 
   return data?.result || record;
+}
+
+async function updateLoginCheckInTimestamp({ userId, email, name, checkInAt }) {
+  if (!LOGIN_FIELD_MAP.lastCheckIn || !checkInAt) {
+    return null;
+  }
+
+  let loginRecord = null;
+  const normalizedUserId = String(userId || '').trim();
+
+  if (normalizedUserId) {
+    try {
+      const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(normalizedUserId)}`));
+      loginRecord = data?.result || null;
+    } catch (error) {
+      if (error.status !== 404) {
+        throw error;
+      }
+    }
+  }
+
+  if (!loginRecord?.sys_id) {
+    const identifier = email || name;
+    loginRecord = identifier ? await findLoginRecordByIdentifier(String(identifier).trim()) : null;
+  }
+
+  if (!loginRecord?.sys_id) {
+    return null;
+  }
+
+  const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(loginRecord.sys_id)}`), {
+    method: 'PATCH',
+    body: JSON.stringify({
+      [LOGIN_FIELD_MAP.lastCheckIn]: checkInAt,
+    }),
+  });
+
+  return data?.result || loginRecord;
 }
 
 async function findSeniorLoginUser(normalizedIdentifier, rawPassword, rawIdentifier = normalizedIdentifier) {
@@ -1435,13 +1487,22 @@ export async function getAllSeniorProfiles() {
   });
   const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
   const seniors = (data?.result || []).map((seniorProfile) => toCaregiverSeniorRecord({}, seniorProfile, {}));
+  const caregiverAssignments = await getCaregiverAssignmentsForSeniors(seniors);
 
   return Promise.all(seniors.map(async (senior) => {
     const activeAlert = await getLatestActiveSosAlertForSenior(senior);
+    const caregiverAssignment = caregiverAssignments.get(senior.id) || {};
+    const seniorWithAssignment = {
+      ...senior,
+      caregiverNames: caregiverAssignment.caregiverNames || [],
+      caregiverName: caregiverAssignment.caregiverName || senior.caregiverName,
+      caregiverEmail: caregiverAssignment.caregiverEmail || senior.caregiverEmail,
+      relationship: caregiverAssignment.relationship || senior.relationship,
+    };
 
     return activeAlert
       ? {
-          ...senior,
+          ...seniorWithAssignment,
           alertId: activeAlert.id,
           alertMessage: activeAlert.message,
           alertStatus: activeAlert.status,
@@ -1449,8 +1510,55 @@ export async function getAllSeniorProfiles() {
           location: activeAlert.location || senior.location,
           status: /sos|urgent/i.test(activeAlert.status) ? 'SOS Active' : activeAlert.status,
         }
-      : senior;
+      : seniorWithAssignment;
   }));
+}
+
+async function getCaregiverAssignmentsForSeniors(seniors = []) {
+  const seniorIds = seniors.map((senior) => senior.id).filter(Boolean);
+  const assignments = new Map();
+
+  if (seniorIds.length === 0) {
+    return assignments;
+  }
+
+  const params = new URLSearchParams({
+    sysparm_display_value: 'all',
+    sysparm_limit: String(Math.max(100, seniorIds.length * 3)),
+    sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.senior}IN${seniorIds.join(',')}`,
+  });
+  const data = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${params.toString()}`));
+
+  for (const connection of data?.result || []) {
+    const seniorId = getReferenceValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.senior]);
+
+    if (!seniorId) {
+      continue;
+    }
+
+    const caregiverValue = connection[CAREGIVER_CONNECTION_FIELD_MAP.user];
+    const caregiverName = getDisplayValue(caregiverValue);
+    const relationship = getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.relationship]) || '';
+    const existingAssignment = assignments.get(seniorId) || {
+      caregiverNames: [],
+      caregiverName: '',
+      caregiverEmail: '',
+      relationship: '',
+    };
+
+    if (caregiverName && !existingAssignment.caregiverNames.includes(caregiverName)) {
+      existingAssignment.caregiverNames.push(caregiverName);
+    }
+
+    assignments.set(seniorId, {
+      caregiverNames: existingAssignment.caregiverNames,
+      caregiverName: existingAssignment.caregiverName || caregiverName,
+      caregiverEmail: existingAssignment.caregiverEmail,
+      relationship: existingAssignment.relationship || relationship,
+    });
+  }
+
+  return assignments;
 }
 
 export async function deleteSeniorProfile(seniorId) {

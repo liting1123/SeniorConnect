@@ -86,8 +86,8 @@ export default function MedicationScreen({
             ))
           ) : (
             <div className="rounded-[24px] bg-white p-5 text-center shadow-[0_8px_20px_rgba(7,18,46,0.08)]">
-              <p className="text-xl font-bold text-[#07122e]">No medicine added yet</p>
-              <p className="mt-2 text-base text-gray-500">Your medicine reminders will appear here.</p>
+              <p className="text-xl font-bold text-[#07122e]">{t('noMedicineAdded')}</p>
+              <p className="mt-2 text-base text-gray-500">{t('yourMedicineRemindersAppearHere')}</p>
             </div>
           )}
         </div>
@@ -222,6 +222,7 @@ function MedicineForm({
   onSave: (medicine: MedicineInput) => Promise<void>;
   onDelete: (medicineId: string) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const isFixedMedicine = Boolean(medicine && !medicine.isExtra);
   const [name, setName] = useState(medicine?.name || '');
   const [dose, setDose] = useState(medicine?.dose || '');
@@ -235,7 +236,7 @@ function MedicineForm({
     event.preventDefault();
 
     if (!name.trim()) {
-      alert('Medicine name is required.');
+      alert(t('medicineNameRequired'));
       return;
     }
 
@@ -254,7 +255,7 @@ function MedicineForm({
       });
     } catch (error) {
       console.error('Unable to save medicine:', error);
-      alert(error instanceof Error ? error.message : 'Unable to save medicine.');
+      alert(error instanceof Error ? error.message : t('unableSaveMedicine'));
     } finally {
       setIsSaving(false);
     }
@@ -265,7 +266,7 @@ function MedicineForm({
       return;
     }
 
-    const confirmed = window.confirm('Remove this extra medicine?');
+    const confirmed = window.confirm(t('removeExtraMedicine'));
 
     if (!confirmed) {
       return;
@@ -277,7 +278,7 @@ function MedicineForm({
       await onDelete(medicine.id);
     } catch (error) {
       console.error('Unable to remove medicine:', error);
-      alert(error instanceof Error ? error.message : 'Unable to remove medicine.');
+      alert(error instanceof Error ? error.message : t('unableRemoveMedicine'));
     } finally {
       setIsDeleting(false);
     }
@@ -288,10 +289,10 @@ function MedicineForm({
       <form onSubmit={handleSubmit} className="max-h-[88%] w-full overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-2xl">
         <div className="mb-5 flex items-center justify-between gap-3">
           <h2 className="text-2xl font-bold text-[#07122e]">
-            {medicine ? (isFixedMedicine ? 'Fixed medicine' : 'Edit extra medicine') : 'Add extra medicine'}
+            {medicine ? (isFixedMedicine ? t('fixedMedicine') : t('addExtraMedicine')) : t('addExtraMedicine')}
           </h2>
           <button
-            aria-label="Close"
+            aria-label={t('close')}
             type="button"
             onClick={onClose}
             className="flex h-11 w-11 items-center justify-center rounded-full bg-[#f3f4f6] text-[#07122e] active:scale-95"
@@ -302,22 +303,22 @@ function MedicineForm({
 
         <div className="flex flex-col gap-4">
           <MedicineInput
-            label="Medicine name"
+            label={t('medicineName')}
             value={name}
             onChange={setName}
             placeholder="Metformin"
           />
-          <MedicineInput disabled={isFixedMedicine} label="Dose" value={dose} onChange={setDose} placeholder="500mg" />
-          <MedicineInput disabled={isFixedMedicine} label="Time" value={time} onChange={setTime} placeholder="8:00 AM" />
+          <MedicineInput disabled={isFixedMedicine} label={t('dose')} value={dose} onChange={setDose} placeholder="500mg" />
+          <MedicineInput disabled={isFixedMedicine} label={t('time')} value={time} onChange={setTime} placeholder="8:00 AM" />
           <MedicineInput disabled={isFixedMedicine} label="Frequency" value={frequency} onChange={setFrequency} placeholder="1 tablet - Daily" />
-          <MedicineInput disabled={isFixedMedicine} label="Notes" value={notes} onChange={setNotes} placeholder="After breakfast" />
+          <MedicineInput disabled={isFixedMedicine} label="Notes" value={notes} onChange={setNotes} placeholder={t('afterBreakfast')} />
         </div>
 
         <button
           disabled={isSaving || isDeleting}
           className="mt-6 flex h-14 w-full items-center justify-center rounded-full bg-[#18833b] text-xl font-bold text-white active:scale-95 disabled:opacity-60"
         >
-          {isSaving ? 'Saving...' : 'Save'}
+          {isSaving ? t('saving') : t('save')}
         </button>
 
         {medicine?.isExtra && (
@@ -328,7 +329,7 @@ function MedicineForm({
             className="mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-full border-2 border-[#c62828] bg-white text-xl font-bold text-[#c62828] active:scale-95 disabled:opacity-60"
           >
             <Trash2 className="h-5 w-5" />
-            {isDeleting ? 'Removing...' : 'Remove'}
+            {isDeleting ? t('removing') : t('remove')}
           </button>
         )}
       </form>

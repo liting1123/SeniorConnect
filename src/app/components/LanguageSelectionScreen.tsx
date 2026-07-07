@@ -1,20 +1,13 @@
-import { Check, ArrowRight } from 'lucide-react';
+import { ArrowRight, Check } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LANGUAGE_STORAGE_KEY, getSavedLanguage } from '../../i18n';
+import { LANGUAGE_STORAGE_KEY, SUPPORTED_LANGUAGES, type SupportedLanguage, getSavedLanguage } from '../../i18n';
 
 export default function LanguageSelectionScreen({ onContinue }: { onContinue: () => void }) {
   const { t, i18n } = useTranslation();
   const [selectedLanguage, setSelectedLanguage] = useState(getSavedLanguage());
 
-  const languages = [
-    { id: 'en', name: t('english') },
-    { id: 'ms', name: t('malay') },
-    { id: 'zh', name: t('中文') },
-    { id: 'ta', name: t('tamil') },
-  ];
-
-  const handleLanguageSelect = (langId: string) => {
+  const handleLanguageSelect = (langId: SupportedLanguage) => {
     setSelectedLanguage(langId);
     localStorage.setItem(LANGUAGE_STORAGE_KEY, langId);
     i18n.changeLanguage(langId);
@@ -23,10 +16,12 @@ export default function LanguageSelectionScreen({ onContinue }: { onContinue: ()
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-gray-50 p-5 min-[390px]:p-8">
       <div className="flex-1">
-        <h1 className="mb-8 text-4xl font-bold leading-tight text-green-700 min-[390px]:mb-12 min-[390px]:text-5xl">{t('selectLanguage')}</h1>
+        <h1 className="mb-8 text-4xl font-bold leading-tight text-green-700 min-[390px]:mb-12 min-[390px]:text-5xl">
+          {t('selectLanguage')}
+        </h1>
 
         <div className="space-y-3 min-[390px]:space-y-4">
-          {languages.map((language, index) => (
+          {SUPPORTED_LANGUAGES.map((language, index) => (
             <button
               key={language.id}
               onClick={() => handleLanguageSelect(language.id)}
@@ -40,7 +35,7 @@ export default function LanguageSelectionScreen({ onContinue }: { onContinue: ()
                 {index + 1}.
               </span>
               <span className="flex-1 text-left text-xl font-bold text-gray-900 min-[390px]:text-2xl">
-                {language.name}
+                {t(language.labelKey)}
               </span>
               {selectedLanguage === language.id && (
                 <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-green-600 min-[390px]:h-10 min-[390px]:w-10">

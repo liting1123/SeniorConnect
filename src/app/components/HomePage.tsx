@@ -11,18 +11,43 @@ const svgPaths = {
 
 export default function HomePage({
   onSOSClick,
-  onFallOutsideClick,
-  isSendingFallAlert = false,
   onCheckIn,
   isCheckingIn = false,
+  completedCheckIn = null,
+  isCurrentCheckInWindowCompleted = false,
 }: {
   onSOSClick?: () => void;
-  onFallOutsideClick?: () => void;
-  isSendingFallAlert?: boolean;
   onCheckIn?: () => void;
   isCheckingIn?: boolean;
+  completedCheckIn?: {
+    time: string;
+    windowId: 'morning' | 'evening';
+  } | null;
+  isCurrentCheckInWindowCompleted?: boolean;
 }) {
   const { t } = useTranslation();
+  const completedWindowLabel = completedCheckIn?.windowId === 'morning' ? t('morningCheckIn') : t('eveningCheckIn');
+  const completedMessage = completedCheckIn
+    ? t('checkInCompletedAt', {
+        time: completedCheckIn.time,
+        window: completedWindowLabel,
+      })
+    : '';
+  const checkInButtonClass = isCurrentCheckInWindowCompleted
+    ? 'bg-[#e3e5e8] text-[#4b5563]'
+    : 'bg-[#4a7c59] text-[#e1ffe5]';
+  const checkInIconFill = isCurrentCheckInWindowCompleted ? '#4b5563' : '#E1FFE5';
+  const checkInTextClass = isCurrentCheckInWindowCompleted
+    ? 'text-[28px] leading-9 min-[390px]:text-[34px] min-[390px]:leading-10'
+    : 'text-[32px] leading-10 min-[390px]:text-[40px] min-[390px]:leading-[60px]';
+  const checkInButtonPaddingClass = isCurrentCheckInWindowCompleted
+    ? 'py-8 min-[390px]:py-10'
+    : 'py-7 min-[390px]:py-9';
+  const checkInButtonText = isCheckingIn
+    ? t('checking')
+    : isCurrentCheckInWindowCompleted
+      ? t('checkInCompleted')
+      : t('iAmOk');
 
   return (
     <div className="bg-white content-stretch flex flex-col items-start relative size-full overflow-y-auto">
@@ -40,8 +65,8 @@ export default function HomePage({
             </div>
 
             <div className="content-stretch flex flex-[1_0_0] flex-col items-center min-w-px relative">
-              <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#316342] text-[40px] text-center whitespace-nowrap min-[390px]:text-[50px]">
-                <p className="leading-[44px] min-[390px]:leading-[50px]">{t('home')}</p>
+              <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#316342] text-[36px] text-center whitespace-nowrap min-[390px]:text-[44px]">
+                <p className="leading-10 min-[390px]:leading-[48px]">{t('home')}</p>
               </div>
             </div>
 
@@ -51,56 +76,63 @@ export default function HomePage({
       </div>
 
       <div className="relative flex-1 w-full">
-        <div className="flex flex-col items-center size-full">
-          <div className="content-stretch flex flex-col items-center px-5 pb-4 relative size-full min-[390px]:px-6">
-            <div className="content-stretch flex flex-col items-start pb-3 pt-2 relative shrink-0 w-full min-[390px]:pb-[18px] min-[390px]:pt-3">
+        <div className="flex min-h-full flex-col items-center">
+          <div className="flex min-h-full w-full flex-col px-5 pb-2 min-[390px]:px-6">
+            <div className="content-stretch flex flex-col items-start pb-3 pt-4 relative shrink-0 w-full min-[390px]:pb-4 min-[390px]:pt-5">
               <div className="content-stretch flex flex-col gap-[8px] items-start relative shrink-0 w-full">
                 <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
-                  <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[28px] text-center whitespace-nowrap min-[390px]:text-[32px]">
-                    <p className="leading-9 min-[390px]:leading-[42px]">{t('dailyCheckIn')}</p>
+                  <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[26px] text-center whitespace-nowrap min-[390px]:text-[30px]">
+                    <p className="leading-8 min-[390px]:leading-10">{t('dailyCheckIn')}</p>
                   </div>
                 </div>
                 <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
-                  <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#414942] text-lg text-center whitespace-nowrap min-[390px]:text-[20px]">
-                    <p className="leading-6 min-[390px]:leading-[30px]">{t('howAreYouToday')}</p>
+                  <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#414942] text-base text-center whitespace-nowrap min-[390px]:text-lg">
+                    <p className="leading-6 min-[390px]:leading-7">{t('howAreYouToday')}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="content-stretch flex flex-col items-start pb-4 relative shrink-0 w-full min-[390px]:pb-6">
+            <div className="content-stretch flex flex-col items-start relative shrink-0 w-full">
+              {completedCheckIn && (
+                <div className="mb-3 flex w-full items-center justify-center rounded-[16px] bg-[#eef0f2] px-4 py-3 text-center text-[#4b5563]">
+                  <p className="text-sm font-bold leading-5 min-[390px]:text-base">
+                    {completedMessage}
+                  </p>
+                </div>
+              )}
               <button
                 onClick={onCheckIn}
-                disabled={isCheckingIn}
-                className="bg-[#4a7c59] content-stretch flex flex-col items-center justify-center py-5 relative rounded-[28px] shrink-0 w-full active:scale-95 transition-transform disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 min-[390px]:rounded-[32px] min-[390px]:py-8"
+                disabled={isCheckingIn || isCurrentCheckInWindowCompleted}
+                className={`${checkInButtonClass} content-stretch flex flex-col items-center justify-center ${checkInButtonPaddingClass} relative min-h-[156px] rounded-[24px] shrink-0 w-full active:scale-95 transition-transform disabled:cursor-default disabled:active:scale-100 min-[390px]:min-h-[176px] min-[390px]:rounded-[28px]`}
               >
-                <div className="absolute bg-[rgba(255,255,255,0)] inset-[0_0_-0.25px_0] rounded-[32px] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)]" />
-                <div className="content-stretch flex flex-col items-start pb-2 relative shrink-0 min-[390px]:pb-3">
-                  <div className="relative shrink-0 size-10 min-[390px]:size-[48.75px]">
+                <div className="absolute bg-[rgba(255,255,255,0)] inset-[0_0_-0.25px_0] rounded-[28px] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)]" />
+                <div className="content-stretch flex flex-col items-start pb-2 relative shrink-0">
+                  <div className="relative shrink-0 size-11 min-[390px]:size-[52px]">
                     <svg className="absolute block inset-0 size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 48.75 48.75">
                       <g id="Container" opacity="0.9">
-                        <path d={svgPaths.p22515f80} fill="var(--fill-0, #E1FFE5)" id="Symbol" />
+                        <path d={svgPaths.p22515f80} fill={checkInIconFill} id="Symbol" />
                       </g>
                     </svg>
                   </div>
                 </div>
                 <div className="content-stretch flex flex-col items-center relative shrink-0">
-                  <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#e1ffe5] text-[32px] text-center tracking-[1px] whitespace-nowrap min-[390px]:text-[40px]">
-                    <p className="leading-10 min-[390px]:leading-[60px]">{isCheckingIn ? 'Checking...' : t('iAmOk')}</p>
+                  <div className={`flex max-w-full flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center relative shrink-0 text-center tracking-[1px] ${checkInTextClass}`}>
+                    <p className="whitespace-normal break-words px-3">{checkInButtonText}</p>
                   </div>
                 </div>
               </button>
             </div>
 
-            <div className="content-stretch flex flex-col items-start relative shrink-0 w-full">
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-start pt-6 pb-0 w-full min-[390px]:pt-7">
               <div className="content-stretch flex items-center justify-center relative shrink-0 w-full">
                 <button
                   onClick={onSOSClick}
-                  className="bg-[#ba1a1a] content-stretch flex flex-col items-center justify-center relative rounded-[9999px] shrink-0 size-[clamp(212px,58vw,240px)] active:scale-95 transition-transform min-[390px]:size-[clamp(248px,68vw,292px)]"
+                  className="bg-[#ba1a1a] content-stretch flex flex-col items-center justify-center relative rounded-[9999px] shrink-0 size-[clamp(260px,72vw,300px)] active:scale-95 transition-transform min-[390px]:size-[clamp(292px,76vw,332px)]"
                 >
                   <div className="-translate-x-1/2 -translate-y-1/2 absolute bg-[rgba(255,255,255,0)] left-1/2 rounded-[9999px] shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1),0px_4px_6px_-4px_rgba(0,0,0,0.1)] size-full top-1/2" />
 
-                  <div className="content-stretch flex flex-col h-[120px] items-start pb-[8px] relative shrink-0 w-[112px] scale-75 min-[390px]:scale-100">
+                  <div className="content-stretch flex flex-col h-[120px] items-start pb-[8px] relative shrink-0 w-[112px] scale-90 min-[390px]:scale-110">
                     <div className="relative shrink-0 size-[112px]">
                       <div className="absolute bg-white bottom-0 h-[16px] left-0 right-0 rounded-[6px]" />
                       <div className="-translate-x-1/2 absolute bg-white bottom-[16px] h-[40px] left-1/2 rounded-tl-[9999px] rounded-tr-[9999px] w-[48px]" />
@@ -120,25 +152,13 @@ export default function HomePage({
 
                   <div className="content-stretch flex flex-col items-start pt-[4px] relative shrink-0 min-[390px]:pt-[8px]">
                     <div className="content-stretch drop-shadow-[0px_2px_1px_rgba(0,0,0,0.06),0px_4px_1.5px_rgba(0,0,0,0.07)] flex flex-col items-center relative shrink-0">
-                      <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[42px] text-center text-white tracking-[4px] whitespace-nowrap min-[390px]:text-[52px] min-[390px]:tracking-[5.2px]">
-                        <p className="leading-[54px] min-[390px]:leading-[78px]">{t('sosButton')}</p>
+                      <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[48px] text-center text-white tracking-[4.8px] whitespace-nowrap min-[390px]:text-[58px] min-[390px]:tracking-[5.6px]">
+                        <p className="leading-[60px] min-[390px]:leading-[76px]">{t('sosButton')}</p>
                       </div>
                     </div>
                   </div>
                 </button>
 
-              </div>
-
-              <div className="mt-4 w-full min-[390px]:mt-5">
-                <button
-                  onClick={onFallOutsideClick}
-                  disabled={isSendingFallAlert}
-                  className="w-full rounded-[28px] bg-[#ba1a1a] px-5 py-5 text-center shadow-[0px_8px_10px_rgba(186,26,26,0.15)] transition active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 min-[390px]:rounded-[32px] min-[390px]:py-6"
-                >
-                  <p className="font-['Lexend:SemiBold',sans-serif] text-[28px] leading-9 text-white tracking-[0.4px] min-[390px]:text-[32px] min-[390px]:leading-[42px]">
-                    {isSendingFallAlert ? t('sendingFallAlert') : t('fallOutsideButton')}
-                  </p>
-                </button>
               </div>
             </div>
           </div>

@@ -33,6 +33,12 @@ import { createSosAlert } from './services/serviceNow';
 
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard' | 'adminDashboard';
 type LanguageReturnScreen = 'home' | 'caregiverDashboard' | 'adminDashboard';
+type CheckInWindowId = 'morning' | 'evening';
+type CompletedCheckInStatus = {
+  dateKey: string;
+  time: string;
+  windowId: CheckInWindowId;
+};
 const MEDICINE_REMINDER_EARLY_MINUTES = 5;
 
 function normalizeRole(role = '') {
@@ -74,37 +80,45 @@ function getSavedPersonalInfo() {
   }
 }
 
-function getCurrentBrowserPosition() {
+function getCurrentBrowserPosition(options?: PositionOptions) {
   return new Promise<GeolocationPosition>((resolve, reject) => {
     if (!navigator.geolocation) {
-      reject(new Error('Location sharing is not supported on this device.'));
+      reject(new Error('Geolocation is not available on this device.'));
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 10000,
-    });
+    navigator.geolocation.getCurrentPosition(resolve, reject, options);
   });
 }
 
-async function getSosLocation(fallbackLocation: string) {
+async function reverseGeocodePosition(position: GeolocationPosition) {
+  const params = new URLSearchParams({
+    lat: String(position.coords.latitude),
+    lon: String(position.coords.longitude),
+  });
+  const response = await fetch(`/api/reverse-geocode?${params.toString()}`);
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || 'Unable to convert current location into an address.');
+  }
+
+  return String(data?.address || '').trim();
+}
+
+async function getReadableSosLocation(fallbackLocation: string) {
   try {
-    const position = await getCurrentBrowserPosition();
-    const latitude = position.coords.latitude.toFixed(6);
-    const longitude = position.coords.longitude.toFixed(6);
-    const response = await fetch(`/api/reverse-geocode?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`);
-    const data = await response.json().catch(() => null);
+    const position = await getCurrentBrowserPosition({
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 0,
+    });
+    const readableAddress = await reverseGeocodePosition(position);
 
-    if (response.ok && data?.address) {
-      return data.address;
-    }
-
-    return `Map: https://maps.google.com/?q=${latitude},${longitude}`;
+    return readableAddress || fallbackLocation || 'Unknown location';
   } catch (error) {
-    console.warn('Unable to capture current location for SOS:', error);
-    return fallbackLocation;
+    console.error('Unable to capture readable SOS location:', error);
+    return fallbackLocation || 'Unknown location';
   }
 }
 
@@ -170,39 +184,91 @@ function saveSeenCheckInReminderId(user: AppUser, reminderId: string) {
   localStorage.setItem(getSeenCheckInRemindersKey(user), JSON.stringify(nextIds));
 }
 
-function getCurrentPosition(options?: PositionOptions) {
-  return new Promise<GeolocationPosition>((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Geolocation is not available on this device.'));
-      return;
-    }
+function getSingaporeCheckInParts(value = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(value);
+  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const hour = Number(partMap.hour);
+  const minute = Number(partMap.minute);
 
-    navigator.geolocation.getCurrentPosition(resolve, reject, options);
-  });
+  return {
+    dateKey: `${partMap.year}-${partMap.month}-${partMap.day}`,
+    displayTime: `${partMap.hour}:${partMap.minute}`,
+    totalMinutes: hour * 60 + minute,
+  };
 }
 
-async function getEmergencyLocation(fallbackLocation: string) {
-  try {
-    const position = await getCurrentPosition({
-      enableHighAccuracy: true,
-      timeout: 12000,
-      maximumAge: 0,
-    });
-    const latitude = position.coords.latitude.toFixed(6);
-    const longitude = position.coords.longitude.toFixed(6);
-    const accuracy = Math.max(1, Math.round(position.coords.accuracy || 0));
-    const mapUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
+function getCurrentCheckInWindowId(value = new Date()): CheckInWindowId | null {
+  const { totalMinutes } = getSingaporeCheckInParts(value);
 
-    return {
-      location: `Lat ${latitude}, Lng ${longitude} (accuracy ${accuracy}m). Map: ${mapUrl}`,
-      gpsAvailable: true,
-    };
-  } catch {
-    return {
-      location: fallbackLocation || 'Unknown location',
-      gpsAvailable: false,
-    };
+  if (totalMinutes >= 5 * 60 && totalMinutes <= 11 * 60 + 59) {
+    return 'morning';
   }
+
+  if (totalMinutes >= 13 * 60 && totalMinutes <= 23 * 60 + 59) {
+    return 'evening';
+  }
+
+  return null;
+}
+
+function getCompletedCheckInKey(user: AppUser) {
+  return `careconnect.completedCheckIn.${getUserStorageIdentity(user)}`;
+}
+
+function getSavedCompletedCheckIn(user: AppUser | null): CompletedCheckInStatus | null {
+  if (!user) {
+    return null;
+  }
+
+  const rawStatus = localStorage.getItem(getCompletedCheckInKey(user));
+
+  if (!rawStatus) {
+    return null;
+  }
+
+  try {
+    const status = JSON.parse(rawStatus) as CompletedCheckInStatus;
+    const todayKey = getSingaporeCheckInParts().dateKey;
+
+    return status?.dateKey === todayKey ? status : null;
+  } catch {
+    localStorage.removeItem(getCompletedCheckInKey(user));
+    return null;
+  }
+}
+
+function saveCompletedCheckIn(user: AppUser, windowId: CheckInWindowId) {
+  const parts = getSingaporeCheckInParts();
+  const status: CompletedCheckInStatus = {
+    dateKey: parts.dateKey,
+    time: parts.displayTime,
+    windowId,
+  };
+
+  localStorage.setItem(getCompletedCheckInKey(user), JSON.stringify(status));
+  return status;
+}
+
+function getCompletedWindowFromError(error: unknown): CheckInWindowId | null {
+  const message = error instanceof Error ? error.message : String(error || '');
+
+  if (/morning/i.test(message)) {
+    return 'morning';
+  }
+
+  if (/evening/i.test(message)) {
+    return 'evening';
+  }
+
+  return null;
 }
 
 export default function App() {
@@ -211,10 +277,10 @@ export default function App() {
   const [languageReturnScreen, setLanguageReturnScreen] = useState<LanguageReturnScreen>('home');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
   const [isSendingSOS, setIsSendingSOS] = useState(false);
-  const [isSendingFallAlert, setIsSendingFallAlert] = useState(false);
   const isSendingSOSRef = useRef(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const isCheckingInRef = useRef(false);
+  const [completedCheckIn, setCompletedCheckIn] = useState<CompletedCheckInStatus | null>(() => getSavedCompletedCheckIn(getStoredUser()));
   const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
   const takenMedicineIdsRef = useRef<string[]>([]);
   const [medicines, setMedicines] = useState<Medicine[]>([]);
@@ -230,6 +296,10 @@ export default function App() {
   const activeMedicineReminder = useMemo(() => {
     return medicines.find((medicine) => medicine.id === activeMedicineReminderId) || null;
   }, [activeMedicineReminderId]);
+  const currentCheckInWindowId = getCurrentCheckInWindowId();
+  const isCurrentCheckInWindowCompleted = Boolean(
+    completedCheckIn && currentCheckInWindowId && completedCheckIn.windowId === currentCheckInWindowId,
+  );
 
   const resetMedicineState = () => {
     hasLoadedMedicinesRef.current = false;
@@ -277,7 +347,7 @@ export default function App() {
     const user = getStoredUser();
 
     if (!user) {
-      alert('Please log in again before editing medicines.');
+      alert(t('loginAgainEditMedicines'));
       setCurrentScreen('welcome');
       return;
     }
@@ -312,7 +382,7 @@ export default function App() {
     const user = getStoredUser();
 
     if (!user) {
-      alert('Please log in again before removing medicines.');
+      alert(t('loginAgainRemoveMedicines'));
       setCurrentScreen('welcome');
       return;
     }
@@ -448,8 +518,8 @@ export default function App() {
       }) : null;
       const seniorName = seniorProfile?.name || user?.displayName || user?.email?.split('@')[0] || 'Senior';
       const seniorPhone = seniorProfile?.phone || personalInfo.phone || '';
-      const fallbackLocation = seniorProfile?.locationZones || personalInfo.address || 'Unknown location';
-      const location = await getSosLocation(fallbackLocation);
+      const fallbackLocation = seniorProfile?.address || seniorProfile?.locationZones || personalInfo.address || 'Unknown location';
+      const location = await getReadableSosLocation(fallbackLocation);
 
       await createSosAlert({
         location,
@@ -470,49 +540,6 @@ export default function App() {
     }
   };
 
-  const handleFallOutsideAlert = async () => {
-    if (isSendingSOSRef.current) {
-      return;
-    }
-
-    isSendingSOSRef.current = true;
-    setIsSendingFallAlert(true);
-
-    try {
-      const user = getStoredUser();
-      const personalInfo = getSavedPersonalInfo();
-      const seniorProfile = user ? await getSeniorProfile(user).catch((error) => {
-        console.error('Unable to load senior profile for fall alert:', error);
-        return null;
-      }) : null;
-      const seniorName = seniorProfile?.name || user?.displayName || user?.email?.split('@')[0] || 'Senior';
-      const seniorPhone = seniorProfile?.phone || personalInfo.phone || '';
-      const fallbackLocation = seniorProfile?.locationZones || personalInfo.address || 'Unknown location';
-      const { location, gpsAvailable } = await getEmergencyLocation(fallbackLocation);
-      const message = gpsAvailable
-        ? 'Fall alert: Senior may have fallen outside home. Current GPS location attached.'
-        : 'Fall alert: Senior may have fallen outside home. GPS unavailable, fallback location used.';
-
-      await createSosAlert({
-        location,
-        message,
-        seniorName,
-        seniorPhone,
-        status: 'New',
-      });
-
-      alert(gpsAvailable
-        ? 'Fall alert sent to caregiver with current location.'
-        : 'Fall alert sent to caregiver. Precise GPS could not be captured.');
-    } catch (error) {
-      console.error('Fall alert failed:', error);
-      alert(error instanceof Error ? error.message : 'Unable to send fall alert. Please try again.');
-    } finally {
-      isSendingSOSRef.current = false;
-      setIsSendingFallAlert(false);
-    }
-  };
-
   const handleCheckIn = async () => {
     if (isCheckingInRef.current) {
       return;
@@ -521,7 +548,7 @@ export default function App() {
     const user = getStoredUser();
 
     if (!user) {
-      alert('Please log in again before checking in.');
+      alert(t('loginAgainCheckIn'));
       setCurrentScreen('welcome');
       return;
     }
@@ -536,6 +563,8 @@ export default function App() {
         setActiveCheckInReminder(null);
       }
       setCachedUserPoints(user, nextPoints);
+      const completedWindowId = getCurrentCheckInWindowId() || 'morning';
+      setCompletedCheckIn(saveCompletedCheckIn(user, completedWindowId));
       window.dispatchEvent(
         new CustomEvent('careconnect-points-updated', {
           detail: { uid: user.uid, points: nextPoints },
@@ -544,7 +573,13 @@ export default function App() {
       setCurrentScreen('points');
     } catch (error) {
       console.error('Check-in failed:', error);
-      alert(error instanceof Error ? error.message : 'Unable to check in right now. Please try again later.');
+      const completedWindowId = getCompletedWindowFromError(error);
+
+      if (completedWindowId) {
+        setCompletedCheckIn(saveCompletedCheckIn(user, completedWindowId));
+      }
+
+      alert(error instanceof Error ? error.message : t('unableCheckIn'));
     } finally {
       isCheckingInRef.current = false;
       setIsCheckingIn(false);
@@ -554,6 +589,7 @@ export default function App() {
   const handleLogout = () => {
     clearStoredUser();
     resetMedicineState();
+    setCompletedCheckIn(null);
     setCurrentScreen('welcome');
   };
 
@@ -574,6 +610,7 @@ export default function App() {
 
   const handleLoginSuccess = async (user: AppUser) => {
     resetMedicineState();
+    setCompletedCheckIn(getSavedCompletedCheckIn(user));
 
     if (isAdminRole(user.role)) {
       setCurrentScreen('adminDashboard');
@@ -595,7 +632,7 @@ export default function App() {
           <LoginScreen
             onGetStarted={handleLoginSuccess}
             onFamilyRegister={(user) => {
-              setFamilyRegistrationNotice(`${user.email || 'Family member'} has been registered.`);
+              setFamilyRegistrationNotice(t('familyMemberRegistered', { email: user.email || t('familyMember') }));
               setCurrentScreen('carePortal');
             }}
           />
@@ -606,10 +643,10 @@ export default function App() {
         return (
           <HomePage
             onSOSClick={() => setShowSOSConfirmation(true)}
-            onFallOutsideClick={handleFallOutsideAlert}
-            isSendingFallAlert={isSendingFallAlert}
             onCheckIn={handleCheckIn}
             isCheckingIn={isCheckingIn}
+            completedCheckIn={completedCheckIn}
+            isCurrentCheckInWindowCompleted={isCurrentCheckInWindowCompleted}
           />
         );
       case 'profile':
@@ -668,6 +705,8 @@ export default function App() {
             onSOSClick={() => setShowSOSConfirmation(true)}
             onCheckIn={handleCheckIn}
             isCheckingIn={isCheckingIn}
+            completedCheckIn={completedCheckIn}
+            isCurrentCheckInWindowCompleted={isCurrentCheckInWindowCompleted}
           />
         );
     }
@@ -765,10 +804,10 @@ export default function App() {
                 <Bell className="h-9 w-9" />
               </div>
               <h2 className="mt-4 text-3xl font-bold text-[#07122e]">
-                Check-In Reminder
+                {t('checkInReminder')}
               </h2>
               <p className="mt-3 text-xl leading-7 text-gray-600">
-                {activeCheckInReminder.message || 'Please complete your check-in for today.'}
+                {activeCheckInReminder.message || t('pleaseCompleteCheckIn')}
               </p>
               <div className="mt-6 flex flex-col gap-3">
                 <button
@@ -776,13 +815,13 @@ export default function App() {
                   disabled={isCheckingIn}
                   className="flex h-14 items-center justify-center rounded-full bg-[#18833b] text-xl font-bold text-white active:scale-95 disabled:cursor-wait disabled:opacity-70"
                 >
-                  {isCheckingIn ? 'Checking...' : 'Check In Now'}
+                  {isCheckingIn ? t('checking') : t('checkInNow')}
                 </button>
                 <button
                   onClick={dismissCheckInReminder}
                   className="flex h-14 items-center justify-center rounded-full border-2 border-[#416642] bg-white text-xl font-bold text-[#416642] active:scale-95"
                 >
-                  Later
+                  {t('later')}
                 </button>
               </div>
             </div>

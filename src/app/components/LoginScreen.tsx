@@ -1,5 +1,6 @@
 import { Eye, EyeOff, LogIn, Lock, Mail, ShieldCheck, UserPlus } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { type AppUser, login, registerFamilyMember, resetPassword } from '../services/backend';
 
 function createMfaCode() {
@@ -13,6 +14,7 @@ export default function LoginScreen({
   onGetStarted: (user: AppUser) => void;
   onFamilyRegister: (user: AppUser) => void;
 }) {
+  const { t } = useTranslation();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -41,7 +43,7 @@ export default function LoginScreen({
         setPendingMfaUser(user);
         setPendingMfaCode(nextCode);
         setMfaCodeInput('');
-        setNotice(`Verification code: ${nextCode}`);
+        setNotice(t('verificationCode', { code: nextCode }));
         return;
       }
 
@@ -63,17 +65,17 @@ export default function LoginScreen({
     event.preventDefault();
 
     if (!pendingMfaUser) {
-      setError('No pending verification found. Please log in again.');
+      setError(t('noPendingVerification'));
       return;
     }
 
     if (mfaCodeInput.trim() !== pendingMfaCode) {
-      setError('Incorrect verification code. Please try again.');
+      setError(t('incorrectVerificationCode'));
       return;
     }
 
     setError('');
-    setNotice('Verification successful.');
+    setNotice(t('verificationSuccessful'));
     const verifiedUser = pendingMfaUser;
     setPendingMfaUser(null);
     setPendingMfaCode('');
@@ -86,7 +88,7 @@ export default function LoginScreen({
     setPendingMfaCode(nextCode);
     setMfaCodeInput('');
     setError('');
-    setNotice(`Verification code: ${nextCode}`);
+    setNotice(t('verificationCode', { code: nextCode }));
   };
 
   const handleCancelMfa = () => {
@@ -110,17 +112,17 @@ export default function LoginScreen({
     event.preventDefault();
 
     if (!identifier.trim()) {
-      setError('Please enter your username or email.');
+      setError(t('pleaseEnterUsernameOrEmail'));
       return;
     }
 
     if (!resetPasswordValue || !resetConfirmPassword) {
-      setError('Please enter and confirm your new password.');
+      setError(t('pleaseEnterAndConfirmNewPassword'));
       return;
     }
 
     if (resetPasswordValue !== resetConfirmPassword) {
-      setError('Passwords do not match.');
+      setError(t('passwordsDoNotMatch'));
       return;
     }
 
@@ -134,10 +136,10 @@ export default function LoginScreen({
       setResetPasswordValue('');
       setResetConfirmPassword('');
       setIsResetMode(false);
-      setNotice('Password updated. Please log in with your new password.');
+      setNotice(t('passwordUpdated'));
     } catch (error) {
       console.error('Password reset failed:', error);
-      setError(error instanceof Error ? error.message : 'Unable to reset password.');
+      setError(error instanceof Error ? error.message : t('unableResetPassword'));
     } finally {
       setIsLoggingIn(false);
     }
@@ -145,7 +147,7 @@ export default function LoginScreen({
 
   const handleFamilyRegister = async () => {
     if (!identifier.trim() || !password) {
-      setError('Please enter your email and password before registering.');
+      setError(t('pleaseEnterEmailPasswordRegister'));
       return;
     }
 
@@ -158,7 +160,7 @@ export default function LoginScreen({
       onFamilyRegister(user);
     } catch (error) {
       console.error('Family registration failed:', error);
-      setError(error instanceof Error ? error.message : 'Unable to register family member.');
+      setError(error instanceof Error ? error.message : t('unableRegisterFamily'));
     } finally {
       setIsLoggingIn(false);
     }
@@ -170,7 +172,7 @@ export default function LoginScreen({
         <div className="w-full max-w-sm rounded-[32px] bg-white p-6 shadow-sm">
           <div className="mt-4">
             <h1 className="text-[48px] font-bold leading-[54px] text-black min-[390px]:text-[52px] min-[390px]:leading-[58px]">
-              Hello❤️!
+              {t('hello')}
             </h1>
           </div>
 
@@ -190,7 +192,7 @@ export default function LoginScreen({
               <span className={`text-[16px] font-semibold leading-6 ${
                 selectedLoginType === 'senior' ? 'text-[#2d6b2f]' : 'text-[#2f2f2f]'
               }`}>
-                Senior
+                {t('senior')}
               </span>
             </button>
 
@@ -209,9 +211,9 @@ export default function LoginScreen({
               <span className={`text-[16px] font-semibold leading-6 ${
                 selectedLoginType === 'family' ? 'text-[#2d6b2f]' : 'text-[#2f2f2f]'
               }`}>
-                Caregiver /
+                {t('caregiverFamily').split('/')[0].trim()} /
                 <br />
-                Family
+                {t('caregiverFamily').split('/')[1]?.trim() || 'Family'}
               </span>
             </button>
           </div>
@@ -220,21 +222,21 @@ export default function LoginScreen({
             <form onSubmit={handleVerifyMfa}>
               <div className="mt-10">
                 <label className="mb-3 block text-[18px] font-bold text-black">
-                  Caregiver Verification Code
+                  {t('caregiverVerificationCode')}
                 </label>
                 <div className="flex h-14 items-center rounded-2xl bg-[#f3f4f6] px-4 ring-1 ring-transparent focus-within:bg-white focus-within:ring-[#2d6b2f]">
                   <ShieldCheck className="h-6 w-6 shrink-0 text-[#7a7a7a]" />
                   <input
                     value={mfaCodeInput}
                     onChange={(event) => setMfaCodeInput(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="Enter 6-digit code"
+                    placeholder={t('enter6DigitCode')}
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     className="ml-3 min-w-0 flex-1 bg-transparent text-[18px] font-semibold tracking-[0.25em] text-black outline-none placeholder:tracking-normal placeholder:text-[#8c8c8c]"
                   />
                 </div>
                 <p className="mt-3 text-sm font-semibold text-[#5f6368]">
-                  Please enter the one-time code to continue.
+                  {t('pleaseEnterOneTimeCode')}
                 </p>
               </div>
 
@@ -256,7 +258,7 @@ export default function LoginScreen({
                 className="mt-8 flex h-14 w-full items-center justify-center gap-3 rounded-full bg-[#2d6b2f] text-[20px] font-bold text-white shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
               >
                 <ShieldCheck className="h-6 w-6" />
-                Verify and Continue
+                {t('verifyAndContinue')}
               </button>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
@@ -265,14 +267,14 @@ export default function LoginScreen({
                   onClick={handleResendMfaCode}
                   className="h-12 rounded-full border-2 border-[#2d6b2f] bg-white text-sm font-bold text-[#2d6b2f] transition active:scale-[0.98]"
                 >
-                  Resend Code
+                  {t('resendCode')}
                 </button>
                 <button
                   type="button"
                   onClick={handleCancelMfa}
                   className="h-12 rounded-full border border-[#c7cbd1] bg-white text-sm font-bold text-[#30343a] transition active:scale-[0.98]"
                 >
-                  Cancel
+                  {t('cancel')}
                 </button>
               </div>
             </form>
@@ -280,14 +282,14 @@ export default function LoginScreen({
           <form onSubmit={isResetMode ? handleResetPassword : handleLogin}>
             <div className="mt-10">
               <label className="mb-3 block text-[18px] font-bold text-black">
-                Username / Email
+                {t('usernameEmail')}
               </label>
               <div className="flex h-14 items-center rounded-2xl bg-[#f3f4f6] px-4 ring-1 ring-transparent focus-within:bg-white focus-within:ring-[#2d6b2f]">
                 <Mail className="h-6 w-6 shrink-0 text-[#7a7a7a]" />
                 <input
                   value={identifier}
                   onChange={(event) => setIdentifier(event.target.value)}
-                  placeholder="Enter username or email"
+                  placeholder={t('enterUsernameOrEmail')}
                   autoComplete="username"
                   className="ml-3 min-w-0 flex-1 bg-transparent text-[18px] font-semibold text-black outline-none placeholder:text-[#8c8c8c]"
                 />
@@ -298,7 +300,7 @@ export default function LoginScreen({
               <>
                 <div className="mt-6">
                   <label className="mb-3 block text-[18px] font-bold text-black">
-                    New Password
+                    {t('newPassword')}
                   </label>
                   <div className="flex h-14 items-center rounded-2xl bg-[#f3f4f6] px-4 ring-1 ring-transparent focus-within:bg-white focus-within:ring-[#2d6b2f]">
                     <Lock className="h-6 w-6 shrink-0 text-[#7a7a7a]" />
@@ -306,7 +308,7 @@ export default function LoginScreen({
                       type={showPassword ? 'text' : 'password'}
                       value={resetPasswordValue}
                       onChange={(event) => setResetPasswordValue(event.target.value)}
-                      placeholder="Enter new password"
+                      placeholder={t('enterNewPassword')}
                       autoComplete="new-password"
                       className="ml-3 min-w-0 flex-1 bg-transparent text-[18px] font-semibold text-black outline-none placeholder:text-[#8c8c8c]"
                     />
@@ -314,7 +316,7 @@ export default function LoginScreen({
                       type="button"
                       onClick={() => setShowPassword((currentValue) => !currentValue)}
                       className="ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#5f6368] active:bg-gray-200"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? t('hidePassword') : t('showPassword')}
                     >
                       {showPassword ? <EyeOff className="h-6 w-6" /> : <Eye className="h-6 w-6" />}
                     </button>
@@ -323,7 +325,7 @@ export default function LoginScreen({
 
                 <div className="mt-6">
                   <label className="mb-3 block text-[18px] font-bold text-black">
-                    Confirm Password
+                    {t('confirmPassword')}
                   </label>
                   <div className="flex h-14 items-center rounded-2xl bg-[#f3f4f6] px-4 ring-1 ring-transparent focus-within:bg-white focus-within:ring-[#2d6b2f]">
                     <Lock className="h-6 w-6 shrink-0 text-[#7a7a7a]" />
@@ -331,7 +333,7 @@ export default function LoginScreen({
                       type={showPassword ? 'text' : 'password'}
                       value={resetConfirmPassword}
                       onChange={(event) => setResetConfirmPassword(event.target.value)}
-                      placeholder="Confirm new password"
+                      placeholder={t('confirmNewPassword')}
                       autoComplete="new-password"
                       className="ml-3 min-w-0 flex-1 bg-transparent text-[18px] font-semibold text-black outline-none placeholder:text-[#8c8c8c]"
                     />
@@ -349,13 +351,13 @@ export default function LoginScreen({
                   }}
                   className="mt-4 text-[16px] font-semibold text-[#2d6b2f] active:opacity-70"
                 >
-                  Back to login
+                  {t('backToLogin')}
                 </button>
               </>
             ) : (
               <div className="mt-6">
               <label className="mb-3 block text-[18px] font-bold text-black">
-                Password
+                {t('password')}
               </label>
               <div className="flex h-14 items-center rounded-2xl bg-[#f3f4f6] px-4 ring-1 ring-transparent focus-within:bg-white focus-within:ring-[#2d6b2f]">
                 <Lock className="h-6 w-6 shrink-0 text-[#7a7a7a]" />
@@ -363,7 +365,7 @@ export default function LoginScreen({
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Enter password"
+                  placeholder={t('enterPassword')}
                   autoComplete="current-password"
                   className="ml-3 min-w-0 flex-1 bg-transparent text-[18px] font-semibold text-black outline-none placeholder:text-[#8c8c8c]"
                 />
@@ -371,7 +373,7 @@ export default function LoginScreen({
                   type="button"
                   onClick={() => setShowPassword((currentValue) => !currentValue)}
                   className="ml-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#5f6368] active:bg-gray-200"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? t('hidePassword') : t('showPassword')}
                 >
                   {showPassword ? <EyeOff className="h-6 w-6" /> : <Eye className="h-6 w-6" />}
                 </button>
@@ -385,7 +387,7 @@ export default function LoginScreen({
                 onClick={handleForgotPassword}
                 className="mt-4 text-[16px] font-semibold text-[#2d6b2f] active:opacity-70"
               >
-                Forgot password?
+                {t('forgotPassword')}
               </button>
             )}
 
@@ -411,13 +413,13 @@ export default function LoginScreen({
               className="mt-8 flex h-14 w-full items-center justify-center gap-3 rounded-full bg-[#2d6b2f] text-[20px] font-bold text-white shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
             >
               <LogIn className="h-6 w-6" />
-              {isLoggingIn ? 'Please wait...' : isResetMode ? 'Update Password' : 'Login'}
+              {isLoggingIn ? t('pleaseWait') : isResetMode ? t('updatePassword') : t('login')}
             </button>
 
             {selectedLoginType === 'family' && !isResetMode && (
               <div className="mt-6 border-t border-[#eeeeee] pt-5">
                 <p className="text-center text-[15px] font-semibold text-[#666666]">
-                  Registering as a family member?
+                  {t('registeringAsFamily')}
                 </p>
                 <button
                   type="button"
@@ -426,7 +428,7 @@ export default function LoginScreen({
                   className="mt-3 flex h-13 w-full items-center justify-center gap-2 rounded-full border-2 border-[#2d6b2f] bg-white text-[18px] font-bold text-[#2d6b2f] transition active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
                 >
                   <UserPlus className="h-5 w-5" />
-                  Create family account
+                  {t('createFamilyAccount')}
                 </button>
               </div>
             )}

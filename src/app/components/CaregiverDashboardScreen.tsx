@@ -19,6 +19,7 @@ import {
   Pill,
   Pencil,
   Plus,
+  Search,
   ShieldAlert,
   Shield,
   TriangleAlert,
@@ -54,6 +55,9 @@ type Senior = {
   lastCheckIn?: string;
   points?: number;
   relationship?: string;
+  caregiverNames?: string[];
+  caregiverName?: string;
+  caregiverEmail?: string;
   status?: string;
   alertId?: string;
   alertMessage?: string;
@@ -569,6 +573,7 @@ export default function CaregiverDashboardScreen({
             seniors={seniors}
             sosHistory={sosHistory}
             resolvingAlertIds={resolvingAlertIds}
+            isAdminMode={isAdminMode}
             onResolveAlert={handleResolveAlert}
           />
         )}
@@ -725,6 +730,10 @@ function isCheckInReminderAlert(alert: Pick<SosAlertHistory, 'status' | 'message
   return /reminder/i.test(status) || /check[-\s]?in/i.test(message);
 }
 
+function seniorNamesMatch(left = '', right = '') {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
 function isResolvedSosAlert(status = '') {
   return /resolved|closed|cancelled|canceled/i.test(status);
 }
@@ -799,7 +808,7 @@ function getDirectionsHref(location = '') {
   }
 
   const fallbackUrl = extractFirstUrl(location);
-  return fallbackUrl || undefined;
+  return fallbackUrl || (location.trim() ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.trim())}` : undefined);
 }
 
 function getMapEmbedSrc(location = '') {
@@ -919,6 +928,31 @@ function formatDetailDateTime(value = '') {
   }).format(date);
 }
 
+function formatCheckInDateTimeParts(value = '') {
+  const date = parseServiceNowDate(value, { localServiceNowTime: true });
+
+  if (!date) {
+    return {
+      date: 'NO',
+      time: 'NO',
+    };
+  }
+
+  return {
+    date: new Intl.DateTimeFormat('en-SG', {
+      day: 'numeric',
+      month: 'short',
+      timeZone: 'Asia/Singapore',
+      year: 'numeric',
+    }).format(date),
+    time: new Intl.DateTimeFormat('en-SG', {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'Asia/Singapore',
+    }).format(date),
+  };
+}
+
 function CaregiverDashboardHome({
   canAddSenior,
   caregiverName,
@@ -950,10 +984,30 @@ function CaregiverDashboardHome({
   canDeleteSenior: boolean;
   isAdminMode: boolean;
 }) {
+  const [searchInput, setSearchInput] = useState('');
+  const [activeSearch, setActiveSearch] = useState('');
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn));
-  const alertSenior = alertSeniors[0];
   const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status, senior) && hasCheckedInToday(senior.lastCheckIn));
   const featuredSeniors = [...alertSeniors, ...stableSeniors];
+  const normalizedSearch = activeSearch.trim().toLowerCase();
+  const visibleSeniors = normalizedSearch
+    ? featuredSeniors.filter((senior) => {
+      return [
+        senior.id,
+        senior.userId,
+        senior.connectionId,
+        senior.name,
+      ].some((value) => String(value || '').toLowerCase().includes(normalizedSearch));
+    })
+    : featuredSeniors;
+  const handleSearchSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setActiveSearch(searchInput.trim());
+  };
+  const clearSearch = () => {
+    setSearchInput('');
+    setActiveSearch('');
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -975,6 +1029,42 @@ function CaregiverDashboardHome({
           </button>
         )}
       </section>
+      <form onSubmit={handleSearchSubmit} className="rounded-[20px] bg-white p-3 shadow-sm">
+        <div className="flex items-center gap-2">
+          <div className="flex h-12 min-w-0 flex-1 items-center gap-2 rounded-[14px] bg-[#f4f6f8] px-3">
+            <Search className="h-5 w-5 shrink-0 text-[#5f6368]" />
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Search by ID or name"
+              className="min-w-0 flex-1 bg-transparent text-base font-bold text-[#111827] outline-none placeholder:text-[#71717a]"
+            />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                aria-label="Clear search"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#71717a] active:bg-gray-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          <button
+            type="submit"
+            className={`flex h-12 shrink-0 items-center justify-center rounded-[14px] px-4 text-base font-black text-white shadow-sm active:scale-95 ${
+              isAdminMode ? 'bg-[#0b2f57]' : 'bg-[#416642]'
+            }`}
+          >
+            Search
+          </button>
+        </div>
+        {activeSearch && (
+          <p className="mt-2 px-1 text-sm font-bold text-[#71717a]">
+            Showing {visibleSeniors.length} of {featuredSeniors.length} for "{activeSearch}"
+          </p>
+        )}
+      </form>
       <section className="flex flex-col gap-5">
         {isLoading ? (
           <p className="rounded-[18px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
@@ -982,8 +1072,8 @@ function CaregiverDashboardHome({
           </p>
         ) : error ? (
           <p className="rounded-[18px] bg-red-50 p-5 text-base font-semibold text-red-700">{error}</p>
-        ) : featuredSeniors.length > 0 ? (
-          featuredSeniors.map((senior) => (
+        ) : visibleSeniors.length > 0 ? (
+          visibleSeniors.map((senior) => (
             <SeniorCard
               key={senior.id}
               senior={senior}
@@ -1001,9 +1091,9 @@ function CaregiverDashboardHome({
           ))
         ) : (
           <div className="rounded-[18px] border border-[#d8dbe0] bg-white p-6 text-center shadow-sm">
-            <p className="text-lg font-bold text-[#30343a]">{emptyMessage || 'No seniors found for this caregiver account.'}</p>
+            <p className="text-lg font-bold text-[#30343a]">{activeSearch ? 'No matching seniors found.' : emptyMessage || 'No seniors found for this caregiver account.'}</p>
             <p className="mt-2 text-sm font-semibold leading-5 text-[#71717a]">
-              {emptyMessage ? 'Senior records will appear here after they are added in ServiceNow.' : `${caregiverName} is not linked to a resident profile yet.`}
+              {activeSearch ? 'Try another Senior ID or name.' : emptyMessage ? 'Senior records will appear here after they are added in ServiceNow.' : `${caregiverName} is not linked to a resident profile yet.`}
             </p>
           </div>
         )}
@@ -1019,112 +1109,387 @@ function CaregiverAlerts({
   seniors,
   sosHistory,
   resolvingAlertIds,
+  isAdminMode,
   onResolveAlert,
 }: {
   alertsLabel: string;
   seniors: Senior[];
   sosHistory: SosAlertHistory[];
   resolvingAlertIds: string[];
+  isAdminMode: boolean;
   onResolveAlert: (senior: Senior) => void;
 }) {
   const [historyView, setHistoryView] = useState<'pending' | 'resolved'>('pending');
+  const [priorityView, setPriorityView] = useState<'active' | 'pending' | 'resolved'>('active');
+  const [selectedHistorySeniorId, setSelectedHistorySeniorId] = useState<string | null>(null);
+  const [selectedHistorySeniorName, setSelectedHistorySeniorName] = useState<string | null>(null);
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior));
   const filteredSosHistory = sosHistory.filter((alert) => !isCheckInReminderAlert(alert));
   const activeAlertIds = new Set(alertSeniors.map((senior) => senior.alertId).filter(Boolean));
   const pendingSosHistory = filteredSosHistory.filter((alert) => !isResolvedSosAlert(alert.status) && !activeAlertIds.has(alert.id));
   const resolvedSosHistory = filteredSosHistory.filter((alert) => isResolvedSosAlert(alert.status));
   const isPendingView = historyView === 'pending';
+  const caregiverAlertTotal = alertSeniors.length + filteredSosHistory.length;
+  const selectedHistorySenior = seniors.find((senior) => senior.id === selectedHistorySeniorId)
+    || seniors.find((senior) => seniorNamesMatch(senior.name, selectedHistorySeniorName || ''))
+    || null;
+  const selectedHistoryName = selectedHistorySenior?.name || selectedHistorySeniorName || '';
+  const selectedSeniorHistory = selectedHistoryName
+    ? filteredSosHistory.filter((alert) => seniorNamesMatch(alert.seniorName, selectedHistoryName))
+    : [];
+  const selectedSeniorActiveAlerts = selectedHistorySenior && isAlertStatus(selectedHistorySenior.status, selectedHistorySenior)
+    ? [selectedHistorySenior]
+    : [];
+  const selectedSeniorPendingHistory = selectedSeniorHistory.filter((alert) => !isResolvedSosAlert(alert.status) && !activeAlertIds.has(alert.id));
+  const selectedSeniorResolvedHistory = selectedSeniorHistory.filter((alert) => isResolvedSosAlert(alert.status));
+  const selectedSeniorPendingCount = selectedSeniorActiveAlerts.length + selectedSeniorPendingHistory.length;
+  const selectedSeniorResolvedCount = selectedSeniorResolvedHistory.length;
+  const selectedSeniorAlertCount = selectedSeniorPendingCount + selectedSeniorResolvedCount;
+  const pendingAlertGroups = groupSosAlertsBySenior(pendingSosHistory, 'pending');
+  const resolvedAlertGroups = groupSosAlertsBySenior(resolvedSosHistory, 'resolved');
+  const priorityTitle = priorityView === 'active'
+    ? "Today's Alerts"
+    : priorityView === 'pending'
+      ? 'Pending Alerts'
+      : 'Resolved Alerts';
+
+  useEffect(() => {
+    if (selectedHistorySeniorId && !seniors.some((senior) => senior.id === selectedHistorySeniorId)) {
+      setSelectedHistorySeniorId(null);
+    }
+  }, [selectedHistorySeniorId, seniors]);
+
+  const openSeniorHistory = (seniorName: string, view: 'pending' | 'resolved' = 'pending') => {
+    const matchingSenior = seniors.find((senior) => seniorNamesMatch(senior.name, seniorName));
+
+    setHistoryView(view);
+    setSelectedHistorySeniorId(matchingSenior?.id || null);
+    setSelectedHistorySeniorName(seniorName);
+  };
+
+  const closeSeniorHistory = () => {
+    setSelectedHistorySeniorId(null);
+    setSelectedHistorySeniorName(null);
+  };
 
   return (
     <div className="flex flex-col gap-7">
       <section className="flex items-center justify-between gap-4">
         <h2 className="text-[30px] font-bold leading-9 text-black">{alertsLabel}</h2>
         <p className="shrink-0 text-right text-base font-bold text-[#71717a]">
-          {seniors.length} Total
+          {isAdminMode ? seniors.length : caregiverAlertTotal} Total
         </p>
       </section>
 
       <section className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-2xl font-bold text-[#1b1c1c]">SOS History</h2>
-          <div className="grid h-11 grid-cols-2 rounded-full bg-white p-1 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setHistoryView('pending')}
-              className={`rounded-full px-4 text-sm font-black transition-colors ${
-                isPendingView
-                  ? 'bg-[#954a00] text-white'
-                  : 'text-[#713700]'
-              }`}
-            >
-              Pending
-            </button>
-            <button
-              type="button"
-              onClick={() => setHistoryView('resolved')}
-              className={`rounded-full px-4 text-sm font-black transition-colors ${
-                !isPendingView
-                  ? 'bg-[#18833b] text-white'
-                  : 'text-[#124f25]'
-              }`}
-            >
-              Resolved
-            </button>
-          </div>
-        </div>
-
-        {isPendingView && (alertSeniors.length > 0 || pendingSosHistory.length > 0) ? (
+        {isAdminMode ? (
           <>
-            {alertSeniors.map((senior) => (
-              <AlertCard
-                key={senior.id}
-                kind={/sos|urgent/i.test(senior.status || '') ? 'sos' : 'missed'}
-                title={senior.name}
-                label={senior.status || 'Needs Attention'}
-                location={senior.location}
-                message={senior.alertMessage}
-                phone={senior.phone}
-                time={formatAlertTime(senior.alertTime)}
-                date={formatAlertDate(senior.alertTime)}
-                icon={/sos|urgent/i.test(senior.status || '') ? <ShieldAlert className="h-8 w-8" /> : <Bell className="h-8 w-8" />}
-                isResolving={senior.alertId ? resolvingAlertIds.includes(senior.alertId) : false}
-                onResolve={() => onResolveAlert(senior)}
-              />
-            ))}
-            {pendingSosHistory.map((alert) => (
-              <AlertHistoryItem
-                key={alert.id}
-                name={alert.seniorName}
-                time={formatAlertTime(alert.alertTime) || 'Pending'}
-                date={formatAlertDate(alert.alertTime)}
-                message={alert.message || alert.status || 'SOS alert pending'}
-                location={alert.location}
-                statusLabel={alert.status || 'Pending'}
-                variant="pending"
-              />
-            ))}
+            {selectedHistorySenior ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHistorySeniorId(null)}
+                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#0b2f57] shadow-sm transition-colors active:bg-[#dfeaf8]"
+                    aria-label="Back to seniors"
+                  >
+                    <ArrowLeft className="h-6 w-6" />
+                  </button>
+                  <div className="min-w-0">
+                    <h2 className="truncate text-2xl font-bold text-[#1b1c1c]">{selectedHistorySenior.name}</h2>
+                    <p className="text-sm font-bold text-[#5f6872]">{selectedSeniorAlertCount} Alerts</p>
+                  </div>
+                </div>
+
+                <div className="grid h-11 grid-cols-2 rounded-full bg-white p-1 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryView('pending')}
+                    className={`rounded-full px-4 text-sm font-black transition-colors ${
+                      isPendingView
+                        ? 'bg-[#954a00] text-white'
+                        : 'text-[#713700]'
+                    }`}
+                  >
+                    Pending
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryView('resolved')}
+                    className={`rounded-full px-4 text-sm font-black transition-colors ${
+                      !isPendingView
+                        ? 'bg-[#18833b] text-white'
+                        : 'text-[#124f25]'
+                    }`}
+                  >
+                    Resolved
+                  </button>
+                </div>
+
+                {isPendingView && selectedSeniorPendingCount > 0 ? (
+                  <>
+                    {selectedSeniorActiveAlerts.map((senior) => (
+                      <AlertCard
+                        key={senior.id}
+                        kind={/sos|urgent/i.test(senior.status || '') ? 'sos' : 'missed'}
+                        title={senior.name}
+                        label={senior.status || 'Needs Attention'}
+                        location={senior.location}
+                        message={senior.alertMessage}
+                        phone={senior.phone}
+                        time={formatAlertTime(senior.alertTime)}
+                        date={formatAlertDate(senior.alertTime)}
+                        icon={/sos|urgent/i.test(senior.status || '') ? <ShieldAlert className="h-8 w-8" /> : <Bell className="h-8 w-8" />}
+                        isResolving={senior.alertId ? resolvingAlertIds.includes(senior.alertId) : false}
+                        onResolve={() => onResolveAlert(senior)}
+                      />
+                    ))}
+                    {selectedSeniorPendingHistory.map((alert) => (
+                      <AlertHistoryItem
+                        key={alert.id}
+                        name={alert.seniorName}
+                        time={formatAlertTime(alert.alertTime) || 'Pending'}
+                        date={formatAlertDate(alert.alertTime)}
+                        message={alert.message || alert.status || 'SOS alert pending'}
+                        location={alert.location}
+                        statusLabel={alert.status || 'Pending'}
+                        variant="pending"
+                      />
+                    ))}
+                  </>
+                ) : isPendingView ? (
+                  <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
+                    No pending SOS alerts for {selectedHistorySenior.name}.
+                  </p>
+                ) : selectedSeniorResolvedHistory.length > 0 ? (
+                  selectedSeniorResolvedHistory.map((alert) => (
+                    <AlertHistoryItem
+                      key={alert.id}
+                      name={alert.seniorName}
+                      time={formatAlertTime(alert.alertTime) || formatAlertTime(alert.resolvedAt) || 'Resolved'}
+                      date={formatAlertDate(alert.alertTime) || formatAlertDate(alert.resolvedAt)}
+                      message={alert.message || `${alert.status || 'Resolved'} SOS alert`}
+                      location={alert.location}
+                      statusLabel={alert.status || 'Resolved'}
+                      variant="resolved"
+                    />
+                  ))
+                ) : (
+                  <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
+                    No resolved SOS alerts for {selectedHistorySenior.name}.
+                  </p>
+                )}
+              </>
+            ) : seniors.length > 0 ? (
+              <>
+                <h2 className="text-2xl font-bold text-[#1b1c1c]">Seniors</h2>
+                {seniors.map((senior) => {
+                  const activeCount = isAlertStatus(senior.status, senior) ? 1 : 0;
+                  const historyCount = filteredSosHistory.filter((alert) => seniorNamesMatch(alert.seniorName, senior.name)).length;
+                  const alertCount = activeCount + historyCount;
+
+                  return (
+                    <button
+                      key={senior.id}
+                      type="button"
+                      onClick={() => {
+                        setHistoryView('pending');
+                        setSelectedHistorySeniorId(senior.id);
+                      }}
+                      className="flex items-center justify-between gap-4 rounded-[18px] bg-white p-5 text-left shadow-sm transition-colors active:bg-[#e4eefb]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-lg font-bold text-[#1b1c1c]">{senior.name}</p>
+                        <p className="mt-1 text-sm font-bold text-[#5f6872]">{alertCount} Alerts</p>
+                      </div>
+                      <ChevronRight className="h-6 w-6 flex-shrink-0 text-[#0b2f57]" />
+                    </button>
+                  );
+                })}
+              </>
+            ) : (
+              <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
+                No seniors found.
+              </p>
+            )}
           </>
-        ) : isPendingView ? (
-          <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-            No pending SOS alerts.
-          </p>
-        ) : resolvedSosHistory.length > 0 ? (
-          resolvedSosHistory.map((alert) => (
-            <AlertHistoryItem
-              key={alert.id}
-              name={alert.seniorName}
-              time={formatAlertTime(alert.alertTime) || formatAlertTime(alert.resolvedAt) || 'Resolved'}
-              date={formatAlertDate(alert.alertTime) || formatAlertDate(alert.resolvedAt)}
-              message={alert.message || `${alert.status} SOS alert`}
-              location={alert.location}
-              statusLabel={alert.status || 'Resolved'}
-              variant="resolved"
-            />
-          ))
         ) : (
-          <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-            No resolved SOS alerts yet.
-          </p>
+          <>
+            {selectedHistoryName ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={closeSeniorHistory}
+                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#416642] shadow-sm transition-colors active:bg-[#e7f3e8]"
+                    aria-label="Back to priority dashboard"
+                  >
+                    <ArrowLeft className="h-6 w-6" />
+                  </button>
+                  <div className="min-w-0">
+                    <h2 className="truncate text-2xl font-bold text-[#1b1c1c]">{selectedHistoryName}</h2>
+                    <p className="text-sm font-bold text-[#5f6872]">{selectedSeniorAlertCount} Alerts</p>
+                  </div>
+                </div>
+
+                <div className="grid h-11 grid-cols-2 rounded-full bg-white p-1 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryView('pending')}
+                    className={`rounded-full px-4 text-sm font-black transition-colors ${
+                      isPendingView
+                        ? 'bg-[#954a00] text-white'
+                        : 'text-[#713700]'
+                    }`}
+                  >
+                    Pending
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryView('resolved')}
+                    className={`rounded-full px-4 text-sm font-black transition-colors ${
+                      !isPendingView
+                        ? 'bg-[#18833b] text-white'
+                        : 'text-[#124f25]'
+                    }`}
+                  >
+                    Resolved
+                  </button>
+                </div>
+
+                {isPendingView && selectedSeniorPendingCount > 0 ? (
+                  <>
+                    {selectedSeniorActiveAlerts.map((senior) => (
+                      <AlertHistoryItem
+                        key={senior.id}
+                        name={senior.name}
+                        time={formatAlertTime(senior.alertTime) || 'Active'}
+                        date={formatAlertDate(senior.alertTime)}
+                        message={senior.alertMessage || 'SOS alert triggered'}
+                        location={senior.location}
+                        statusLabel={senior.status || 'SOS Active'}
+                        variant="pending"
+                      />
+                    ))}
+                    {selectedSeniorPendingHistory.map((alert) => (
+                      <AlertHistoryItem
+                        key={alert.id}
+                        name={alert.seniorName}
+                        time={formatAlertTime(alert.alertTime) || 'Pending'}
+                        date={formatAlertDate(alert.alertTime)}
+                        message={alert.message || alert.status || 'SOS alert pending'}
+                        location={alert.location}
+                        statusLabel={alert.status || 'Pending'}
+                        variant="pending"
+                      />
+                    ))}
+                  </>
+                ) : isPendingView ? (
+                  <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
+                    No pending SOS alerts for {selectedHistoryName}.
+                  </p>
+                ) : selectedSeniorResolvedHistory.length > 0 ? (
+                  selectedSeniorResolvedHistory.map((alert) => (
+                    <AlertHistoryItem
+                      key={alert.id}
+                      name={alert.seniorName}
+                      time={formatAlertTime(alert.alertTime) || formatAlertTime(alert.resolvedAt) || 'Resolved'}
+                      date={formatAlertDate(alert.alertTime) || formatAlertDate(alert.resolvedAt)}
+                      message={alert.message || `${alert.status || 'Resolved'} SOS alert`}
+                      location={alert.location}
+                      statusLabel={alert.status || 'Resolved'}
+                      variant="resolved"
+                    />
+                  ))
+                ) : (
+                  <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
+                    No resolved SOS alerts for {selectedHistoryName}.
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="rounded-[22px] bg-white p-5 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">Priority Dashboard</p>
+                      <h2 className="mt-1 text-[28px] font-black leading-8 text-black">Alerts ({caregiverAlertTotal})</h2>
+                    </div>
+                    <span className="text-xl" aria-hidden="true">★★★★★</span>
+                  </div>
+                  <div className="mt-5 grid gap-3">
+                    <PriorityAlertStat
+                      active={priorityView === 'active'}
+                      colorClass="bg-[#c8171d]"
+                      label="Active"
+                      onClick={() => setPriorityView('active')}
+                      value={alertSeniors.length}
+                    />
+                    <PriorityAlertStat
+                      active={priorityView === 'pending'}
+                      colorClass="bg-[#954a00]"
+                      label="Pending"
+                      onClick={() => setPriorityView('pending')}
+                      value={pendingSosHistory.length}
+                    />
+                    <PriorityAlertStat
+                      active={priorityView === 'resolved'}
+                      colorClass="bg-[#18833b]"
+                      label="Resolved"
+                      onClick={() => setPriorityView('resolved')}
+                      value={resolvedSosHistory.length}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-[22px] bg-white p-5 shadow-sm">
+                  <h2 className="text-xl font-black text-[#1b1c1c]">{priorityTitle}</h2>
+                  <div className="mt-4 divide-y divide-[#e5e7eb]">
+                    {priorityView === 'active' && alertSeniors.length > 0 ? (
+                      alertSeniors.map((senior) => (
+                        <TodayAlertRow
+                          key={senior.id}
+                          isResolving={senior.alertId ? resolvingAlertIds.includes(senior.alertId) : false}
+                          name={senior.name}
+                          phone={senior.phone}
+                          status={senior.status || 'SOS Active'}
+                          time={formatAlertTime(senior.alertTime) || 'Active'}
+                          onResolve={() => onResolveAlert(senior)}
+                          onViewHistory={() => {
+                            openSeniorHistory(senior.name, 'pending');
+                          }}
+                        />
+                      ))
+                    ) : priorityView === 'pending' && pendingAlertGroups.length > 0 ? (
+                      pendingAlertGroups.map((group) => (
+                        <AlertSeniorGroupCard
+                          key={group.name}
+                          group={group}
+                          onView={() => openSeniorHistory(group.name, 'pending')}
+                        />
+                      ))
+                    ) : priorityView === 'resolved' && resolvedAlertGroups.length > 0 ? (
+                      resolvedAlertGroups.map((group) => (
+                        <AlertSeniorGroupCard
+                          key={group.name}
+                          group={group}
+                          onView={() => openSeniorHistory(group.name, 'resolved')}
+                        />
+                      ))
+                    ) : (
+                      <p className="py-5 text-base font-semibold text-[#71717a]">
+                        {priorityView === 'active'
+                          ? 'No active alerts today.'
+                          : priorityView === 'pending'
+                            ? 'No pending SOS alerts.'
+                            : 'No resolved SOS alerts yet.'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </>
         )}
       </section>
     </div>
@@ -1194,7 +1559,7 @@ function AlertCard({
         <>
           <div className="mb-3 flex items-center gap-2 rounded-2xl bg-white/10 p-3">
             <MapPin className="h-5 w-5 flex-shrink-0 text-[#ffdad7]" />
-            <span className="text-base font-semibold text-[#ffdad7]">{location || message || 'Location details unavailable'}</span>
+            <span className="whitespace-normal break-words text-base font-semibold leading-6 text-[#ffdad7]">{location || message || 'Location details unavailable'}</span>
           </div>
 
           {mapEmbedSrc && (
@@ -1244,6 +1609,195 @@ function AlertCard({
         </a>
       )}
     </div>
+  );
+}
+
+function PriorityAlertStat({
+  active,
+  colorClass,
+  label,
+  onClick,
+  value,
+}: {
+  active: boolean;
+  colorClass: string;
+  label: string;
+  onClick: () => void;
+  value: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex min-h-11 items-center gap-3 rounded-[14px] px-3 text-left transition-colors active:scale-[0.99] ${
+        active ? 'bg-[#f4f6f8]' : 'bg-transparent'
+      }`}
+    >
+      <span className={`h-3 w-3 rounded-full ${colorClass}`} />
+      <span className="text-lg font-black text-[#30343a]">{label}</span>
+      <span className="ml-auto text-lg font-black text-black">({value})</span>
+    </button>
+  );
+}
+
+function TodayAlertRow({
+  isResolving,
+  name,
+  onResolve,
+  onViewHistory,
+  phone,
+  status,
+  time,
+}: {
+  isResolving: boolean;
+  name: string;
+  onResolve: () => void;
+  onViewHistory: () => void;
+  phone?: string;
+  status: string;
+  time: string;
+}) {
+  const phoneHref = getPhoneHref(phone || '');
+
+  return (
+    <div className="py-3">
+      <div className="rounded-[18px] border-2 border-[#c8171d] bg-[#fff1f1] p-4 shadow-[0_10px_22px_rgba(200,23,29,0.14)]">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-[#c8171d] px-3 py-1 text-xs font-black uppercase tracking-wide text-white">
+              <ShieldAlert className="h-4 w-4" />
+              Active
+            </div>
+            <p className="truncate text-xl font-black text-[#1b1c1c]">{name}</p>
+            <p className="mt-1 text-base font-black text-[#c8171d]">{status || 'SOS Active'}</p>
+            <p className="mt-1 text-sm font-bold text-[#8f1015]">Emergency SOS triggered</p>
+          </div>
+          <p className="flex-shrink-0 rounded-full bg-white px-3 py-1 text-sm font-black text-[#c8171d] shadow-sm">{time}</p>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <a
+            href={phoneHref}
+            aria-disabled={!phoneHref}
+            className={`flex h-11 items-center justify-center gap-2 rounded-[10px] border text-sm font-black uppercase active:scale-95 ${
+              phoneHref
+                ? 'border-[#c8171d] bg-white text-[#c8171d]'
+                : 'pointer-events-none border-[#e7b3b5] bg-[#f8e2e3] text-[#9d6b6d]'
+            }`}
+          >
+            <Phone className="h-4 w-4" />
+            Call
+          </a>
+          <button
+            type="button"
+            disabled={isResolving}
+            onClick={onResolve}
+            className="flex h-11 items-center justify-center gap-2 rounded-[10px] bg-[#c8171d] text-sm font-black uppercase text-white active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
+          >
+            <CheckCircle className="h-4 w-4" />
+            {isResolving ? 'Resolving' : 'Resolve'}
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onViewHistory}
+          className="mt-3 inline-flex items-center text-sm font-black text-[#8f1015] active:scale-95"
+        >
+          <span>View History</span>
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type AlertHistoryGroup = {
+  count: number;
+  latestAlert: SosAlertHistory;
+  latestDate: string;
+  latestTime: string;
+  name: string;
+  variant: 'pending' | 'resolved';
+};
+
+function groupSosAlertsBySenior(alerts: SosAlertHistory[], variant: 'pending' | 'resolved'): AlertHistoryGroup[] {
+  const groups = new Map<string, SosAlertHistory[]>();
+
+  alerts.forEach((alert) => {
+    const name = alert.seniorName?.trim() || 'Unknown Senior';
+    groups.set(name, [...(groups.get(name) || []), alert]);
+  });
+
+  return Array.from(groups.entries())
+    .map(([name, seniorAlerts]) => {
+      const sortedAlerts = [...seniorAlerts].sort((left, right) => {
+        const leftTime = new Date(left.alertTime || left.resolvedAt || 0).getTime();
+        const rightTime = new Date(right.alertTime || right.resolvedAt || 0).getTime();
+
+        return rightTime - leftTime;
+      });
+      const latestAlert = sortedAlerts[0];
+
+      return {
+        count: seniorAlerts.length,
+        latestAlert,
+        latestDate: formatAlertDate(latestAlert.alertTime) || formatAlertDate(latestAlert.resolvedAt) || '',
+        latestTime: formatAlertTime(latestAlert.alertTime) || formatAlertTime(latestAlert.resolvedAt) || (variant === 'pending' ? 'Pending' : 'Resolved'),
+        name,
+        variant,
+      };
+    })
+    .sort((left, right) => {
+      const leftTime = new Date(left.latestAlert.alertTime || left.latestAlert.resolvedAt || 0).getTime();
+      const rightTime = new Date(right.latestAlert.alertTime || right.latestAlert.resolvedAt || 0).getTime();
+
+      return rightTime - leftTime;
+    });
+}
+
+function AlertSeniorGroupCard({
+  group,
+  onView,
+}: {
+  group: AlertHistoryGroup;
+  onView: () => void;
+}) {
+  const isPending = group.variant === 'pending';
+  const surfaceClass = isPending ? 'bg-[#fff2e8]' : 'bg-[#e9f6ed]';
+  const textClass = isPending ? 'text-[#713700]' : 'text-[#124f25]';
+  const accentClass = isPending ? 'text-[#954a00]' : 'text-[#18833b]';
+  const label = isPending ? 'Pending' : 'Resolved';
+
+  return (
+    <button
+      type="button"
+      onClick={onView}
+      className={`flex w-full items-center justify-between gap-3 rounded-[22px] p-4 text-left shadow-sm transition-transform active:scale-[0.99] ${surfaceClass}`}
+    >
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          {isPending ? (
+            <TriangleAlert className={`h-6 w-6 flex-shrink-0 ${accentClass}`} />
+          ) : (
+            <CheckCircle className={`h-6 w-6 flex-shrink-0 ${accentClass}`} />
+          )}
+          <p className={`truncate text-xl font-black ${textClass}`}>{group.name}</p>
+        </div>
+        <p className={`mt-2 text-sm font-black ${accentClass}`}>
+          {label} ({group.count})
+        </p>
+        <p className="mt-2 text-sm font-semibold leading-5 text-[#30343a]">
+          Latest: {group.latestAlert.message || group.latestAlert.status || 'SOS alert triggered'}
+        </p>
+      </div>
+      <div className="flex flex-shrink-0 flex-col items-end text-right">
+        <p className={`text-sm font-black ${accentClass}`}>{group.latestTime}</p>
+        {group.latestDate && <p className={`mt-1 text-xs font-bold ${accentClass}`}>{group.latestDate}</p>}
+        <span className={`mt-4 inline-flex items-center text-sm font-black ${accentClass}`}>
+          View
+          <ChevronRight className="h-4 w-4" />
+        </span>
+      </div>
+    </button>
   );
 }
 
@@ -1314,39 +1868,47 @@ function AlertHistoryItem({
 }) {
   const isPending = variant === 'pending';
   const directionsHref = getDirectionsHref(location || '');
+  const statusText = statusLabel || (isPending ? 'SOS Active' : 'Resolved');
 
   return (
-    <div className={`flex items-start gap-4 rounded-[28px] p-4 shadow-sm min-[390px]:rounded-[32px] ${isPending ? 'bg-[#fff2e8]' : 'bg-[#e9f6ed]'}`}>
-      <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-white ${isPending ? 'bg-[#954a00]' : 'bg-[#18833b]'}`}>
-        {isPending ? <TriangleAlert className="h-6 w-6" /> : <CheckCircle className="h-6 w-6" />}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-3">
-          <p className={`font-bold ${isPending ? 'text-[#713700]' : 'text-[#124f25]'}`}>{name}</p>
-          <div className="flex flex-shrink-0 flex-col items-end gap-1 text-right">
-            <span className={`text-sm font-semibold ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>{time}</span>
-            {date && <span className={`text-xs font-bold ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>{date}</span>}
+    <div className={`rounded-[28px] p-4 shadow-sm min-[390px]:rounded-[32px] ${isPending ? 'bg-[#fff2e8]' : 'bg-[#e9f6ed]'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            {isPending ? (
+              <TriangleAlert className="h-5 w-5 flex-shrink-0 text-[#954a00]" />
+            ) : (
+              <CheckCircle className="h-5 w-5 flex-shrink-0 text-[#18833b]" />
+            )}
+            <p className={`truncate text-lg font-black ${isPending ? 'text-[#713700]' : 'text-[#124f25]'}`}>{name}</p>
           </div>
-        </div>
-        {statusLabel && (
-          <p className={`mt-1 text-xs font-bold uppercase ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>
-            {statusLabel}
+          <p className={`mt-1 text-sm font-bold ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>
+            {statusText}
           </p>
-        )}
-        <p className={`mt-1 text-sm leading-5 ${isPending ? 'text-[#301400]' : 'text-[#1d5031]'}`}>{message}</p>
-        {location && <p className={`mt-1 text-sm font-semibold leading-5 ${isPending ? 'text-[#713700]' : 'text-[#2e6f42]'}`}>{location}</p>}
-        {directionsHref && (
-          <a
-            href={directionsHref}
-            target="_blank"
-            rel="noreferrer"
-            className={`mt-2 inline-flex items-center gap-1 text-sm font-bold underline ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}
-          >
-            <MapPin className="h-4 w-4" />
-            <span>Open directions</span>
-          </a>
-        )}
+        </div>
+        <div className="flex flex-shrink-0 flex-col items-end text-right">
+          <span className={`text-sm font-bold ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>{time}</span>
+          {date && <span className={`mt-1 text-xs font-bold ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>{date}</span>}
+        </div>
       </div>
+      <p className={`mt-3 text-sm font-semibold leading-5 ${isPending ? 'text-[#301400]' : 'text-[#1d5031]'}`}>{message || 'SOS alert triggered'}</p>
+      {location && (
+        <div className={`mt-3 flex items-start gap-2 ${isPending ? 'text-[#713700]' : 'text-[#2e6f42]'}`}>
+          <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <p className="whitespace-pre-line break-words text-sm font-bold leading-5">{location}</p>
+        </div>
+      )}
+      {directionsHref && (
+        <a
+          href={directionsHref}
+          target="_blank"
+          rel="noreferrer"
+          className={`mt-3 inline-flex items-center text-sm font-black ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}
+        >
+          <span>Open Directions</span>
+          <ChevronRight className="h-4 w-4" />
+        </a>
+      )}
     </div>
   );
 }
@@ -1910,10 +2472,10 @@ function SeniorCard({
   const cardClass = isSosAlert
     ? 'border-4 border-[#c8171d] bg-[#fff1f1] shadow-[0_0_0_4px_rgba(200,23,29,0.12),0_14px_30px_rgba(200,23,29,0.16)]'
     : isAlert
-      ? 'border-2 border-[#c8171d] bg-white'
+      ? 'border-2 border-[#c8171d] bg-white shadow-[0_10px_24px_rgba(200,23,29,0.08)]'
     : isAdminMode
-      ? 'border-[#bed0e8] bg-[#f8fbff]'
-      : 'border-[#d0d3d8] bg-white';
+      ? 'border-[#bed0e8] bg-[#f8fbff] shadow-sm'
+      : 'border-[#dde2e8] bg-white shadow-[0_10px_24px_rgba(15,23,42,0.07)]';
   const avatarClass = isSosAlert
     ? 'bg-[#c8171d] text-white'
     : isAlert
@@ -1937,30 +2499,73 @@ function SeniorCard({
     : isAlert
       ? 'text-[#c8171d]'
       : 'text-[#30343a]';
+  const adminStatusLabel = isSosAlert ? 'SOS Active' : isAlert ? 'No Check-in' : 'Checked In';
+  const lastCheckInParts = formatCheckInDateTimeParts(senior.lastCheckIn);
+  const lastCheckInDisplay = lastCheckInParts.time === 'NO'
+    ? 'NO'
+    : `${lastCheckInParts.time}, ${lastCheckInParts.date}`;
+  const adminAssignedCaregiver = senior.caregiverNames?.length
+    ? senior.caregiverNames.join(', ')
+    : senior.caregiverName || senior.caregiverEmail || 'NO';
+
+  if (isAdminMode) {
+    return (
+      <div className={`relative rounded-[24px] border p-5 ${cardClass}`}>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={() => onRequestDeleteSenior(senior)}
+            disabled={isDeleting}
+            aria-label={`Delete ${name}`}
+            className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-[#d7dbe0] bg-white text-[#c8171d] shadow-sm transition-colors hover:border-[#c8171d] hover:bg-[#fee2e2] hover:text-[#c8171d] active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:active:scale-100"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
+
+        <div className="pr-11">
+          <h3 className="whitespace-normal break-words text-[28px] font-bold leading-8 text-black">{name}</h3>
+          <div className="mt-5 grid gap-4">
+            <AdminSeniorSummaryRow label="Assigned Caregiver" value={adminAssignedCaregiver} />
+            <AdminSeniorSummaryRow label="Status" value={adminStatusLabel} valueClassName={isAlert || isSosAlert ? 'text-[#c8171d]' : 'text-[#18833b]'} />
+            <AdminSeniorSummaryRow label="Last Check-In" value={lastCheckInDisplay} valueClassName={checkedInToday ? 'text-[#18833b]' : 'text-[#c8171d]'} />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onOpenProfile(senior)}
+          className="mt-5 flex h-16 w-full items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-lg font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98]"
+        >
+          Details
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className={`relative rounded-[18px] border p-5 shadow-sm ${cardClass}`}>
+      <div className={`relative rounded-[16px] border p-4 shadow-sm ${cardClass}`}>
       {canDelete && (
         <button
           type="button"
           onClick={() => onRequestDeleteSenior(senior)}
           disabled={isDeleting}
           aria-label={`Delete ${name}`}
-          className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-[#d7dbe0] bg-white text-[#c8171d] shadow-sm transition-colors hover:border-[#c8171d] hover:bg-[#fee2e2] hover:text-[#c8171d] active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:active:scale-100"
+          className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[#d7dbe0] bg-white text-[#c8171d] shadow-sm transition-colors hover:border-[#c8171d] hover:bg-[#fee2e2] hover:text-[#c8171d] active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:active:scale-100"
         >
-          <X className="h-5 w-5" />
+          <X className="h-4 w-4" />
         </button>
       )}
-      <div className="flex items-start gap-4">
-        <div className={`flex h-[86px] w-[86px] flex-shrink-0 items-center justify-center rounded-[14px] text-2xl font-bold ${canDelete ? 'mt-5' : ''} ${avatarClass}`}>
+      <div className="flex items-start gap-4 pr-9">
+        <div className={`flex h-[72px] w-[72px] flex-shrink-0 items-center justify-center rounded-[14px] text-xl font-bold ${canDelete ? 'mt-3' : ''} ${avatarClass}`}>
           {getInitials(name)}
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start">
             <div className="min-w-0">
-              <h3 className="whitespace-normal break-words text-[28px] font-bold leading-8 text-black">{name}</h3>
-              <p className={`mt-3 inline-flex items-center gap-2 text-lg font-bold ${alertTextClass}`}>
+              <h3 className="whitespace-normal break-words text-[24px] font-bold leading-7 text-black">{name}</h3>
+              <p className={`mt-2 inline-flex items-center gap-2 text-base font-bold ${alertTextClass}`}>
                 {isSosAlert ? (
                   <ShieldAlert className="h-5 w-5 flex-shrink-0" />
                 ) : isAlert ? (
@@ -1996,47 +2601,57 @@ function SeniorCard({
         </div>
       )}
 
+      {!isAdminMode && (
+        <LastCheckInPanel
+          checkedInToday={checkedInToday}
+          date={lastCheckInParts.date}
+          time={lastCheckInParts.time}
+        />
+      )}
+
       {!isAdminMode && !isSosAlert && (
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-y border-[#eef1f4] py-3">
           <ResidentInfoTile
-            icon={<Pill className="h-8 w-8" />}
+            icon={<Pill className="h-6 w-6" />}
             iconColor={isAlert ? 'text-[#c8171d]' : 'text-[#12b962]'}
-            isAdminMode={isAdminMode}
             label="Medication"
             value={isAlert ? 'Missed' : 'Taken'}
           />
           <ResidentInfoTile
-            icon={<MapPin className="h-8 w-8" />}
+            icon={<MapPin className="h-6 w-6" />}
             iconColor={isAdminMode ? 'text-[#1f4f82]' : 'text-[#075fc7]'}
-            isAdminMode={isAdminMode}
             label="Location"
             value={location || 'Unknown'}
           />
         </div>
       )}
 
-      <div className="mt-5 grid grid-cols-2 gap-3">
-        <a
-          href={phoneHref}
-          aria-disabled={!phoneHref}
-          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] ${callActionClass}`}
-        >
-          <Phone className="h-6 w-6" />
-          Call
-        </a>
-        <button
-          type="button"
-          disabled={isSendingReminder}
-          onClick={() => onSendReminder(senior)}
-          className={`flex h-16 items-center justify-center gap-3 rounded-[10px] border text-xl font-bold uppercase transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 ${primaryActionClass}`}
-        >
-          <Bell className="h-6 w-6" />
-          {isSendingReminder ? 'Sending' : 'Remind'}
-        </button>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        {!isAdminMode && (
+          <>
+            <a
+              href={phoneHref}
+              aria-disabled={!phoneHref}
+              className={`flex h-14 items-center justify-center gap-2 rounded-[10px] border text-lg font-bold uppercase transition-transform active:scale-[0.98] ${callActionClass}`}
+            >
+              <Phone className="h-5 w-5" />
+              Call
+            </a>
+            <button
+              type="button"
+              disabled={isSendingReminder}
+              onClick={() => onSendReminder(senior)}
+              className={`flex h-14 items-center justify-center gap-2 rounded-[10px] border text-lg font-bold uppercase transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 ${primaryActionClass}`}
+            >
+              <Bell className="h-5 w-5" />
+              {isSendingReminder ? 'Sending' : 'Remind'}
+            </button>
+          </>
+        )}
         <button
           type="button"
           onClick={() => onOpenProfile(senior)}
-          className="col-span-2 flex h-16 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-lg font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98]"
+          className="col-span-2 flex h-14 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-base font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98]"
         >
           Details
         </button>
@@ -2045,25 +2660,75 @@ function SeniorCard({
   );
 }
 
+function AdminSeniorSummaryRow({
+  label,
+  value,
+  valueClassName = 'text-[#111827]',
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-bold uppercase tracking-wide text-[#6b7280]">{label}</p>
+      <p className={`mt-1 whitespace-normal break-words text-lg font-black leading-6 ${valueClassName}`}>{value}</p>
+    </div>
+  );
+}
+
+function LastCheckInPanel({
+  checkedInToday,
+  date,
+  time,
+}: {
+  checkedInToday: boolean;
+  date: string;
+  time: string;
+}) {
+  const hasCheckIn = time !== 'NO';
+  const accentClass = checkedInToday ? 'text-[#18833b]' : 'text-[#c8171d]';
+  const surfaceClass = checkedInToday
+    ? 'bg-[#f4fbf5] ring-1 ring-[#d7eddd]'
+    : 'bg-[#fff7f7] ring-1 ring-[#ffdcdc]';
+
+  return (
+    <div className={`mt-4 flex min-h-[70px] items-center gap-3 rounded-[16px] px-3 py-3 ${surfaceClass}`}>
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ${accentClass}`}>
+        <Clock className="h-6 w-6" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-black uppercase tracking-wide text-[#71717a]">Last Check-In</p>
+        {hasCheckIn ? (
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <p className="text-[22px] font-black leading-7 text-black">{time}</p>
+            <p className="text-sm font-bold leading-5 text-[#5f6368]">{date}</p>
+          </div>
+        ) : (
+          <p className="mt-1 text-[22px] font-black leading-7 text-black">NO</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ResidentInfoTile({
   icon,
   iconColor,
-  isAdminMode,
   label,
   value,
 }: {
   icon: React.ReactNode;
   iconColor: string;
-  isAdminMode: boolean;
   label: string;
   value: string;
 }) {
   return (
-    <div className={`flex min-h-[76px] items-center gap-3 rounded-[12px] px-4 ${isAdminMode ? 'bg-[#e4eefb]' : 'bg-[#f0f2f5]'}`}>
-      <div className={iconColor}>{icon}</div>
+    <div className="flex min-h-[56px] min-w-0 items-center gap-2 px-1 py-1">
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f7f9fb] ${iconColor}`}>{icon}</div>
       <div className="min-w-0">
-        <p className="text-base font-semibold text-[#71717a]">{label}</p>
-        <p className="truncate text-lg font-bold leading-6 text-black">{value}</p>
+        <p className="text-xs font-black uppercase tracking-wide text-[#71717a]">{label}</p>
+        <p className="whitespace-pre-line break-words text-base font-bold leading-5 text-black">{value}</p>
       </div>
     </div>
   );

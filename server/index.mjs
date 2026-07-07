@@ -68,6 +68,99 @@ function getCheckInRemindersForUser(uid) {
     .map(({ id, message, status, createdAt }) => ({ id, message, status, createdAt }));
 }
 
+function getAddressPart(address = {}, keys = []) {
+  for (const key of keys) {
+    const value = String(address[key] || '').trim();
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function joinUniqueAddressParts(parts = []) {
+  const seen = new Set();
+
+  return parts
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .filter((part) => {
+      const normalized = part.toLowerCase();
+
+      if (seen.has(normalized)) {
+        return false;
+      }
+
+      seen.add(normalized);
+      return true;
+    })
+    .join(', ');
+}
+
+function formatReadableAddress(result = {}) {
+  const address = result.address || {};
+  const block = getAddressPart(address, ['house_number', 'block']);
+  const road = getAddressPart(address, ['road', 'pedestrian', 'footway', 'path']);
+  const building = getAddressPart(address, ['building', 'amenity', 'shop']);
+  const neighbourhood = getAddressPart(address, ['neighbourhood', 'suburb', 'quarter']);
+  const city = getAddressPart(address, ['city', 'town', 'village', 'municipality']);
+  const postcode = getAddressPart(address, ['postcode']);
+  const country = getAddressPart(address, ['country']);
+  const formattedAddress = joinUniqueAddressParts([
+    block && road ? `${block} ${road}` : block || road,
+    building,
+    neighbourhood,
+    city,
+    postcode,
+    country,
+  ]);
+
+  return formattedAddress || String(result.display_name || '').trim();
+}
+
+async function reverseGeocode(latitude, longitude) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    throw Object.assign(new Error('Valid latitude and longitude are required.'), { status: 400 });
+  }
+
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    lat: String(lat),
+    lon: String(lon),
+    addressdetails: '1',
+    zoom: '18',
+  });
+  const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'CareConnect-FYP/1.0',
+    },
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw Object.assign(new Error(data?.error || 'Unable to convert location into an address.'), {
+      status: response.status,
+      details: data,
+    });
+  }
+
+  const address = formatReadableAddress(data || {});
+
+  if (!address) {
+    throw Object.assign(new Error('Unable to find a readable address for this location.'), { status: 404 });
+  }
+
+  return {
+    address,
+  };
+}
+
 function sendJson(response, status, body) {
   response.writeHead(status, {
     'Content-Type': 'application/json',
@@ -207,7 +300,11 @@ export async function handleRequest(request, response) {
   }
 
   if (url.pathname === '/api/reverse-geocode' && request.method === 'GET') {
-    const location = await reverseGeocode(url.searchParams.get('lat'), url.searchParams.get('lon'));
+    const location = await reverseGeocode(
+      url.searchParams.get('lat'),
+      url.searchParams.get('lon'),
+    );
+
     sendJson(response, 200, location);
     return;
   }

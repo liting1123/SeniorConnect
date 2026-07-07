@@ -2,7 +2,7 @@ import { Gamepad2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 type GameLauncherProps = {
-  onSelect: (mode: 'friendly' | 'memory' | 'puzzle') => void;
+  onSelect: (mode: 'memory' | 'puzzle') => void;
 };
 
 export default function GameLauncher({ onSelect }: GameLauncherProps) {

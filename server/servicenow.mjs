@@ -14,6 +14,8 @@ const FIELD_MAP = {
   email: process.env.SERVICE_NOW_FIELD_EMAIL || 'u_email',
   name: process.env.SERVICE_NOW_FIELD_NAME || 'u_full_name',
   phone: process.env.SERVICE_NOW_FIELD_PHONE || 'u_phone',
+  gender: process.env.SERVICE_NOW_FIELD_GENDER || 'u_gender',
+  dateOfBirth: process.env.SERVICE_NOW_FIELD_DATE_OF_BIRTH || 'u_date_of_birth',
   points: process.env.SERVICE_NOW_FIELD_POINTS || 'u_points',
   lastCheckInAt: process.env.SERVICE_NOW_FIELD_LAST_CHECK_IN_AT || 'u_last_check_in_at',
   gameRewardDate: process.env.SERVICE_NOW_FIELD_GAME_REWARD_DATE || 'u_game_reward_date',
@@ -61,7 +63,6 @@ const CHECK_IN_WINDOWS = [
 ];
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
-const ADMIN_PROFILE_TABLE = process.env.SERVICE_NOW_ADMIN_PROFILE_TABLE || 'u_admin_profiles';
 const SOS_ALERT_TABLE = process.env.SERVICE_NOW_SOS_ALERT_TABLE || 'u_sos_alert';
 const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregiver_profiles';
 const MEDICINE_TABLE = process.env.SERVICE_NOW_MEDICINE_TABLE || 'u_medicine';
@@ -77,13 +78,6 @@ const LOGIN_FIELD_MAP = {
   active: process.env.SERVICE_NOW_LOGIN_FIELD_ACTIVE || 'u_active',
   lastLogin: process.env.SERVICE_NOW_LOGIN_FIELD_LAST_LOGIN || 'u_last_login',
   lastCheckIn: process.env.SERVICE_NOW_LOGIN_FIELD_LAST_CHECK_IN || 'u_last_check_in',
-};
-
-const ADMIN_PROFILE_FIELD_MAP = {
-  username: process.env.SERVICE_NOW_ADMIN_PROFILE_FIELD_USERNAME || 'u_staff_id',
-  email: process.env.SERVICE_NOW_ADMIN_PROFILE_FIELD_EMAIL || 'u_staff_email',
-  password: process.env.SERVICE_NOW_ADMIN_PROFILE_FIELD_PASSWORD || 'u_staff_password',
-  name: process.env.SERVICE_NOW_ADMIN_PROFILE_FIELD_NAME || 'u_staff_name',
 };
 
 const SOS_ALERT_FIELD_MAP = {
@@ -109,6 +103,10 @@ const MEDICINE_FIELD_MAP = {
   frequency: process.env.SERVICE_NOW_MEDICINE_FIELD_FREQUENCY || 'u_frequency',
   status: process.env.SERVICE_NOW_MEDICINE_FIELD_STATUS || 'u_status',
   notes: process.env.SERVICE_NOW_MEDICINE_FIELD_NOTES || 'u_notes',
+  bloodType: process.env.SERVICE_NOW_MEDICINE_FIELD_BLOOD_TYPE || 'u_blood_type',
+  allergies: process.env.SERVICE_NOW_MEDICINE_FIELD_ALLERGIES || 'u_allergies',
+  medicalConditions: process.env.SERVICE_NOW_MEDICINE_FIELD_MEDICAL_CONDITIONS || 'u_medical_conditions',
+  currentMedication: process.env.SERVICE_NOW_MEDICINE_FIELD_CURRENT_MEDICATION || 'u_current_medication',
   isExtra: process.env.SERVICE_NOW_MEDICINE_FIELD_IS_EXTRA || 'u_is_extra',
 };
 
@@ -282,6 +280,8 @@ function toUserRecord(record = {}) {
     email: record[FIELD_MAP.email] || '',
     name: record[FIELD_MAP.name] || '',
     phone: record[FIELD_MAP.phone] || '',
+    gender: record[FIELD_MAP.gender] || '',
+    dateOfBirth: record[FIELD_MAP.dateOfBirth] || '',
     locationZones: record[FIELD_MAP.locationZones] || '',
     address: record[FIELD_MAP.address] || '',
     points: Number(record[FIELD_MAP.points]) || 0,
@@ -531,23 +531,6 @@ function toLoginUser(record = {}) {
       record[LOGIN_FIELD_MAP.email]?.split('@')[0] ||
       'User',
     role: String(roleValue || '').trim() || 'elderly',
-  };
-}
-
-function toAdminProfileLoginUser(record = {}) {
-  const email = getDisplayValue(record[ADMIN_PROFILE_FIELD_MAP.email]);
-  const username = getDisplayValue(record[ADMIN_PROFILE_FIELD_MAP.username]);
-
-  return {
-    id: record.sys_id,
-    username,
-    email,
-    name:
-      getDisplayValue(record[ADMIN_PROFILE_FIELD_MAP.name]) ||
-      username ||
-      email.split('@')[0] ||
-      'Admin',
-    role: 'admin',
   };
 }
 
@@ -812,47 +795,6 @@ async function findSeniorLoginUser(normalizedIdentifier, rawPassword, rawIdentif
   return toLoginUser(updatedRecord);
 }
 
-async function findAdminProfileLoginUser(normalizedIdentifier, rawPassword) {
-  const query = `(${ADMIN_PROFILE_FIELD_MAP.email}=${normalizedIdentifier}^OR${ADMIN_PROFILE_FIELD_MAP.username}=${normalizedIdentifier})`;
-  const params = new URLSearchParams({
-    sysparm_query: query,
-    sysparm_limit: '10',
-  });
-  const data = await serviceNowFetch(getNamedTablePath(ADMIN_PROFILE_TABLE, `?${params.toString()}`));
-  const record = data?.result?.find((user) => {
-    const email = normalizeLoginValue(getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.email]));
-    const username = normalizeLoginValue(getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.username]));
-    const password = getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.password]);
-
-    return (
-      (email === normalizedIdentifier || username === normalizedIdentifier) &&
-      String(password || '') === String(rawPassword)
-    );
-  });
-
-  return record ? toAdminProfileLoginUser(record) : null;
-}
-
-async function findAdminProfileRecordByIdentifier(normalizedIdentifier, rawIdentifier = normalizedIdentifier) {
-  const queryValues = Array.from(new Set([String(rawIdentifier || '').trim(), normalizedIdentifier].filter(Boolean)));
-  const query = queryValues
-    .map((value) => `${ADMIN_PROFILE_FIELD_MAP.email}=${value}^OR${ADMIN_PROFILE_FIELD_MAP.username}=${value}`)
-    .join('^OR');
-  const params = new URLSearchParams({
-    sysparm_query: query,
-    sysparm_limit: '10',
-  });
-
-  const data = await serviceNowFetch(getNamedTablePath(ADMIN_PROFILE_TABLE, `?${params.toString()}`));
-
-  return (data?.result || []).find((user) => {
-    const email = normalizeLoginValue(getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.email]));
-    const username = normalizeLoginValue(getDisplayValue(user[ADMIN_PROFILE_FIELD_MAP.username]));
-
-    return email === normalizedIdentifier || username === normalizedIdentifier;
-  }) || null;
-}
-
 async function findLoginRecordByIdentifier(normalizedIdentifier, rawIdentifier = normalizedIdentifier) {
   const queryValues = Array.from(new Set([String(rawIdentifier || '').trim(), normalizedIdentifier].filter(Boolean)));
   const query = queryValues
@@ -885,21 +827,6 @@ export async function resetPasswordWithServiceNow({ identifier, password, loginT
 
   if (rawPassword.length < 4) {
     throw Object.assign(new Error('New password must be at least 4 characters.'), { status: 400 });
-  }
-
-  if (normalizedLoginType === 'family') {
-    const adminProfile = await findAdminProfileRecordByIdentifier(comparableIdentifier, normalizedIdentifier);
-
-    if (adminProfile?.sys_id) {
-      await serviceNowFetch(getNamedTablePath(ADMIN_PROFILE_TABLE, `/${adminProfile.sys_id}`), {
-        method: 'PATCH',
-        body: JSON.stringify({
-          [ADMIN_PROFILE_FIELD_MAP.password]: rawPassword,
-        }),
-      });
-
-      return { ok: true };
-    }
   }
 
   const record = await findLoginRecordByIdentifier(comparableIdentifier, normalizedIdentifier);
@@ -936,14 +863,6 @@ export async function loginWithServiceNow({ identifier, email, password, loginTy
 
   if (!normalizedIdentifier || !rawPassword) {
     throw Object.assign(new Error('Email/username and password are required.'), { status: 400 });
-  }
-
-  if (normalizedLoginType === 'family') {
-    const adminProfileUser = await findAdminProfileLoginUser(comparableIdentifier, rawPassword);
-
-    if (adminProfileUser) {
-      return adminProfileUser;
-    }
   }
 
   const seniorUser = await findSeniorLoginUser(comparableIdentifier, rawPassword, normalizedIdentifier);
@@ -1123,6 +1042,8 @@ function getSeniorProfileCompletenessScore(record = {}) {
     FIELD_MAP.name,
     FIELD_MAP.phone,
     FIELD_MAP.email,
+    FIELD_MAP.gender,
+    FIELD_MAP.dateOfBirth,
     FIELD_MAP.locationZones,
     FIELD_MAP.lastCheckInAt,
     FIELD_MAP.points,
@@ -1149,6 +1070,8 @@ function getMappedSeniorCompletenessScore(senior = {}) {
     senior.name,
     senior.phone,
     senior.email,
+    senior.gender,
+    senior.dateOfBirth,
     senior.location,
     senior.lastCheckIn,
     senior.points,
@@ -1367,6 +1290,8 @@ function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser
       'Senior',
     phone: getDisplayValue(seniorProfile[FIELD_MAP.phone]) || seniorUser.u_phone || '',
     email: getDisplayValue(seniorProfile[FIELD_MAP.email]) || seniorUser[LOGIN_FIELD_MAP.email] || '',
+    gender: getDisplayValue(seniorProfile[FIELD_MAP.gender]) || '',
+    dateOfBirth: getDisplayValue(seniorProfile[FIELD_MAP.dateOfBirth]) || '',
     location: getDisplayValue(seniorProfile[FIELD_MAP.locationZones]) || '',
     address: getDisplayValue(seniorProfile[FIELD_MAP.address]) || '',
     lastCheckIn: getDisplayValue(seniorProfile[FIELD_MAP.lastCheckInAt]) || '',
@@ -1480,101 +1405,6 @@ export async function getCheckInRemindersForSenior(userId) {
     .map(toCheckInReminder);
 }
 
-export async function getAllSeniorProfiles() {
-  const params = new URLSearchParams({
-    sysparm_limit: '100',
-    sysparm_query: 'ORDERBY' + FIELD_MAP.name,
-  });
-  const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
-  const seniors = (data?.result || []).map((seniorProfile) => toCaregiverSeniorRecord({}, seniorProfile, {}));
-  const caregiverAssignments = await getCaregiverAssignmentsForSeniors(seniors);
-
-  return Promise.all(seniors.map(async (senior) => {
-    const activeAlert = await getLatestActiveSosAlertForSenior(senior);
-    const caregiverAssignment = caregiverAssignments.get(senior.id) || {};
-    const seniorWithAssignment = {
-      ...senior,
-      caregiverNames: caregiverAssignment.caregiverNames || [],
-      caregiverName: caregiverAssignment.caregiverName || senior.caregiverName,
-      caregiverEmail: caregiverAssignment.caregiverEmail || senior.caregiverEmail,
-      relationship: caregiverAssignment.relationship || senior.relationship,
-    };
-
-    return activeAlert
-      ? {
-          ...seniorWithAssignment,
-          alertId: activeAlert.id,
-          alertMessage: activeAlert.message,
-          alertStatus: activeAlert.status,
-          alertTime: activeAlert.createdAt,
-          location: activeAlert.location || senior.location,
-          status: /sos|urgent/i.test(activeAlert.status) ? 'SOS Active' : activeAlert.status,
-        }
-      : seniorWithAssignment;
-  }));
-}
-
-async function getCaregiverAssignmentsForSeniors(seniors = []) {
-  const seniorIds = seniors.map((senior) => senior.id).filter(Boolean);
-  const assignments = new Map();
-
-  if (seniorIds.length === 0) {
-    return assignments;
-  }
-
-  const params = new URLSearchParams({
-    sysparm_display_value: 'all',
-    sysparm_limit: String(Math.max(100, seniorIds.length * 3)),
-    sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.senior}IN${seniorIds.join(',')}`,
-  });
-  const data = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${params.toString()}`));
-
-  for (const connection of data?.result || []) {
-    const seniorId = getReferenceValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.senior]);
-
-    if (!seniorId) {
-      continue;
-    }
-
-    const caregiverValue = connection[CAREGIVER_CONNECTION_FIELD_MAP.user];
-    const caregiverName = getDisplayValue(caregiverValue);
-    const relationship = getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.relationship]) || '';
-    const existingAssignment = assignments.get(seniorId) || {
-      caregiverNames: [],
-      caregiverName: '',
-      caregiverEmail: '',
-      relationship: '',
-    };
-
-    if (caregiverName && !existingAssignment.caregiverNames.includes(caregiverName)) {
-      existingAssignment.caregiverNames.push(caregiverName);
-    }
-
-    assignments.set(seniorId, {
-      caregiverNames: existingAssignment.caregiverNames,
-      caregiverName: existingAssignment.caregiverName || caregiverName,
-      caregiverEmail: existingAssignment.caregiverEmail,
-      relationship: existingAssignment.relationship || relationship,
-    });
-  }
-
-  return assignments;
-}
-
-export async function deleteSeniorProfile(seniorId) {
-  const normalizedSeniorId = String(seniorId || '').trim();
-
-  if (!normalizedSeniorId) {
-    throw Object.assign(new Error('Senior profile ID is required.'), { status: 400 });
-  }
-
-  await serviceNowFetch(getTablePath(`/${encodeURIComponent(normalizedSeniorId)}`), {
-    method: 'DELETE',
-  });
-
-  return { id: normalizedSeniorId };
-}
-
 export async function createCaregiverConnection(data) {
   const caregiverIdentifier = normalizeLoginValue(data.caregiverEmail || data.caregiverUsername);
   const seniorIdentifier = normalizeLoginValue(data.seniorEmail || data.seniorUsername);
@@ -1665,10 +1495,14 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
     const seniorUser = seniorUserId ? await getLoginRecordById(seniorUserId) : null;
     const senior = toCaregiverSeniorRecord(connection, seniorProfile, seniorUser || {});
     const sosAlert = await getLatestActiveSosAlertForSenior(senior);
+    const medicationSummary = await getMedicationSummaryForSeniorProfile(seniorProfile.sys_id);
+    const medicalInformation = await getMedicalInformationForSeniorProfile(seniorProfile.sys_id);
 
     return sosAlert
       ? {
           ...senior,
+          ...medicationSummary,
+          ...medicalInformation,
           status: 'SOS Active',
           alertId: sosAlert.id,
           location: sosAlert.location || senior.location,
@@ -1676,7 +1510,7 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
           alertStatus: sosAlert.status,
           alertTime: sosAlert.createdAt,
         }
-      : senior;
+      : { ...senior, ...medicationSummary, ...medicalInformation };
   }));
 
   const uniqueSeniors = Array.from(
@@ -1729,6 +1563,140 @@ function toMedicineRecord(record = {}) {
     status: getDisplayValue(record[MEDICINE_FIELD_MAP.status]),
     notes: getDisplayValue(record[MEDICINE_FIELD_MAP.notes]),
     isExtra: String(isExtraValue || '').toLowerCase() === 'true' || isExtraValue === true,
+    updatedAt: record.sys_updated_on || record.sys_created_on || '',
+  };
+}
+
+function getSingaporeDateLabel(value = new Date()) {
+  return new Intl.DateTimeFormat('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: CHECK_IN_TIME_ZONE,
+    year: 'numeric',
+  }).format(value);
+}
+
+function parseMedicineTakenStatus(status = '') {
+  const match = /^taken at\s+(.+)$/i.exec(String(status || '').trim());
+
+  return match ? match[1].trim() : null;
+}
+
+function parseServiceNowUtcDateTime(value) {
+  if (value instanceof Date) {
+    return value;
+  }
+
+  const text = String(value || '').trim();
+  const serviceNowDateTimeMatch = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(text);
+
+  if (serviceNowDateTimeMatch) {
+    const [, year, month, day, hour, minute, second = '00'] = serviceNowDateTimeMatch;
+    return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
+  }
+
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatMedicineTakenAt(value) {
+  const dateValue = parseServiceNowUtcDateTime(value);
+  const parts = getSingaporeParts(dateValue);
+
+  if (!parts) {
+    return '';
+  }
+
+  const [year, month, day] = parts.dateKey.split('-').map(Number);
+  const date = getSingaporeDateLabel(new Date(year, month - 1, day));
+  const time = formatCheckInTime(parts.totalMinutes).toLowerCase();
+
+  return `${time} ${date}`;
+}
+
+function getMedicineTakenInfo(record = {}) {
+  const status = getDisplayValue(record[MEDICINE_FIELD_MAP.status]);
+  const explicitTakenAt = parseMedicineTakenStatus(status);
+
+  if (explicitTakenAt) {
+    return {
+      dateKey: getSingaporeParts(explicitTakenAt)?.dateKey || null,
+      takenAt: explicitTakenAt,
+    };
+  }
+
+  if (!/^taken$/i.test(status)) {
+    return null;
+  }
+
+  const updatedAt = record.sys_updated_on || record.sys_created_on;
+  const parts = getSingaporeParts(parseServiceNowUtcDateTime(updatedAt));
+
+  if (!parts) {
+    return null;
+  }
+
+  return {
+    dateKey: parts.dateKey,
+    takenAt: formatMedicineTakenAt(updatedAt),
+  };
+}
+
+async function getMedicationSummaryForSeniorProfile(seniorProfileId) {
+  if (!seniorProfileId) {
+    return { medicationStatus: 'Untaken', medicationTakenAt: '' };
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: `${MEDICINE_FIELD_MAP.senior}=${seniorProfileId}`,
+    sysparm_limit: '100',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `?${params.toString()}`));
+  const medicineRecords = data?.result || [];
+
+  if (medicineRecords.length === 0) {
+    return { medicationStatus: 'Untaken', medicationTakenAt: '' };
+  }
+
+  const todayKey = getSingaporeDateKey();
+  const takenTimes = medicineRecords
+    .map(getMedicineTakenInfo)
+    .filter((takenInfo) => takenInfo?.dateKey === todayKey)
+    .map((takenInfo) => takenInfo.takenAt);
+
+  return takenTimes.length > 0
+    ? { medicationStatus: 'Taken', medicationTakenAt: takenTimes[takenTimes.length - 1] || '' }
+    : { medicationStatus: 'Untaken', medicationTakenAt: '' };
+}
+
+function getFirstMedicineValue(records = [], field) {
+  const record = records.find((item) => getDisplayValue(item[field]));
+
+  return record ? getDisplayValue(record[field]) : '';
+}
+
+async function getMedicalInformationForSeniorProfile(seniorProfileId) {
+  if (!seniorProfileId) {
+    return {
+      bloodType: '',
+      allergies: '',
+      medicalConditions: '',
+      currentMedication: '',
+    };
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: `${MEDICINE_FIELD_MAP.senior}=${seniorProfileId}`,
+    sysparm_limit: '100',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `?${params.toString()}`));
+  const records = data?.result || [];
+
+  return {
+    bloodType: getFirstMedicineValue(records, MEDICINE_FIELD_MAP.bloodType),
+    allergies: getFirstMedicineValue(records, MEDICINE_FIELD_MAP.allergies),
+    medicalConditions: getFirstMedicineValue(records, MEDICINE_FIELD_MAP.medicalConditions),
+    currentMedication: getFirstMedicineValue(records, MEDICINE_FIELD_MAP.currentMedication),
   };
 }
 
@@ -1774,7 +1742,18 @@ export async function saveMedicineForUser(userId, medicine = {}) {
     : false;
 
   if (medicine.id && !isExistingExtra) {
-    return toMedicineRecord(existingRecord);
+    if (medicine.status === undefined) {
+      return toMedicineRecord(existingRecord);
+    }
+
+    const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `/${encodeURIComponent(existingRecord.sys_id)}`), {
+      method: 'PATCH',
+      body: JSON.stringify({
+        [MEDICINE_FIELD_MAP.status]: medicine.status || '',
+      }),
+    });
+
+    return toMedicineRecord(data?.result || existingRecord);
   }
 
   const payload = {
@@ -1830,11 +1809,6 @@ export function getServiceNowLoginConfig() {
     nameField: LOGIN_FIELD_MAP.name,
     roleField: LOGIN_FIELD_MAP.role,
     lastLoginField: LOGIN_FIELD_MAP.lastLogin,
-    adminProfileTable: ADMIN_PROFILE_TABLE,
-    adminProfileUsernameField: ADMIN_PROFILE_FIELD_MAP.username,
-    adminProfileEmailField: ADMIN_PROFILE_FIELD_MAP.email,
-    adminProfilePasswordField: ADMIN_PROFILE_FIELD_MAP.password,
-    adminProfileNameField: ADMIN_PROFILE_FIELD_MAP.name,
     caregiverTable: CAREGIVER_CONNECTION_TABLE,
     caregiverUserField: CAREGIVER_CONNECTION_FIELD_MAP.user,
     caregiverSeniorField: CAREGIVER_CONNECTION_FIELD_MAP.senior,

@@ -12,7 +12,6 @@ import PointsScreen from './components/PointsScreen';
 import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel } from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
 import CaregiverDashboardScreen from './components/CaregiverDashboardScreen';
-import AdminDashboardScreen from './components/AdminDashboardScreen';
 import GameScreen from './components/GameScreen';
 import {
   type AppUser,
@@ -28,11 +27,12 @@ import {
   getUserStorageIdentity,
   saveMedicine,
   setCachedUserPoints,
+  updateSeniorProfile,
 } from './services/backend';
 import { createSosAlert } from './services/serviceNow';
 
-type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard' | 'adminDashboard';
-type LanguageReturnScreen = 'home' | 'caregiverDashboard' | 'adminDashboard';
+type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
+type LanguageReturnScreen = 'home' | 'caregiverDashboard';
 type CheckInWindowId = 'morning' | 'evening';
 type CompletedCheckInStatus = {
   dateKey: string;
@@ -54,11 +54,7 @@ function isSeniorRole(role = '') {
 }
 
 function isCaregiverRole(role = '') {
-  return ['caregiver', 'caregivers', 'nok', 'nextofkin', 'caregiverfamily'].includes(normalizeRole(role));
-}
-
-function isAdminRole(role = '') {
-  return normalizeRole(role) === 'admin';
+  return ['caregiver', 'caregivers', 'nok', 'nextofkin', 'caregiverfamily', 'admin'].includes(normalizeRole(role));
 }
 
 function getSavedPersonalInfo() {
@@ -120,6 +116,16 @@ async function getReadableSosLocation(fallbackLocation: string) {
     console.error('Unable to capture readable SOS location:', error);
     return fallbackLocation || 'Unknown location';
   }
+}
+
+async function getReadableCurrentLocation() {
+  const position = await getCurrentBrowserPosition({
+    enableHighAccuracy: true,
+    timeout: 12000,
+    maximumAge: 0,
+  });
+
+  return reverseGeocodePosition(position);
 }
 
 function getMedicineNameOverridesKey(user: AppUser) {
@@ -257,6 +263,36 @@ function saveCompletedCheckIn(user: AppUser, windowId: CheckInWindowId) {
   return status;
 }
 
+function isMedicineTakenToday(medicine: Medicine) {
+  const todayDate = new Intl.DateTimeFormat('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+  }).format(new Date());
+
+  if (/^taken at/i.test(medicine.status || '')) {
+    return medicine.status.includes(todayDate);
+  }
+
+  if (!/^taken$/i.test(medicine.status || '') || !medicine.updatedAt) {
+    return false;
+  }
+
+  const updatedAtText = String(medicine.updatedAt).trim();
+  const updatedAt = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?$/.test(updatedAtText)
+    ? new Date(`${updatedAtText.replace(' ', 'T')}Z`)
+    : new Date(updatedAtText);
+  const updatedDate = new Intl.DateTimeFormat('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+  }).format(updatedAt);
+
+  return updatedDate === todayDate;
+}
+
 function getCompletedWindowFromError(error: unknown): CheckInWindowId | null {
   const message = error instanceof Error ? error.message : String(error || '');
 
@@ -313,10 +349,18 @@ export default function App() {
     setSnoozedMedicineUntil({});
   };
 
-  const markMedicineTaken = (medicineId: string) => {
+  const markMedicineTaken = async (medicineId: string) => {
+    const user = getStoredUser();
+    const medicine = medicines.find((item) => item.id === medicineId);
+    const nextStatus = 'Taken';
+    const nextUpdatedAt = new Date().toISOString();
+
     if (!takenMedicineIdsRef.current.includes(medicineId)) {
       takenMedicineIdsRef.current = [...takenMedicineIdsRef.current, medicineId];
     }
+    setMedicines((current) => current.map((item) => (
+      item.id === medicineId ? { ...item, status: nextStatus, updatedAt: nextUpdatedAt } : item
+    )));
     activeMedicineReminderIdRef.current = null;
     setTakenMedicineIds(takenMedicineIdsRef.current);
     setSnoozedMedicineUntil((current) => {
@@ -326,6 +370,17 @@ export default function App() {
       return next;
     });
     setActiveMedicineReminderId(null);
+
+    if (user && medicine) {
+      try {
+        await saveMedicine(user, {
+          ...medicine,
+          status: nextStatus,
+        });
+      } catch (error) {
+        console.error('Unable to update medicine taken status:', error);
+      }
+    }
   };
 
   const snoozeMedicineReminder = (medicineId: string) => {
@@ -394,7 +449,7 @@ export default function App() {
   useEffect(() => {
     const user = getStoredUser();
 
-    if (!user || isAdminRole(user.role) || isCaregiverRole(user.role) || isFamilyRole(user.role)) {
+    if (!user || isCaregiverRole(user.role) || isFamilyRole(user.role)) {
       return;
     }
 
@@ -412,7 +467,11 @@ export default function App() {
         if (isMounted) {
           hasLoadedMedicinesRef.current = true;
           loadedMedicinesUserIdRef.current = medicineUserId;
-          setMedicines(applyMedicineNameOverrides(serviceNowMedicines, user));
+          const nextMedicines = applyMedicineNameOverrides(serviceNowMedicines, user);
+          const takenIds = nextMedicines.filter(isMedicineTakenToday).map((medicine) => medicine.id);
+          takenMedicineIdsRef.current = takenIds;
+          setTakenMedicineIds(takenIds);
+          setMedicines(nextMedicines);
         }
       })
       .catch((error) => {
@@ -421,6 +480,42 @@ export default function App() {
 
     return () => {
       isMounted = false;
+    };
+  }, [currentScreen]);
+
+  useEffect(() => {
+    const user = getStoredUser();
+
+    if (!user || !isSeniorRole(user.role) || currentScreen === 'welcome' || currentScreen === 'language') {
+      return;
+    }
+
+    let isMounted = true;
+
+    const syncSeniorLocation = async () => {
+      try {
+        const readableLocation = await getReadableCurrentLocation();
+
+        if (!isMounted || !readableLocation) {
+          return;
+        }
+
+        await updateSeniorProfile(user, {
+          email: user.email,
+          name: user.displayName,
+          locationZones: readableLocation,
+        });
+      } catch (error) {
+        console.warn('Unable to update senior current location:', error);
+      }
+    };
+
+    syncSeniorLocation();
+    const timer = window.setInterval(syncSeniorLocation, 5 * 60 * 1000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
     };
   }, [currentScreen]);
 
@@ -518,7 +613,7 @@ export default function App() {
       }) : null;
       const seniorName = seniorProfile?.name || user?.displayName || user?.email?.split('@')[0] || 'Senior';
       const seniorPhone = seniorProfile?.phone || personalInfo.phone || '';
-      const fallbackLocation = seniorProfile?.address || seniorProfile?.locationZones || personalInfo.address || 'Unknown location';
+      const fallbackLocation = seniorProfile?.locationZones || seniorProfile?.address || personalInfo.address || 'Unknown location';
       const location = await getReadableSosLocation(fallbackLocation);
 
       await createSosAlert({
@@ -612,11 +707,6 @@ export default function App() {
     resetMedicineState();
     setCompletedCheckIn(getSavedCompletedCheckIn(user));
 
-    if (isAdminRole(user.role)) {
-      setCurrentScreen('adminDashboard');
-      return;
-    }
-
     if (isCaregiverRole(user.role) || isFamilyRole(user.role)) {
       setCurrentScreen('caregiverDashboard');
       return;
@@ -696,13 +786,6 @@ export default function App() {
             onLogout={handleLogout}
           />
         );
-      case 'adminDashboard':
-        return (
-          <AdminDashboardScreen
-            onChangeLanguage={() => openLanguageSelection('adminDashboard')}
-            onLogout={handleLogout}
-          />
-        );
       default:
         return (
           <HomePage
@@ -724,7 +807,7 @@ export default function App() {
           {renderScreen()}
         </div>
 
-        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && currentScreen !== 'caregiverDashboard' && currentScreen !== 'adminDashboard' && (
+        {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && currentScreen !== 'caregiverDashboard' && (
           <nav className="shrink-0 bg-white border-t-2 border-gray-200 flex justify-around items-center">
             <NavButton
               icon={<Home className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}

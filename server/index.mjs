@@ -9,8 +9,6 @@ import {
   createFamilyVerification,
   createSosAlert,
   deleteMedicineForUser,
-  deleteSeniorProfile,
-  getAllSeniorProfiles,
   getCaregiverSeniorConnections,
   getPendingFamilyVerificationCodesForSenior,
   getMedicinesForUser,
@@ -33,7 +31,6 @@ loadEnv();
 
 const PORT = Number(process.env.API_PORT) || 3001;
 const checkInReminders = [];
-const SOS_LOCATION_MAX_LENGTH = 40;
 
 function normalizeReminderValue(value = '') {
   return String(value || '').trim().toLowerCase();
@@ -67,100 +64,6 @@ function getCheckInRemindersForUser(uid) {
       );
     })
     .map(({ id, message, status, createdAt }) => ({ id, message, status, createdAt }));
-}
-
-// Utility functions for address formatting and reverse geocoding
-function getAddressPart(address = {}, keys = []) {
-  for (const key of keys) {
-    const value = String(address[key] || '').trim();
-
-    if (value) {
-      return value;
-    }
-  }
-
-  return '';
-}
-
-function joinUniqueAddressParts(parts = []) {
-  const seen = new Set();
-
-  return parts
-    .map((part) => String(part || '').trim())
-    .filter(Boolean)
-    .filter((part) => {
-      const normalized = part.toLowerCase();
-
-      if (seen.has(normalized)) {
-        return false;
-      }
-
-      seen.add(normalized);
-      return true;
-    })
-    .join(', ');
-}
-
-function formatReadableAddress(result = {}) {
-  const address = result.address || {};
-  const block = getAddressPart(address, ['house_number', 'block']);
-  const road = getAddressPart(address, ['road', 'pedestrian', 'footway', 'path']);
-  const building = getAddressPart(address, ['building', 'amenity', 'shop']);
-  const neighbourhood = getAddressPart(address, ['neighbourhood', 'suburb', 'quarter']);
-  const city = getAddressPart(address, ['city', 'town', 'village', 'municipality']);
-  const postcode = getAddressPart(address, ['postcode']);
-  const country = getAddressPart(address, ['country']);
-  const formattedAddress = joinUniqueAddressParts([
-    block && road ? `${block} ${road}` : block || road,
-    building,
-    neighbourhood,
-    city,
-    postcode,
-    country,
-  ]);
-
-  return formattedAddress || String(result.display_name || '').trim();
-}
-
-async function reverseGeocode(latitude, longitude) {
-  const lat = Number(latitude);
-  const lon = Number(longitude);
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    throw Object.assign(new Error('Valid latitude and longitude are required.'), { status: 400 });
-  }
-
-  const params = new URLSearchParams({
-    format: 'jsonv2',
-    lat: String(lat),
-    lon: String(lon),
-    addressdetails: '1',
-    zoom: '18',
-  });
-  const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`, {
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'CareConnect-FYP/1.0',
-    },
-  });
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw Object.assign(new Error(data?.error || 'Unable to convert location into an address.'), {
-      status: response.status,
-      details: data,
-    });
-  }
-
-  const address = formatReadableAddress(data || {});
-
-  if (!address) {
-    throw Object.assign(new Error('Unable to find a readable address for this location.'), { status: 404 });
-  }
-
-  return {
-    address,
-  };
 }
 
 function sendJson(response, status, body) {
@@ -229,28 +132,24 @@ function joinUniqueAddressParts(parts) {
     .join(', ');
 }
 
-function formatCompactAddress(data = {}) {
+function formatReadableAddress(data = {}) {
   const address = data.address || {};
-  const building = address.building || address.amenity || address.office || address.shop || address.tourism || '';
-  const streetAddress = shortenRoadName([address.house_number, address.road].filter(Boolean).join(' '));
-  const neighbourhoodAddress = shortenRoadName(joinUniqueAddressParts([
-    streetAddress,
-    address.neighbourhood || address.suburb,
-  ]));
-  const city = shortenRoadName(address.city || address.town || address.village || address.state || address.country || '');
+  const building = address.building || address.amenity || address.office || address.shop || address.tourism || address.leisure || '';
+  const streetAddress = [address.house_number, address.road].filter(Boolean).join(' ');
+  const neighbourhood = address.neighbourhood || address.suburb || address.quarter || address.city_district || '';
+  const city = address.city || address.town || address.village || address.state || '';
   const postcode = address.postcode || '';
-  const postalAddress = [city, postcode].filter(Boolean).join(' ');
-  const candidates = [
-    joinUniqueAddressParts([building, streetAddress, postalAddress]),
-    joinUniqueAddressParts([building, neighbourhoodAddress, postalAddress]),
-    joinUniqueAddressParts([streetAddress, postalAddress]),
-    joinUniqueAddressParts([building, streetAddress, city]),
-    joinUniqueAddressParts([building, neighbourhoodAddress, city]),
-    joinUniqueAddressParts([building, streetAddress]),
-  ].filter(Boolean);
-  const compactAddress = candidates.find((candidate) => candidate.length <= SOS_LOCATION_MAX_LENGTH) || candidates[0];
+  const country = address.country || '';
+  const readableAddress = joinUniqueAddressParts([
+    building,
+    streetAddress,
+    neighbourhood,
+    city,
+    postcode,
+    country,
+  ]);
 
-  return compactAddress || shortenRoadName(data.display_name || '');
+  return readableAddress || String(data.display_name || '').trim();
 }
 
 async function reverseGeocode(latitude, longitude) {
@@ -284,7 +183,7 @@ async function reverseGeocode(latitude, longitude) {
   }
 
   return {
-    address: formatCompactAddress(data),
+    address: formatReadableAddress(data),
   };
 }
 
@@ -470,19 +369,6 @@ export async function handleRequest(request, response) {
     });
 
     sendJson(response, 200, { seniors });
-    return;
-  }
-
-  if (url.pathname === '/api/servicenow/admin-seniors' && request.method === 'GET') {
-    const seniors = await getAllSeniorProfiles();
-    sendJson(response, 200, { seniors });
-    return;
-  }
-
-  if (url.pathname === '/api/servicenow/admin-senior' && request.method === 'DELETE') {
-    const body = await readJson(request);
-    const deletedSenior = await deleteSeniorProfile(body.seniorId);
-    sendJson(response, 200, { senior: deletedSenior });
     return;
   }
 

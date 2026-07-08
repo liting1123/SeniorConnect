@@ -4,6 +4,8 @@ type BackendUser = {
   email: string;
   name: string;
   phone?: string;
+  gender?: string;
+  dateOfBirth?: string;
   locationZones?: string;
   address?: string;
   points: number;
@@ -36,6 +38,7 @@ export type Medicine = {
   status: string;
   notes: string;
   isExtra: boolean;
+  updatedAt?: string;
 };
 
 export type MedicineInput = Partial<Medicine> & {
@@ -306,6 +309,24 @@ export async function redeemPoints(user: AppUser, pointsToRedeem: number) {
 
 export async function getSeniorProfile(user: AppUser) {
   const data = await request<UserProfileResponse>(user, `/api/users/${user.uid}/profile`);
+  return data.user || null;
+}
+
+export async function updateSeniorProfile(
+  user: AppUser,
+  profile: Partial<Pick<BackendUser, 'email' | 'name' | 'phone' | 'locationZones' | 'address'>>,
+) {
+  const data = await request<UserProfileResponse>(user, `/api/users/${user.uid}/profile`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      email: profile.email ?? user.email,
+      name: profile.name ?? getDisplayName(user),
+      phone: profile.phone,
+      locationZones: profile.locationZones,
+      address: profile.address,
+    }),
+  });
+
   return data.user || null;
 }
 

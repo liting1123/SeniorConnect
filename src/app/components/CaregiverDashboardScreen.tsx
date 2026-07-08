@@ -10,6 +10,7 @@ import {
   Handshake,
   HelpCircle,
   Info,
+  Filter,
   Languages,
   LayoutDashboard,
   LogOut,
@@ -22,6 +23,7 @@ import {
   Search,
   ShieldAlert,
   Shield,
+  Trash2,
   TriangleAlert,
   User,
   X,
@@ -51,9 +53,17 @@ type Senior = {
   name: string;
   phone: string;
   email: string;
+  gender?: string;
+  dateOfBirth?: string;
   location?: string;
   address?: string;
   lastCheckIn?: string;
+  medicationStatus?: string;
+  medicationTakenAt?: string;
+  bloodType?: string;
+  allergies?: string;
+  medicalConditions?: string;
+  currentMedication?: string;
   points?: number;
   relationship?: string;
   caregiverNames?: string[];
@@ -100,7 +110,6 @@ function saveSosHistory(caregiverEmail: string, history: SosAlertHistory[]) {
 export default function CaregiverDashboardScreen({
   dashboardLabel = 'Dashboard',
   emptyMessage,
-  loadMode = 'caregiver',
   onBack,
   onChangeLanguage,
   onLogout,
@@ -108,7 +117,6 @@ export default function CaregiverDashboardScreen({
 }: {
   dashboardLabel?: string;
   emptyMessage?: string;
-  loadMode?: 'caregiver' | 'admin';
   onBack: () => void;
   onChangeLanguage: () => void;
   onLogout: () => void;
@@ -137,7 +145,7 @@ export default function CaregiverDashboardScreen({
   const [refreshKey, setRefreshKey] = useState(0);
 //Senior data loading and polling logic
   useEffect(() => {
-    if (loadMode !== 'admin' && !caregiverEmail) {
+    if (!caregiverEmail) {
       setSeniors([]);
       return;
     }
@@ -162,16 +170,13 @@ export default function CaregiverDashboardScreen({
 
       try {
         const params = new URLSearchParams({ caregiverId, caregiverEmail });
-        const url = loadMode === 'admin'
-          ? '/api/servicenow/admin-seniors'
-          : `/api/servicenow/caregiver-seniors?${params.toString()}`;
-        const response = await fetch(url, {
+        const response = await fetch(`/api/servicenow/caregiver-seniors?${params.toString()}`, {
           signal: controller.signal,
         });
         const data = await response.json().catch(() => null);
 
         if (!response.ok) {
-          throw new Error(data?.error || `Unable to load ${loadMode === 'admin' ? 'admin' : 'caregiver'} dashboard`);
+          throw new Error(data?.error || 'Unable to load caregiver dashboard');
         }
 
         if (isMounted) {
@@ -185,7 +190,7 @@ export default function CaregiverDashboardScreen({
 
         console.error('Caregiver dashboard load failed:', error);
         if (isMounted) {
-          setSeniorError(error instanceof Error ? error.message : `Unable to load ${loadMode === 'admin' ? 'admin' : 'caregiver'} dashboard`);
+          setSeniorError(error instanceof Error ? error.message : 'Unable to load caregiver dashboard');
 
           if (!hasLoadedOnce) {
             setSeniors([]);
@@ -217,65 +222,11 @@ export default function CaregiverDashboardScreen({
       document.removeEventListener('visibilitychange', refreshWhenVisible);
       controller.abort();
     };
-  }, [caregiverEmail, caregiverId, loadMode, refreshKey]);
+  }, [caregiverEmail, caregiverId, refreshKey]);
 
   useEffect(() => {
-    if (loadMode !== 'admin') {
-      setSosHistory(getStoredSosHistory(caregiverEmail));
-      return;
-    }
-
-    const controller = new AbortController();
-    let isMounted = true;
-    let isRefreshing = false;
-
-    async function loadSosHistory() {
-      if (isRefreshing) {
-        return;
-      }
-
-      isRefreshing = true;
-
-      try {
-        const response = await fetch('/api/servicenow/sos-alert-history?limit=50', {
-          signal: controller.signal,
-        });
-        const data = await response.json().catch(() => null);
-
-        if (!response.ok) {
-          throw new Error(data?.error || 'Unable to load SOS history');
-        }
-
-        if (isMounted) {
-          setSosHistory((data?.history || []).filter((item: SosAlertHistory) => !isCheckInReminderAlert(item)));
-        }
-      } catch (error) {
-        if ((error as Error).name !== 'AbortError') {
-          console.error('SOS history load failed:', error);
-        }
-      } finally {
-        isRefreshing = false;
-      }
-    }
-
-    loadSosHistory();
-    const refreshTimer = window.setInterval(loadSosHistory, CAREGIVER_DASHBOARD_REFRESH_MS);
-
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') {
-        loadSosHistory();
-      }
-    };
-
-    document.addEventListener('visibilitychange', refreshWhenVisible);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
-      controller.abort();
-    };
-  }, [caregiverEmail, loadMode]);
+    setSosHistory(getStoredSosHistory(caregiverEmail));
+  }, [caregiverEmail]);
 
   const handleUpdateSeniorDetails = async (senior: Senior, details: SeniorDetailsInput) => {
     const seniorId = senior.userId || senior.id;
@@ -481,9 +432,7 @@ export default function CaregiverDashboardScreen({
       return;
     }
 
-    const deleteKey = loadMode === 'admin'
-      ? seniorPendingDelete.id
-      : seniorPendingDelete.connectionId;
+    const deleteKey = seniorPendingDelete.connectionId;
 
     if (!deleteKey) {
       alert('This senior cannot be deleted because its ServiceNow ID is missing.');
@@ -495,20 +444,16 @@ export default function CaregiverDashboardScreen({
     setDeletingSeniorIds((ids) => [...ids, deleteKey]);
 
     try {
-      const response = await fetch(loadMode === 'admin' ? '/api/servicenow/admin-senior' : '/api/servicenow/caregiver-senior', {
+      const response = await fetch('/api/servicenow/caregiver-senior', {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: loadMode === 'admin'
-          ? JSON.stringify({
-              seniorId: seniorPendingDelete.id,
-            })
-          : JSON.stringify({
-              connectionId: seniorPendingDelete.connectionId,
-              caregiverId,
-              caregiverEmail,
-            }),
+        body: JSON.stringify({
+          connectionId: seniorPendingDelete.connectionId,
+          caregiverId,
+          caregiverEmail,
+        }),
       });
       const data = await response.json().catch(() => null);
 
@@ -518,7 +463,7 @@ export default function CaregiverDashboardScreen({
 
       setSeniors((currentSeniors) =>
         currentSeniors.filter((senior) => {
-          const currentDeleteKey = loadMode === 'admin' ? senior.id : senior.connectionId;
+          const currentDeleteKey = senior.connectionId;
           return currentDeleteKey !== deleteKey;
         }),
       );
@@ -534,10 +479,10 @@ export default function CaregiverDashboardScreen({
   };
 
   const alertCount = seniors.filter((senior) => isAlertStatus(senior.status, senior)).length;
-  const canAddSenior = loadMode !== 'admin';
+  const canAddSenior = true;
   const canDeleteSenior = true;
-  const isAdminMode = loadMode === 'admin';
-  const dashboardSurfaceClass = isAdminMode ? 'bg-[#eef3fb]' : 'bg-[#f4f6f8]';
+  const isAdminMode = false;
+  const dashboardSurfaceClass = 'bg-[#f4f6f8]';
   const dashboardTabLabel = dashboardLabel === 'Dashboard' ? t('dashboard') : dashboardLabel;
   const alertsTabLabel = alertsLabel === 'Alerts' ? t('alerts') : alertsLabel;
 
@@ -670,7 +615,7 @@ export default function CaregiverDashboardScreen({
               <button
                 type="button"
                 onClick={handleDeleteSenior}
-                disabled={deletingSeniorIds.includes(loadMode === 'admin' ? seniorPendingDelete.id : seniorPendingDelete.connectionId || '')}
+                disabled={deletingSeniorIds.includes(seniorPendingDelete.connectionId || '')}
                 className="flex h-12 items-center justify-center rounded-[10px] bg-[#c8171d] text-base font-black text-white active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
               >
                 {t('yes')}
@@ -678,7 +623,7 @@ export default function CaregiverDashboardScreen({
               <button
                 type="button"
                 onClick={() => setSeniorPendingDelete(null)}
-                disabled={deletingSeniorIds.includes(loadMode === 'admin' ? seniorPendingDelete.id : seniorPendingDelete.connectionId || '')}
+                disabled={deletingSeniorIds.includes(seniorPendingDelete.connectionId || '')}
                 className="flex h-12 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-base font-black text-[#30343a] active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
               >
                 {t('no')}
@@ -957,6 +902,16 @@ function formatCheckInDateTimeParts(value = '') {
   };
 }
 
+function getSeniorDisplayId(senior: Senior) {
+  const rawId = String(senior.id || '').trim();
+
+  if (!rawId) {
+    return 'NO';
+  }
+
+  return rawId.slice(0, 8).toUpperCase();
+}
+
 function CaregiverDashboardHome({
   canAddSenior,
   caregiverName,
@@ -991,20 +946,40 @@ function CaregiverDashboardHome({
   const { t } = useTranslation();
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
+  const [checkInFilter, setCheckInFilter] = useState<'all' | 'checked' | 'missing'>('all');
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn));
   const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status, senior) && hasCheckedInToday(senior.lastCheckIn));
   const featuredSeniors = [...alertSeniors, ...stableSeniors];
   const normalizedSearch = activeSearch.trim().toLowerCase();
+  const filteredSeniors = featuredSeniors.filter((senior) => {
+    const checkedIn = hasCheckedInToday(senior.lastCheckIn);
+
+    if (checkInFilter === 'checked') {
+      return checkedIn;
+    }
+
+    if (checkInFilter === 'missing') {
+      return !checkedIn;
+    }
+
+    return true;
+  });
   const visibleSeniors = normalizedSearch
-    ? featuredSeniors.filter((senior) => {
+    ? filteredSeniors.filter((senior) => {
       return [
         senior.id,
         senior.userId,
         senior.connectionId,
         senior.name,
+        getSeniorDisplayId(senior),
       ].some((value) => String(value || '').toLowerCase().includes(normalizedSearch));
     })
-    : featuredSeniors;
+    : filteredSeniors;
+  const filterOptions: Array<{ id: 'all' | 'checked' | 'missing'; label: string }> = [
+    { id: 'all', label: t('all') },
+    { id: 'checked', label: t('checkedIn') },
+    { id: 'missing', label: t('notCheckedIn') },
+  ];
   const handleSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     setActiveSearch(searchInput.trim());
@@ -1066,10 +1041,31 @@ function CaregiverDashboardHome({
         </div>
         {activeSearch && (
           <p className="mt-2 px-1 text-sm font-bold text-[#71717a]">
-            {t('showingSearchResults', { visible: visibleSeniors.length, total: featuredSeniors.length, query: activeSearch })}
+            {t('showingSearchResults', { visible: visibleSeniors.length, total: filteredSeniors.length, query: activeSearch })}
           </p>
         )}
       </form>
+      <div className="flex items-center gap-2 rounded-[20px] bg-white p-2 shadow-sm">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-[#eef2ee] text-[#416642]">
+          <Filter className="h-5 w-5" />
+        </div>
+        <div className="grid min-w-0 flex-1 grid-cols-3 gap-2">
+          {filterOptions.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setCheckInFilter(option.id)}
+              className={`flex h-10 min-w-0 items-center justify-center rounded-[12px] px-2 text-xs font-black transition-colors active:scale-95 ${
+                checkInFilter === option.id
+                  ? 'bg-[#416642] text-white'
+                  : 'bg-[#f4f6f8] text-[#5f6368]'
+              }`}
+            >
+              <span className="truncate">{option.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
       <section className="flex flex-col gap-5">
         {isLoading ? (
           <p className="rounded-[18px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
@@ -1083,7 +1079,7 @@ function CaregiverDashboardHome({
               key={senior.id}
               senior={senior}
               name={senior.name}
-              location={senior.location || 'Unknown'}
+              location={senior.location || t('unknown')}
               tone={isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn) ? 'alert' : 'good'}
               onOpenProfile={onOpenProfile}
               onSendReminder={onSendReminder}
@@ -1182,9 +1178,6 @@ function CaregiverAlerts({
     <div className="flex flex-col gap-7">
       <section className="flex items-center justify-between gap-4">
         <h2 className="text-[30px] font-bold leading-9 text-black">{alertsLabel}</h2>
-        <p className="shrink-0 text-right text-base font-bold text-[#71717a]">
-          {isAdminMode ? seniors.length : caregiverAlertTotal} {t('total')}
-        </p>
       </section>
 
       <section className="flex flex-col gap-4">
@@ -1421,7 +1414,6 @@ function CaregiverAlerts({
                       <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{t('priorityDashboard')}</p>
                       <h2 className="mt-1 text-[28px] font-black leading-8 text-black">Alerts ({caregiverAlertTotal})</h2>
                     </div>
-                    <span className="text-xl" aria-hidden="true">★★★★★</span>
                   </div>
                   <div className="mt-5 grid gap-3">
                     <PriorityAlertStat
@@ -1450,7 +1442,7 @@ function CaregiverAlerts({
 
                 <div className="rounded-[22px] bg-white p-5 shadow-sm">
                   <h2 className="text-xl font-black text-[#1b1c1c]">{priorityTitle}</h2>
-                  <div className="mt-4 divide-y divide-[#e5e7eb]">
+                  <div className="mt-5 flex flex-col gap-4">
                     {priorityView === 'active' && alertSeniors.length > 0 ? (
                       alertSeniors.map((senior) => (
                         <TodayAlertRow
@@ -1944,10 +1936,15 @@ function ResidentProfileDetails({
   const displayName = getSeniorDetailValue(senior.name);
   const phone = getSeniorDetailValue(senior.phone);
   const email = getSeniorDetailValue(senior.email);
+  const gender = getSeniorDetailValue(senior.gender);
+  const dateOfBirth = getSeniorDetailValue(senior.dateOfBirth);
   const relationship = getSeniorDetailValue(senior.relationship);
   const address = getSeniorDetailValue(senior.address);
   const location = getSeniorDetailValue(senior.location);
-  const status = getSeniorStatus(senior);
+  const bloodType = getSeniorDetailValue(senior.bloodType);
+  const allergies = getSeniorDetailValue(senior.allergies);
+  const medicalConditions = getSeniorDetailValue(senior.medicalConditions);
+  const currentMedication = getSeniorDetailValue(senior.currentMedication);
 
   useEffect(() => {
     setFormValues({
@@ -2047,10 +2044,10 @@ function ResidentProfileDetails({
           <>
             <SeniorDetailSection title={t('basicInformation')} tone="green" icon={<Info className="h-6 w-6" />}>
               <SeniorDetailRow icon={<User className="h-6 w-6" />} label={t('fullName')} value={displayName} />
-              <SeniorDetailRow icon={<Calendar className="h-6 w-6" />} label={t('dateOfBirth')} value="NO" />
+              <SeniorDetailRow icon={<Calendar className="h-6 w-6" />} label={t('dateOfBirth')} value={dateOfBirth} />
+              <SeniorDetailRow icon={<User className="h-6 w-6" />} label={t('gender')} value={gender} />
               <SeniorDetailRow icon={<Handshake className="h-6 w-6" />} label={t('relationship')} value={relationship} />
               <SeniorDetailRow icon={<MapPin className="h-6 w-6" />} label={t('address')} value={address} />
-              <SeniorDetailRow icon={<MapPin className="h-6 w-6" />} label={t('locationZone')} value={location} />
               <SeniorDetailRow icon={<Phone className="h-6 w-6" />} label={t('phoneNumber')} value={phone} />
               <SeniorDetailRow icon={<Mail className="h-6 w-6" />} label={t('email')} value={email} />
             </SeniorDetailSection>
@@ -2062,16 +2059,10 @@ function ResidentProfileDetails({
             </SeniorDetailSection>
 
             <SeniorDetailSection title={t('medicalInformation')} tone="blue" icon={<Pill className="h-6 w-6" />}>
-              <SeniorDetailRow icon={<Heart className="h-6 w-6" />} label={t('bloodType')} value="NO" />
-              <SeniorDetailRow icon={<Shield className="h-6 w-6" />} label={t('allergies')} value="NO" />
-              <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label={t('medicalConditions')} value="NO" />
-              <SeniorDetailRow icon={<Pill className="h-6 w-6" />} label={t('currentMedication')} value="NO" />
-            </SeniorDetailSection>
-
-            <SeniorDetailSection title={t('status')} tone="blue" icon={<CheckCircle className="h-6 w-6" />}>
-              <SeniorDetailRow icon={<Calendar className="h-6 w-6" />} label={t('lastCheckIn')} value={senior.lastCheckIn ? formatDetailDateTime(senior.lastCheckIn) : 'NO'} />
-              <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label={t('pointsLabel')} value={String(senior.points ?? 0)} />
-              <SeniorDetailRow icon={<CheckCircle className="h-6 w-6" />} label={t('currentStatus')} value={getSeniorDetailValue(status)} />
+              <SeniorDetailRow icon={<Heart className="h-6 w-6" />} label={t('bloodType')} value={bloodType} />
+              <SeniorDetailRow icon={<Shield className="h-6 w-6" />} label={t('allergies')} value={allergies} />
+              <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label={t('medicalConditions')} value={medicalConditions} />
+              <SeniorDetailRow icon={<Pill className="h-6 w-6" />} label={t('currentMedication')} value={currentMedication} />
             </SeniorDetailSection>
 
             <button
@@ -2506,6 +2497,12 @@ function SeniorCard({
     ? 'border-[#0b2f57] bg-[#0b2f57] text-white'
     : 'border-[#075fc7] bg-[#075fc7] text-white';
   const alertLabel = isSosAlert ? t('sosTriggered') : isAlert ? t('noCheckInToday') : t('checkedInToday');
+  const seniorDisplayId = getSeniorDisplayId(senior);
+  const displayLocation = location || t('unknown');
+  const medicationTaken = /^taken$/i.test(senior.medicationStatus || '');
+  const medicationValue = medicationTaken
+    ? [t('taken'), senior.medicationTakenAt].filter(Boolean).join('\n')
+    : t('untaken');
   const alertTextClass = isSosAlert
     ? 'rounded-full bg-[#c8171d] px-3 py-2 text-white'
     : isAlert
@@ -2531,7 +2528,7 @@ function SeniorCard({
             aria-label={`Delete ${name}`}
             className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full border border-[#d7dbe0] bg-white text-[#c8171d] shadow-sm transition-colors hover:border-[#c8171d] hover:bg-[#fee2e2] hover:text-[#c8171d] active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:active:scale-100"
           >
-            <X className="h-5 w-5" />
+            <Trash2 className="h-5 w-5" />
           </button>
         )}
 
@@ -2565,7 +2562,7 @@ function SeniorCard({
           aria-label={`Delete ${name}`}
           className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[#d7dbe0] bg-white text-[#c8171d] shadow-sm transition-colors hover:border-[#c8171d] hover:bg-[#fee2e2] hover:text-[#c8171d] active:scale-95 disabled:cursor-wait disabled:opacity-60 disabled:active:scale-100"
         >
-          <X className="h-4 w-4" />
+          <Trash2 className="h-4 w-4" />
         </button>
       )}
       <div className="flex items-start gap-4 pr-9">
@@ -2577,6 +2574,9 @@ function SeniorCard({
           <div className="flex items-start">
             <div className="min-w-0">
               <h3 className="whitespace-normal break-words text-[24px] font-bold leading-7 text-black">{name}</h3>
+              <p className="mt-1 inline-flex max-w-full items-center rounded-full bg-[#f4f6f8] px-2.5 py-1 text-xs font-black uppercase tracking-wide text-[#5f6368]">
+                <span className="truncate">{t('seniorId')}: {seniorDisplayId}</span>
+              </p>
               <p className={`mt-2 inline-flex items-center gap-2 text-base font-bold ${alertTextClass}`}>
                 {isSosAlert ? (
                   <ShieldAlert className="h-5 w-5 flex-shrink-0" />
@@ -2608,7 +2608,7 @@ function SeniorCard({
             <p className="text-base font-black">{t('currentLocation')}</p>
           </div>
           <p className="whitespace-normal break-words text-lg font-bold leading-7 text-black">
-            {location || senior.address || t('unknown')}
+            {displayLocation}
           </p>
         </div>
       )}
@@ -2622,19 +2622,23 @@ function SeniorCard({
       )}
 
       {!isAdminMode && !isSosAlert && (
-        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-y border-[#eef1f4] py-3">
+        <div className="mt-3 border-y border-[#eef1f4] py-3">
           <ResidentInfoTile
             icon={<Pill className="h-6 w-6" />}
-            iconColor={isAlert ? 'text-[#c8171d]' : 'text-[#12b962]'}
+            iconColor={medicationTaken ? 'text-[#12b962]' : 'text-[#c8171d]'}
             label={t('medication')}
-            value={isAlert ? t('missed') : t('taken')}
+            value={medicationValue}
           />
-          <ResidentInfoTile
-            icon={<MapPin className="h-6 w-6" />}
-            iconColor={isAdminMode ? 'text-[#1f4f82]' : 'text-[#075fc7]'}
-            label={t('location')}
-            value={location || t('unknown')}
-          />
+        </div>
+      )}
+
+      {!isAdminMode && !isSosAlert && (
+        <div className="mt-3 rounded-[14px] bg-[#f7f9fb] px-4 py-3">
+          <div className="mb-1 flex items-center gap-2 text-[#075fc7]">
+            <MapPin className="h-5 w-5 flex-shrink-0" />
+            <p className="text-xs font-black uppercase tracking-wide text-[#71717a]">{t('currentLocation')}</p>
+          </div>
+          <p className="whitespace-normal break-words text-sm font-bold leading-5 text-black">{displayLocation}</p>
         </div>
       )}
 
@@ -2714,11 +2718,11 @@ function LastCheckInPanel({
         <p className="text-xs font-black uppercase tracking-wide text-[#71717a]">{t('lastCheckIn')}</p>
         {hasCheckIn ? (
           <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <p className="text-[22px] font-black leading-7 text-black">{time}</p>
+            <p className="text-lg font-black leading-6 text-black">{time}</p>
             <p className="text-sm font-bold leading-5 text-[#5f6368]">{date}</p>
           </div>
         ) : (
-          <p className="mt-1 text-[22px] font-black leading-7 text-black">NO</p>
+          <p className="mt-1 text-lg font-black leading-6 text-black">NO</p>
         )}
       </div>
     </div>

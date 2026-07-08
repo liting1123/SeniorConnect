@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const svgPaths = {
@@ -12,12 +13,14 @@ const svgPaths = {
 export default function HomePage({
   onSOSClick,
   onCheckIn,
+  displayName = '',
   isCheckingIn = false,
   completedCheckIn = null,
   isCurrentCheckInWindowCompleted = false,
 }: {
   onSOSClick?: () => void;
   onCheckIn?: () => void;
+  displayName?: string;
   isCheckingIn?: boolean;
   completedCheckIn?: {
     time: string;
@@ -26,6 +29,20 @@ export default function HomePage({
   isCurrentCheckInWindowCompleted?: boolean;
 }) {
   const { t } = useTranslation();
+  const [now, setNow] = useState(() => new Date());
+  const firstName = useMemo(() => {
+    return displayName.trim().split(/\s+/)[0] || t('senior');
+  }, [displayName, t]);
+  const singaporeHour = Number(new Intl.DateTimeFormat('en-SG', {
+    timeZone: 'Asia/Singapore',
+    hour: '2-digit',
+    hour12: false,
+  }).format(now));
+  const greetingKey = singaporeHour < 12
+    ? 'goodMorning'
+    : singaporeHour < 18
+      ? 'goodAfternoon'
+      : 'goodEvening';
   const completedWindowLabel = completedCheckIn?.windowId === 'morning' ? t('morningCheckIn') : t('eveningCheckIn');
   const completedMessage = completedCheckIn
     ? t('checkInCompletedAt', {
@@ -49,47 +66,32 @@ export default function HomePage({
       ? t('checkInCompleted')
       : t('iAmOk');
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     <div className="bg-white content-stretch flex flex-col items-start relative size-full overflow-y-auto">
-      <div className="bg-[#fbf9f8] relative shrink-0 w-full">
-        <div className="flex flex-row items-center size-full">
-          <div className="content-stretch flex items-center justify-between px-5 py-2 relative size-full min-[390px]:px-6">
-            <div className="content-stretch flex items-center justify-center relative shrink-0 size-9 min-[390px]:size-10">
-              <div className="relative shrink-0 size-[24.375px]">
-                <svg className="absolute block inset-0 size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 24.375 24.375">
-                  <g id="Container">
-                    <path d={svgPaths.pad21740} fill="var(--fill-0, #316342)" id="Symbol" />
-                  </g>
-                </svg>
-              </div>
-            </div>
-
-            <div className="content-stretch flex flex-[1_0_0] flex-col items-center min-w-px relative">
-              <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#316342] text-[36px] text-center whitespace-nowrap min-[390px]:text-[44px]">
-                <p className="leading-10 min-[390px]:leading-[48px]">{t('home')}</p>
-              </div>
-            </div>
-
-            <div className="shrink-0 size-9 min-[390px]:size-10" aria-hidden="true" />
-          </div>
-        </div>
-      </div>
-
       <div className="relative flex-1 w-full">
         <div className="flex min-h-full flex-col items-center">
           <div className="flex min-h-full w-full flex-col px-5 pb-2 min-[390px]:px-6">
-            <div className="content-stretch flex flex-col items-start pb-3 pt-4 relative shrink-0 w-full min-[390px]:pb-4 min-[390px]:pt-5">
-              <div className="content-stretch flex flex-col gap-[8px] items-start relative shrink-0 w-full">
-                <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
-                  <div className="flex flex-col font-['Lexend:SemiBold',sans-serif] font-semibold justify-center leading-[0] relative shrink-0 text-[#1b1c1c] text-[26px] text-center whitespace-nowrap min-[390px]:text-[30px]">
-                    <p className="leading-8 min-[390px]:leading-10">{t('dailyCheckIn')}</p>
-                  </div>
+            <div className="content-stretch flex flex-col items-center pb-4 pt-5 relative shrink-0 w-full min-[390px]:pb-5 min-[390px]:pt-6">
+              <div className="flex w-full flex-col items-center text-center">
+                <h1 className="font-['Lexend:SemiBold',sans-serif] text-[31px] font-semibold leading-9 text-[#243f2d] min-[390px]:text-[36px] min-[390px]:leading-10">
+                  {t(greetingKey)}
+                </h1>
+                <div className="mt-1 flex max-w-full items-center justify-center gap-2">
+                  <p className="break-words font-['Lexend:SemiBold',sans-serif] text-[29px] font-semibold leading-9 text-[#243f2d] min-[390px]:text-[34px] min-[390px]:leading-10">
+                    {firstName}
+                  </p>
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center text-[26px] min-[390px]:h-10 min-[390px]:w-10 min-[390px]:text-[28px]">
+                    {'\u{1F44B}'}
+                  </span>
                 </div>
-                <div className="content-stretch flex flex-col items-center relative shrink-0 w-full">
-                  <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[#414942] text-base text-center whitespace-nowrap min-[390px]:text-lg">
-                    <p className="leading-6 min-[390px]:leading-7">{t('howAreYouToday')}</p>
-                  </div>
-                </div>
+                <p className="mt-2 font-['Lexend:Regular',sans-serif] text-[17px] leading-6 text-[#5f6b62] min-[390px]:text-[19px]">
+                  {t('howAreYouFeelingToday')}
+                </p>
               </div>
             </div>
 
@@ -124,15 +126,15 @@ export default function HomePage({
               </button>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-start pt-6 pb-0 w-full min-[390px]:pt-7">
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-start pt-5 pb-1 w-full min-[390px]:pt-6">
               <div className="content-stretch flex items-center justify-center relative shrink-0 w-full">
                 <button
                   onClick={onSOSClick}
-                  className="bg-[#ba1a1a] content-stretch flex flex-col items-center justify-center relative rounded-[9999px] shrink-0 size-[clamp(260px,72vw,300px)] active:scale-95 transition-transform min-[390px]:size-[clamp(292px,76vw,332px)]"
+                  className="bg-[#ba1a1a] content-stretch flex flex-col items-center justify-center relative rounded-[9999px] shrink-0 size-[clamp(276px,78vw,324px)] active:scale-95 transition-transform min-[390px]:size-[clamp(306px,82vw,360px)]"
                 >
                   <div className="-translate-x-1/2 -translate-y-1/2 absolute bg-[rgba(255,255,255,0)] left-1/2 rounded-[9999px] shadow-[0px_10px_15px_-3px_rgba(0,0,0,0.1),0px_4px_6px_-4px_rgba(0,0,0,0.1)] size-full top-1/2" />
 
-                  <div className="content-stretch flex flex-col h-[120px] items-start pb-[8px] relative shrink-0 w-[112px] scale-90 min-[390px]:scale-110">
+                  <div className="content-stretch flex flex-col h-[120px] items-start pb-[8px] relative shrink-0 w-[112px] scale-95 min-[390px]:scale-115">
                     <div className="relative shrink-0 size-[112px]">
                       <div className="absolute bg-white bottom-0 h-[16px] left-0 right-0 rounded-[6px]" />
                       <div className="-translate-x-1/2 absolute bg-white bottom-[16px] h-[40px] left-1/2 rounded-tl-[9999px] rounded-tr-[9999px] w-[48px]" />
@@ -152,8 +154,8 @@ export default function HomePage({
 
                   <div className="content-stretch flex flex-col items-start pt-[4px] relative shrink-0 min-[390px]:pt-[8px]">
                     <div className="content-stretch drop-shadow-[0px_2px_1px_rgba(0,0,0,0.06),0px_4px_1.5px_rgba(0,0,0,0.07)] flex flex-col items-center relative shrink-0">
-                      <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[48px] text-center text-white tracking-[4.8px] whitespace-nowrap min-[390px]:text-[58px] min-[390px]:tracking-[5.6px]">
-                        <p className="leading-[60px] min-[390px]:leading-[76px]">{t('sosButton')}</p>
+                      <div className="flex flex-col font-['Lexend:Regular',sans-serif] font-normal justify-center leading-[0] relative shrink-0 text-[52px] text-center text-white tracking-[5px] whitespace-nowrap min-[390px]:text-[60px] min-[390px]:tracking-[5.8px]">
+                        <p className="leading-[64px] min-[390px]:leading-[76px]">{t('sosButton')}</p>
                       </div>
                     </div>
                   </div>

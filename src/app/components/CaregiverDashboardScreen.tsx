@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getStoredUser } from '../services/backend';
 
 const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
@@ -113,9 +114,10 @@ export default function CaregiverDashboardScreen({
   onLogout: () => void;
   alertsLabel?: string;
 }) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'alerts' | 'profile'>('dashboard');
   const currentUser = getStoredUser();
-  const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Caregiver';
+  const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || t('caregiver');
   const caregiverId = currentUser?.uid || '';
   const caregiverEmail = currentUser?.email || '';
   const [seniors, setSeniors] = useState<Senior[]>([]);
@@ -536,6 +538,8 @@ export default function CaregiverDashboardScreen({
   const canDeleteSenior = true;
   const isAdminMode = loadMode === 'admin';
   const dashboardSurfaceClass = isAdminMode ? 'bg-[#eef3fb]' : 'bg-[#f4f6f8]';
+  const dashboardTabLabel = dashboardLabel === 'Dashboard' ? t('dashboard') : dashboardLabel;
+  const alertsTabLabel = alertsLabel === 'Alerts' ? t('alerts') : alertsLabel;
 
   return (
     <div className={`h-full overflow-y-auto ${dashboardSurfaceClass} pb-24 text-[#101418]`}>
@@ -569,7 +573,7 @@ export default function CaregiverDashboardScreen({
         )}
         {!selectedSenior && activeTab === 'alerts' && (
           <CaregiverAlerts
-            alertsLabel={alertsLabel}
+            alertsLabel={alertsTabLabel}
             seniors={seniors}
             sosHistory={sosHistory}
             resolvingAlertIds={resolvingAlertIds}
@@ -599,42 +603,42 @@ export default function CaregiverDashboardScreen({
                 <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
                   <Plus className="h-6 w-6" />
                 </div>
-                <h2 className="text-xl font-black leading-7 text-[#151515]">Add a Senior</h2>
+                <h2 className="text-xl font-black leading-7 text-[#151515]">{t('addSenior')}</h2>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAddSenior(false)}
                 className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eef2ee] text-[#416642] active:scale-95"
-                aria-label="Close add senior"
+                aria-label={t('closeAddSenior')}
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <label className="mt-5 block">
-              <span className="mb-2 block text-base font-bold text-[#111827]">Senior ID</span>
+              <span className="mb-2 block text-base font-bold text-[#111827]">{t('seniorId')}</span>
               <input
                 value={addSeniorId}
                 onChange={(event) => {
                   setAddSeniorId(event.target.value);
                   setAddSeniorError('');
                 }}
-                placeholder="Enter Senior ID"
+                placeholder={t('enterSeniorId')}
                 className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-lg font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
               />
             </label>
 
             <label className="mt-4 block">
-              <span className="mb-2 block text-base font-bold text-[#111827]">Relationship</span>
+              <span className="mb-2 block text-base font-bold text-[#111827]">{t('relationship')}</span>
               <select
                 value={addSeniorRelationship}
                 onChange={(event) => setAddSeniorRelationship(event.target.value)}
                 className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-lg font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
               >
-                <option value="caregiver">Caregiver</option>
-                <option value="children">Children</option>
-                <option value="volunteer">Volunteer</option>
-                <option value="NOK">Next-of-Kin</option>
+                <option value="caregiver">{t('caregiver')}</option>
+                <option value="children">{t('children')}</option>
+                <option value="volunteer">{t('volunteer')}</option>
+                <option value="NOK">{t('nextOfKin')}</option>
               </select>
             </label>
 
@@ -650,7 +654,7 @@ export default function CaregiverDashboardScreen({
               className="mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-full bg-[#416642] text-lg font-black text-white active:scale-95 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
             >
               <Plus className="h-5 w-5" />
-              {isAddingSenior ? 'Adding...' : 'Add Senior'}
+              {isAddingSenior ? t('adding') : t('addSenior')}
             </button>
           </form>
         </div>
@@ -660,7 +664,7 @@ export default function CaregiverDashboardScreen({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
           <div className="w-full max-w-[360px] rounded-[24px] bg-white p-5 shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
             <p className="text-xl font-black leading-7 text-[#151515]">
-              Do you want to delete "{seniorPendingDelete.name || 'Senior'}"?
+              {t('deleteSeniorConfirm', { name: seniorPendingDelete.name || t('senior') })}
             </p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
@@ -669,7 +673,7 @@ export default function CaregiverDashboardScreen({
                 disabled={deletingSeniorIds.includes(loadMode === 'admin' ? seniorPendingDelete.id : seniorPendingDelete.connectionId || '')}
                 className="flex h-12 items-center justify-center rounded-[10px] bg-[#c8171d] text-base font-black text-white active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
               >
-                Yes
+                {t('yes')}
               </button>
               <button
                 type="button"
@@ -677,7 +681,7 @@ export default function CaregiverDashboardScreen({
                 disabled={deletingSeniorIds.includes(loadMode === 'admin' ? seniorPendingDelete.id : seniorPendingDelete.connectionId || '')}
                 className="flex h-12 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-base font-black text-[#30343a] active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
               >
-                No
+                {t('no')}
               </button>
             </div>
           </div>
@@ -689,7 +693,7 @@ export default function CaregiverDashboardScreen({
           active={activeTab === 'dashboard'}
           icon={<LayoutDashboard className="h-6 w-6" />}
           isAdminMode={isAdminMode}
-          label={dashboardLabel}
+          label={dashboardTabLabel}
           onClick={() => {
             setSelectedSenior(null);
             setActiveTab('dashboard');
@@ -699,7 +703,7 @@ export default function CaregiverDashboardScreen({
           active={activeTab === 'alerts'}
           icon={<TriangleAlert className="h-6 w-6" />}
           isAdminMode={isAdminMode}
-          label={alertsLabel}
+          label={alertsTabLabel}
           hasAlert={alertCount > 0}
           onClick={() => {
             setSelectedSenior(null);
@@ -710,7 +714,7 @@ export default function CaregiverDashboardScreen({
           active={activeTab === 'profile'}
           icon={<User className="h-6 w-6" />}
           isAdminMode={isAdminMode}
-          label="Profile"
+          label={t('profile')}
           onClick={() => {
             setSelectedSenior(null);
             setActiveTab('profile');
@@ -984,6 +988,7 @@ function CaregiverDashboardHome({
   canDeleteSenior: boolean;
   isAdminMode: boolean;
 }) {
+  const { t } = useTranslation();
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn));
@@ -1013,9 +1018,9 @@ function CaregiverDashboardHome({
     <div className="flex flex-col gap-6">
       <section className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-[30px] font-bold leading-9 text-black">Seniors</h2>
+          <h2 className="text-[30px] font-bold leading-9 text-black">{t('seniors')}</h2>
           <p className="mt-1 text-base font-bold text-[#71717a]">
-            {seniors.length} Residents Active
+            {t('residentsActive', { count: seniors.length })}
           </p>
         </div>
         {canAddSenior && (
@@ -1025,7 +1030,7 @@ function CaregiverDashboardHome({
             className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-[#416642] px-5 text-lg font-black text-white shadow-sm active:scale-95"
           >
             <Plus className="h-6 w-6" />
-            Add a Senior
+            {t('addSenior')}
           </button>
         )}
       </section>
@@ -1036,14 +1041,14 @@ function CaregiverDashboardHome({
             <input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search by ID or name"
+              placeholder={t('searchByIdOrName')}
               className="min-w-0 flex-1 bg-transparent text-base font-bold text-[#111827] outline-none placeholder:text-[#71717a]"
             />
             {searchInput && (
               <button
                 type="button"
                 onClick={clearSearch}
-                aria-label="Clear search"
+                aria-label={t('close')}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#71717a] active:bg-gray-200"
               >
                 <X className="h-4 w-4" />
@@ -1056,19 +1061,19 @@ function CaregiverDashboardHome({
               isAdminMode ? 'bg-[#0b2f57]' : 'bg-[#416642]'
             }`}
           >
-            Search
+            {t('search')}
           </button>
         </div>
         {activeSearch && (
           <p className="mt-2 px-1 text-sm font-bold text-[#71717a]">
-            Showing {visibleSeniors.length} of {featuredSeniors.length} for "{activeSearch}"
+            {t('showingSearchResults', { visible: visibleSeniors.length, total: featuredSeniors.length, query: activeSearch })}
           </p>
         )}
       </form>
       <section className="flex flex-col gap-5">
         {isLoading ? (
           <p className="rounded-[18px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-            Loading seniors from ServiceNow...
+            {t('loadingSeniors')}
           </p>
         ) : error ? (
           <p className="rounded-[18px] bg-red-50 p-5 text-base font-semibold text-red-700">{error}</p>
@@ -1091,9 +1096,9 @@ function CaregiverDashboardHome({
           ))
         ) : (
           <div className="rounded-[18px] border border-[#d8dbe0] bg-white p-6 text-center shadow-sm">
-            <p className="text-lg font-bold text-[#30343a]">{activeSearch ? 'No matching seniors found.' : emptyMessage || 'No seniors found for this caregiver account.'}</p>
+            <p className="text-lg font-bold text-[#30343a]">{activeSearch ? t('noMatchingSeniorsFound') : emptyMessage || t('noSeniorsForCaregiver')}</p>
             <p className="mt-2 text-sm font-semibold leading-5 text-[#71717a]">
-              {activeSearch ? 'Try another Senior ID or name.' : emptyMessage ? 'Senior records will appear here after they are added in ServiceNow.' : `${caregiverName} is not linked to a resident profile yet.`}
+              {activeSearch ? t('tryAnotherSeniorSearch') : emptyMessage ? t('seniorRecordsAppear') : t('caregiverNotLinked', { name: caregiverName })}
             </p>
           </div>
         )}
@@ -1119,6 +1124,7 @@ function CaregiverAlerts({
   isAdminMode: boolean;
   onResolveAlert: (senior: Senior) => void;
 }) {
+  const { t } = useTranslation();
   const [historyView, setHistoryView] = useState<'pending' | 'resolved'>('pending');
   const [priorityView, setPriorityView] = useState<'active' | 'pending' | 'resolved'>('active');
   const [selectedHistorySeniorId, setSelectedHistorySeniorId] = useState<string | null>(null);
@@ -1148,10 +1154,10 @@ function CaregiverAlerts({
   const pendingAlertGroups = groupSosAlertsBySenior(pendingSosHistory, 'pending');
   const resolvedAlertGroups = groupSosAlertsBySenior(resolvedSosHistory, 'resolved');
   const priorityTitle = priorityView === 'active'
-    ? "Today's Alerts"
+    ? t('todaysAlerts')
     : priorityView === 'pending'
-      ? 'Pending Alerts'
-      : 'Resolved Alerts';
+      ? `${t('pending')} ${t('alerts')}`
+      : `${t('resolved')} ${t('alerts')}`;
 
   useEffect(() => {
     if (selectedHistorySeniorId && !seniors.some((senior) => senior.id === selectedHistorySeniorId)) {
@@ -1177,7 +1183,7 @@ function CaregiverAlerts({
       <section className="flex items-center justify-between gap-4">
         <h2 className="text-[30px] font-bold leading-9 text-black">{alertsLabel}</h2>
         <p className="shrink-0 text-right text-base font-bold text-[#71717a]">
-          {isAdminMode ? seniors.length : caregiverAlertTotal} Total
+          {isAdminMode ? seniors.length : caregiverAlertTotal} {t('total')}
         </p>
       </section>
 
@@ -1191,13 +1197,13 @@ function CaregiverAlerts({
                     type="button"
                     onClick={() => setSelectedHistorySeniorId(null)}
                     className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#0b2f57] shadow-sm transition-colors active:bg-[#dfeaf8]"
-                    aria-label="Back to seniors"
+                    aria-label={t('backToSeniors')}
                   >
                     <ArrowLeft className="h-6 w-6" />
                   </button>
                   <div className="min-w-0">
                     <h2 className="truncate text-2xl font-bold text-[#1b1c1c]">{selectedHistorySenior.name}</h2>
-                    <p className="text-sm font-bold text-[#5f6872]">{selectedSeniorAlertCount} Alerts</p>
+                    <p className="text-sm font-bold text-[#5f6872]">{selectedSeniorAlertCount} {t('alerts')}</p>
                   </div>
                 </div>
 
@@ -1211,7 +1217,7 @@ function CaregiverAlerts({
                         : 'text-[#713700]'
                     }`}
                   >
-                    Pending
+                    {t('pending')}
                   </button>
                   <button
                     type="button"
@@ -1222,7 +1228,7 @@ function CaregiverAlerts({
                         : 'text-[#124f25]'
                     }`}
                   >
-                    Resolved
+                    {t('resolved')}
                   </button>
                 </div>
 
@@ -1233,7 +1239,7 @@ function CaregiverAlerts({
                         key={senior.id}
                         kind={/sos|urgent/i.test(senior.status || '') ? 'sos' : 'missed'}
                         title={senior.name}
-                        label={senior.status || 'Needs Attention'}
+                        label={senior.status || t('reviewLatestStatus')}
                         location={senior.location}
                         message={senior.alertMessage}
                         phone={senior.phone}
@@ -1248,41 +1254,41 @@ function CaregiverAlerts({
                       <AlertHistoryItem
                         key={alert.id}
                         name={alert.seniorName}
-                        time={formatAlertTime(alert.alertTime) || 'Pending'}
+                        time={formatAlertTime(alert.alertTime) || t('pending')}
                         date={formatAlertDate(alert.alertTime)}
-                        message={alert.message || alert.status || 'SOS alert pending'}
+                        message={alert.message || alert.status || t('sosActive')}
                         location={alert.location}
-                        statusLabel={alert.status || 'Pending'}
+                        statusLabel={alert.status || t('pending')}
                         variant="pending"
                       />
                     ))}
                   </>
                 ) : isPendingView ? (
                   <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-                    No pending SOS alerts for {selectedHistorySenior.name}.
+                    {t('noPendingSosAlertsFor', { name: selectedHistorySenior.name })}
                   </p>
                 ) : selectedSeniorResolvedHistory.length > 0 ? (
                   selectedSeniorResolvedHistory.map((alert) => (
                     <AlertHistoryItem
                       key={alert.id}
                       name={alert.seniorName}
-                      time={formatAlertTime(alert.alertTime) || formatAlertTime(alert.resolvedAt) || 'Resolved'}
+                      time={formatAlertTime(alert.alertTime) || formatAlertTime(alert.resolvedAt) || t('resolved')}
                       date={formatAlertDate(alert.alertTime) || formatAlertDate(alert.resolvedAt)}
-                      message={alert.message || `${alert.status || 'Resolved'} SOS alert`}
+                      message={alert.message || `${alert.status || t('resolved')} SOS`}
                       location={alert.location}
-                      statusLabel={alert.status || 'Resolved'}
+                      statusLabel={alert.status || t('resolved')}
                       variant="resolved"
                     />
                   ))
                 ) : (
                   <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-                    No resolved SOS alerts for {selectedHistorySenior.name}.
+                    {t('noResolvedSosAlertsFor', { name: selectedHistorySenior.name })}
                   </p>
                 )}
               </>
             ) : seniors.length > 0 ? (
               <>
-                <h2 className="text-2xl font-bold text-[#1b1c1c]">Seniors</h2>
+                <h2 className="text-2xl font-bold text-[#1b1c1c]">{t('seniors')}</h2>
                 {seniors.map((senior) => {
                   const activeCount = isAlertStatus(senior.status, senior) ? 1 : 0;
                   const historyCount = filteredSosHistory.filter((alert) => seniorNamesMatch(alert.seniorName, senior.name)).length;
@@ -1300,7 +1306,7 @@ function CaregiverAlerts({
                     >
                       <div className="min-w-0">
                         <p className="truncate text-lg font-bold text-[#1b1c1c]">{senior.name}</p>
-                        <p className="mt-1 text-sm font-bold text-[#5f6872]">{alertCount} Alerts</p>
+                        <p className="mt-1 text-sm font-bold text-[#5f6872]">{alertCount} {t('alerts')}</p>
                       </div>
                       <ChevronRight className="h-6 w-6 flex-shrink-0 text-[#0b2f57]" />
                     </button>
@@ -1309,7 +1315,7 @@ function CaregiverAlerts({
               </>
             ) : (
               <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-                No seniors found.
+                {t('noSeniorsFound')}
               </p>
             )}
           </>
@@ -1322,13 +1328,13 @@ function CaregiverAlerts({
                     type="button"
                     onClick={closeSeniorHistory}
                     className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-white text-[#416642] shadow-sm transition-colors active:bg-[#e7f3e8]"
-                    aria-label="Back to priority dashboard"
+                    aria-label={t('backToPriorityDashboard')}
                   >
                     <ArrowLeft className="h-6 w-6" />
                   </button>
                   <div className="min-w-0">
                     <h2 className="truncate text-2xl font-bold text-[#1b1c1c]">{selectedHistoryName}</h2>
-                    <p className="text-sm font-bold text-[#5f6872]">{selectedSeniorAlertCount} Alerts</p>
+                    <p className="text-sm font-bold text-[#5f6872]">{selectedSeniorAlertCount} {t('alerts')}</p>
                   </div>
                 </div>
 
@@ -1342,7 +1348,7 @@ function CaregiverAlerts({
                         : 'text-[#713700]'
                     }`}
                   >
-                    Pending
+                    {t('pending')}
                   </button>
                   <button
                     type="button"
@@ -1353,7 +1359,7 @@ function CaregiverAlerts({
                         : 'text-[#124f25]'
                     }`}
                   >
-                    Resolved
+                    {t('resolved')}
                   </button>
                 </div>
 
@@ -1363,11 +1369,11 @@ function CaregiverAlerts({
                       <AlertHistoryItem
                         key={senior.id}
                         name={senior.name}
-                        time={formatAlertTime(senior.alertTime) || 'Active'}
+                        time={formatAlertTime(senior.alertTime) || t('active')}
                         date={formatAlertDate(senior.alertTime)}
-                        message={senior.alertMessage || 'SOS alert triggered'}
+                        message={senior.alertMessage || t('emergencySosTriggered')}
                         location={senior.location}
-                        statusLabel={senior.status || 'SOS Active'}
+                        statusLabel={senior.status || t('sosActive')}
                         variant="pending"
                       />
                     ))}
@@ -1375,35 +1381,35 @@ function CaregiverAlerts({
                       <AlertHistoryItem
                         key={alert.id}
                         name={alert.seniorName}
-                        time={formatAlertTime(alert.alertTime) || 'Pending'}
+                        time={formatAlertTime(alert.alertTime) || t('pending')}
                         date={formatAlertDate(alert.alertTime)}
-                        message={alert.message || alert.status || 'SOS alert pending'}
+                        message={alert.message || alert.status || t('sosActive')}
                         location={alert.location}
-                        statusLabel={alert.status || 'Pending'}
+                        statusLabel={alert.status || t('pending')}
                         variant="pending"
                       />
                     ))}
                   </>
                 ) : isPendingView ? (
                   <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-                    No pending SOS alerts for {selectedHistoryName}.
+                    {t('noPendingSosAlertsFor', { name: selectedHistoryName })}
                   </p>
                 ) : selectedSeniorResolvedHistory.length > 0 ? (
                   selectedSeniorResolvedHistory.map((alert) => (
                     <AlertHistoryItem
                       key={alert.id}
                       name={alert.seniorName}
-                      time={formatAlertTime(alert.alertTime) || formatAlertTime(alert.resolvedAt) || 'Resolved'}
+                      time={formatAlertTime(alert.alertTime) || formatAlertTime(alert.resolvedAt) || t('resolved')}
                       date={formatAlertDate(alert.alertTime) || formatAlertDate(alert.resolvedAt)}
-                      message={alert.message || `${alert.status || 'Resolved'} SOS alert`}
+                      message={alert.message || `${alert.status || t('resolved')} SOS`}
                       location={alert.location}
-                      statusLabel={alert.status || 'Resolved'}
+                      statusLabel={alert.status || t('resolved')}
                       variant="resolved"
                     />
                   ))
                 ) : (
                   <p className="rounded-[28px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
-                    No resolved SOS alerts for {selectedHistoryName}.
+                    {t('noResolvedSosAlertsFor', { name: selectedHistoryName })}
                   </p>
                 )}
               </>
@@ -1412,7 +1418,7 @@ function CaregiverAlerts({
                 <div className="rounded-[22px] bg-white p-5 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">Priority Dashboard</p>
+                      <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{t('priorityDashboard')}</p>
                       <h2 className="mt-1 text-[28px] font-black leading-8 text-black">Alerts ({caregiverAlertTotal})</h2>
                     </div>
                     <span className="text-xl" aria-hidden="true">★★★★★</span>
@@ -1421,21 +1427,21 @@ function CaregiverAlerts({
                     <PriorityAlertStat
                       active={priorityView === 'active'}
                       colorClass="bg-[#c8171d]"
-                      label="Active"
+                      label={t('active')}
                       onClick={() => setPriorityView('active')}
                       value={alertSeniors.length}
                     />
                     <PriorityAlertStat
                       active={priorityView === 'pending'}
                       colorClass="bg-[#954a00]"
-                      label="Pending"
+                      label={t('pending')}
                       onClick={() => setPriorityView('pending')}
                       value={pendingSosHistory.length}
                     />
                     <PriorityAlertStat
                       active={priorityView === 'resolved'}
                       colorClass="bg-[#18833b]"
-                      label="Resolved"
+                      label={t('resolved')}
                       onClick={() => setPriorityView('resolved')}
                       value={resolvedSosHistory.length}
                     />
@@ -1452,8 +1458,8 @@ function CaregiverAlerts({
                           isResolving={senior.alertId ? resolvingAlertIds.includes(senior.alertId) : false}
                           name={senior.name}
                           phone={senior.phone}
-                          status={senior.status || 'SOS Active'}
-                          time={formatAlertTime(senior.alertTime) || 'Active'}
+                          status={senior.status || t('sosActive')}
+                          time={formatAlertTime(senior.alertTime) || t('active')}
                           onResolve={() => onResolveAlert(senior)}
                           onViewHistory={() => {
                             openSeniorHistory(senior.name, 'pending');
@@ -1479,10 +1485,10 @@ function CaregiverAlerts({
                     ) : (
                       <p className="py-5 text-base font-semibold text-[#71717a]">
                         {priorityView === 'active'
-                          ? 'No active alerts today.'
+                          ? t('noActiveAlertsToday')
                           : priorityView === 'pending'
-                            ? 'No pending SOS alerts.'
-                            : 'No resolved SOS alerts yet.'}
+                            ? t('noPendingSosAlerts')
+                            : t('noResolvedSosAlertsYet')}
                       </p>
                     )}
                   </div>
@@ -1521,6 +1527,7 @@ function AlertCard({
   isResolving: boolean;
   onResolve: () => void;
 }) {
+  const { t } = useTranslation();
   const isSos = kind === 'sos';
   const phoneHref = getPhoneHref(phone || '');
   const directionsHref = getDirectionsHref(location || message || '');
@@ -1559,7 +1566,7 @@ function AlertCard({
         <>
           <div className="mb-3 flex items-center gap-2 rounded-2xl bg-white/10 p-3">
             <MapPin className="h-5 w-5 flex-shrink-0 text-[#ffdad7]" />
-            <span className="whitespace-normal break-words text-base font-semibold leading-6 text-[#ffdad7]">{location || message || 'Location details unavailable'}</span>
+            <span className="whitespace-normal break-words text-base font-semibold leading-6 text-[#ffdad7]">{location || message || t('locationDetailsUnavailable')}</span>
           </div>
 
           {mapEmbedSrc && (
@@ -1577,7 +1584,7 @@ function AlertCard({
       ) : (
         <div className="mb-5 flex items-center gap-2">
           <Info className="h-5 w-5 flex-shrink-0 text-[#954a00]" />
-          <p className="text-base font-semibold text-[#301400]">Review this senior's latest status.</p>
+          <p className="text-base font-semibold text-[#301400]">{t('reviewLatestStatus')}</p>
         </div>
       )}
 
@@ -1585,12 +1592,12 @@ function AlertCard({
         <AlertActionButton
           href={phoneHref}
           icon={<Phone className="h-5 w-5" />}
-          label="Call"
+          label={t('call')}
           variant={isSos ? 'light' : 'warning'}
         />
         <AlertActionButton
           icon={<CheckCircle className="h-5 w-5" />}
-          label={isResolving ? 'Resolving' : 'Resolve'}
+          label={isResolving ? t('resolving') : t('resolve')}
           variant={isResolving ? 'success' : isSos ? 'danger' : 'light'}
           disabled={isResolving}
           onClick={onResolve}
@@ -1605,7 +1612,7 @@ function AlertCard({
           className="mt-3 flex h-12 items-center justify-center gap-2 rounded-full bg-white text-[#831318] text-base font-bold shadow-sm transition-transform active:scale-95"
         >
           <MapPin className="h-5 w-5" />
-          <span>Get Directions</span>
+          <span>{t('getDirections')}</span>
         </a>
       )}
     </div>
@@ -1657,6 +1664,7 @@ function TodayAlertRow({
   status: string;
   time: string;
 }) {
+  const { t } = useTranslation();
   const phoneHref = getPhoneHref(phone || '');
 
   return (
@@ -1666,11 +1674,11 @@ function TodayAlertRow({
           <div className="min-w-0">
             <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-[#c8171d] px-3 py-1 text-xs font-black uppercase tracking-wide text-white">
               <ShieldAlert className="h-4 w-4" />
-              Active
+              {t('active')}
             </div>
             <p className="truncate text-xl font-black text-[#1b1c1c]">{name}</p>
-            <p className="mt-1 text-base font-black text-[#c8171d]">{status || 'SOS Active'}</p>
-            <p className="mt-1 text-sm font-bold text-[#8f1015]">Emergency SOS triggered</p>
+            <p className="mt-1 text-base font-black text-[#c8171d]">{status || t('sosActive')}</p>
+            <p className="mt-1 text-sm font-bold text-[#8f1015]">{t('emergencySosTriggered')}</p>
           </div>
           <p className="flex-shrink-0 rounded-full bg-white px-3 py-1 text-sm font-black text-[#c8171d] shadow-sm">{time}</p>
         </div>
@@ -1685,7 +1693,7 @@ function TodayAlertRow({
             }`}
           >
             <Phone className="h-4 w-4" />
-            Call
+            {t('call')}
           </a>
           <button
             type="button"
@@ -1694,7 +1702,7 @@ function TodayAlertRow({
             className="flex h-11 items-center justify-center gap-2 rounded-[10px] bg-[#c8171d] text-sm font-black uppercase text-white active:scale-95 disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
           >
             <CheckCircle className="h-4 w-4" />
-            {isResolving ? 'Resolving' : 'Resolve'}
+            {isResolving ? t('resolving') : t('resolve')}
           </button>
         </div>
         <button
@@ -1702,7 +1710,7 @@ function TodayAlertRow({
           onClick={onViewHistory}
           className="mt-3 inline-flex items-center text-sm font-black text-[#8f1015] active:scale-95"
         >
-          <span>View History</span>
+          <span>{t('viewHistory')}</span>
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
@@ -1866,9 +1874,10 @@ function AlertHistoryItem({
   message: string;
   variant?: 'pending' | 'resolved';
 }) {
+  const { t } = useTranslation();
   const isPending = variant === 'pending';
   const directionsHref = getDirectionsHref(location || '');
-  const statusText = statusLabel || (isPending ? 'SOS Active' : 'Resolved');
+  const statusText = statusLabel || (isPending ? t('sosActive') : t('resolved'));
 
   return (
     <div className={`rounded-[28px] p-4 shadow-sm min-[390px]:rounded-[32px] ${isPending ? 'bg-[#fff2e8]' : 'bg-[#e9f6ed]'}`}>
@@ -1891,7 +1900,7 @@ function AlertHistoryItem({
           {date && <span className={`mt-1 text-xs font-bold ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}>{date}</span>}
         </div>
       </div>
-      <p className={`mt-3 text-sm font-semibold leading-5 ${isPending ? 'text-[#301400]' : 'text-[#1d5031]'}`}>{message || 'SOS alert triggered'}</p>
+      <p className={`mt-3 text-sm font-semibold leading-5 ${isPending ? 'text-[#301400]' : 'text-[#1d5031]'}`}>{message || t('sosAlertTriggered')}</p>
       {location && (
         <div className={`mt-3 flex items-start gap-2 ${isPending ? 'text-[#713700]' : 'text-[#2e6f42]'}`}>
           <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -1905,7 +1914,7 @@ function AlertHistoryItem({
           rel="noreferrer"
           className={`mt-3 inline-flex items-center text-sm font-black ${isPending ? 'text-[#954a00]' : 'text-[#18833b]'}`}
         >
-          <span>Open Directions</span>
+          <span>{t('openDirections')}</span>
           <ChevronRight className="h-4 w-4" />
         </a>
       )}
@@ -1922,6 +1931,7 @@ function ResidentProfileDetails({
   onBack: () => void;
   onSave: (senior: Senior, details: SeniorDetailsInput) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formValues, setFormValues] = useState<SeniorDetailsInput>({
@@ -1988,11 +1998,11 @@ function ResidentProfileDetails({
           type="button"
           onClick={onBack}
           className="flex h-11 w-11 items-center justify-center rounded-full text-[#075fc7] active:bg-blue-50"
-          aria-label="Back to dashboard"
+          aria-label={t('backToDashboard')}
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <h1 className="truncate text-2xl font-bold text-black">Senior Details</h1>
+        <h1 className="truncate text-2xl font-bold text-black">{t('seniorDetails')}</h1>
       </div>
 
       <section className="px-5 pt-5">
@@ -2017,12 +2027,12 @@ function ResidentProfileDetails({
       <section className="mt-5 space-y-5 px-5">
         {isEditing ? (
           <div className="rounded-[10px] bg-white p-5 shadow-sm">
-            <h3 className="mb-4 text-lg font-black uppercase tracking-wide text-[#3d8508]">Edit Information</h3>
-            <SeniorDetailField label="Full Name" value={formValues.name} onChange={(value) => updateFormValue('name', value)} />
-            <SeniorDetailField label="Address" value={formValues.address} onChange={(value) => updateFormValue('address', value)} />
-            <SeniorDetailField label="Location Zone" value={formValues.location} onChange={(value) => updateFormValue('location', value)} />
-            <SeniorDetailField label="Phone Number" value={formValues.phone} onChange={(value) => updateFormValue('phone', value)} type="tel" />
-            <SeniorDetailField label="Email" value={formValues.email} onChange={(value) => updateFormValue('email', value)} type="email" />
+            <h3 className="mb-4 text-lg font-black uppercase tracking-wide text-[#3d8508]">{t('editInformation')}</h3>
+            <SeniorDetailField label={t('fullName')} value={formValues.name} onChange={(value) => updateFormValue('name', value)} />
+            <SeniorDetailField label={t('address')} value={formValues.address} onChange={(value) => updateFormValue('address', value)} />
+            <SeniorDetailField label={t('locationZone')} value={formValues.location} onChange={(value) => updateFormValue('location', value)} />
+            <SeniorDetailField label={t('phoneNumber')} value={formValues.phone} onChange={(value) => updateFormValue('phone', value)} type="tel" />
+            <SeniorDetailField label={t('email')} value={formValues.email} onChange={(value) => updateFormValue('email', value)} type="email" />
             <button
               type="button"
               disabled={isSaving}
@@ -2030,38 +2040,38 @@ function ResidentProfileDetails({
               className="mt-5 flex h-14 w-full items-center justify-center gap-3 rounded-[10px] bg-[#4b8508] text-lg font-bold text-white shadow-sm active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100"
             >
               <Pencil className="h-5 w-5" />
-              {isSaving ? 'Saving...' : 'Save Information'}
+              {isSaving ? t('saving') : t('saveInformation')}
             </button>
           </div>
         ) : (
           <>
-            <SeniorDetailSection title="Basic Information" tone="green" icon={<Info className="h-6 w-6" />}>
-              <SeniorDetailRow icon={<User className="h-6 w-6" />} label="Full Name" value={displayName} />
-              <SeniorDetailRow icon={<Calendar className="h-6 w-6" />} label="Date of Birth" value="NO" />
-              <SeniorDetailRow icon={<Handshake className="h-6 w-6" />} label="Relationship" value={relationship} />
-              <SeniorDetailRow icon={<MapPin className="h-6 w-6" />} label="Address" value={address} />
-              <SeniorDetailRow icon={<MapPin className="h-6 w-6" />} label="Location Zone" value={location} />
-              <SeniorDetailRow icon={<Phone className="h-6 w-6" />} label="Phone Number" value={phone} />
-              <SeniorDetailRow icon={<Mail className="h-6 w-6" />} label="Email" value={email} />
+            <SeniorDetailSection title={t('basicInformation')} tone="green" icon={<Info className="h-6 w-6" />}>
+              <SeniorDetailRow icon={<User className="h-6 w-6" />} label={t('fullName')} value={displayName} />
+              <SeniorDetailRow icon={<Calendar className="h-6 w-6" />} label={t('dateOfBirth')} value="NO" />
+              <SeniorDetailRow icon={<Handshake className="h-6 w-6" />} label={t('relationship')} value={relationship} />
+              <SeniorDetailRow icon={<MapPin className="h-6 w-6" />} label={t('address')} value={address} />
+              <SeniorDetailRow icon={<MapPin className="h-6 w-6" />} label={t('locationZone')} value={location} />
+              <SeniorDetailRow icon={<Phone className="h-6 w-6" />} label={t('phoneNumber')} value={phone} />
+              <SeniorDetailRow icon={<Mail className="h-6 w-6" />} label={t('email')} value={email} />
             </SeniorDetailSection>
 
-            <SeniorDetailSection title="Emergency Contact" tone="red" icon={<ShieldAlert className="h-6 w-6" />}>
-              <SeniorDetailRow icon={<User className="h-6 w-6" />} label="Contact Name" value="NO" />
-              <SeniorDetailRow icon={<Phone className="h-6 w-6" />} label="Contact Phone" value="NO" />
-              <SeniorDetailRow icon={<Handshake className="h-6 w-6" />} label="Relationship" value={relationship} />
+            <SeniorDetailSection title={t('emergencyContact')} tone="red" icon={<ShieldAlert className="h-6 w-6" />}>
+              <SeniorDetailRow icon={<User className="h-6 w-6" />} label={t('contactName')} value="NO" />
+              <SeniorDetailRow icon={<Phone className="h-6 w-6" />} label={t('contactPhone')} value="NO" />
+              <SeniorDetailRow icon={<Handshake className="h-6 w-6" />} label={t('relationship')} value={relationship} />
             </SeniorDetailSection>
 
-            <SeniorDetailSection title="Medical Information" tone="blue" icon={<Pill className="h-6 w-6" />}>
-              <SeniorDetailRow icon={<Heart className="h-6 w-6" />} label="Blood Type" value="NO" />
-              <SeniorDetailRow icon={<Shield className="h-6 w-6" />} label="Allergies" value="NO" />
-              <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label="Medical Conditions" value="NO" />
-              <SeniorDetailRow icon={<Pill className="h-6 w-6" />} label="Current Medication" value="NO" />
+            <SeniorDetailSection title={t('medicalInformation')} tone="blue" icon={<Pill className="h-6 w-6" />}>
+              <SeniorDetailRow icon={<Heart className="h-6 w-6" />} label={t('bloodType')} value="NO" />
+              <SeniorDetailRow icon={<Shield className="h-6 w-6" />} label={t('allergies')} value="NO" />
+              <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label={t('medicalConditions')} value="NO" />
+              <SeniorDetailRow icon={<Pill className="h-6 w-6" />} label={t('currentMedication')} value="NO" />
             </SeniorDetailSection>
 
-            <SeniorDetailSection title="Status" tone="blue" icon={<CheckCircle className="h-6 w-6" />}>
-              <SeniorDetailRow icon={<Calendar className="h-6 w-6" />} label="Last Check-In" value={senior.lastCheckIn ? formatDetailDateTime(senior.lastCheckIn) : 'NO'} />
-              <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label="Points" value={String(senior.points ?? 0)} />
-              <SeniorDetailRow icon={<CheckCircle className="h-6 w-6" />} label="Current Status" value={getSeniorDetailValue(status)} />
+            <SeniorDetailSection title={t('status')} tone="blue" icon={<CheckCircle className="h-6 w-6" />}>
+              <SeniorDetailRow icon={<Calendar className="h-6 w-6" />} label={t('lastCheckIn')} value={senior.lastCheckIn ? formatDetailDateTime(senior.lastCheckIn) : 'NO'} />
+              <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label={t('pointsLabel')} value={String(senior.points ?? 0)} />
+              <SeniorDetailRow icon={<CheckCircle className="h-6 w-6" />} label={t('currentStatus')} value={getSeniorDetailValue(status)} />
             </SeniorDetailSection>
 
             <button
@@ -2070,7 +2080,7 @@ function ResidentProfileDetails({
               className="flex h-16 w-full items-center justify-center gap-3 rounded-[10px] bg-[#4b8508] text-xl font-bold text-white shadow-sm active:scale-[0.98]"
             >
               <Pencil className="h-6 w-6" />
-              Update Senior Profiles
+              {t('updateSeniorProfiles')}
             </button>
           </>
         )}
@@ -2166,6 +2176,7 @@ function CaregiverProfile({
   onChangeLanguage: () => void;
   onLogout: () => void;
 }) {
+  const { t } = useTranslation();
   const [showPersonalInfo, setShowPersonalInfo] = useState(false);
   const [phone, setPhone] = useState('91234567');
   const [personalEmail, setPersonalEmail] = useState(caregiverEmail);
@@ -2205,7 +2216,7 @@ function CaregiverProfile({
       }),
     );
 
-    alert('Personal information saved.');
+    alert(t('personalInfoSaved'));
     setShowPersonalInfo(false);
   };
 
@@ -2237,22 +2248,22 @@ function CaregiverProfile({
             type="button"
             onClick={() => setShowPersonalInfo(false)}
             className={`flex h-11 w-11 items-center justify-center rounded-full ${backButtonClass}`}
-            aria-label="Back to profile"
+            aria-label={t('backToProfile')}
           >
             <ArrowLeft className="h-6 w-6" />
           </button>
-          <h1 className="text-2xl font-bold text-gray-900">Personal Information</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t('personalInfo')}</h1>
         </div>
 
         <div className="p-5 min-[390px]:p-8">
           <div className="mb-5 rounded-3xl bg-white p-5 shadow-sm">
-            <h2 className={`mb-5 text-2xl font-bold ${profileAccentTextClass}`}>Profile Photo</h2>
+            <h2 className={`mb-5 text-2xl font-bold ${profileAccentTextClass}`}>{t('profilePhoto')}</h2>
 
             <div className="flex flex-col items-center">
               {profileImage ? (
                 <img
                   src={profileImage}
-                  alt="Profile"
+                  alt={t('profile')}
                   className="mb-4 h-32 w-32 rounded-full object-cover"
                 />
               ) : (
@@ -2262,7 +2273,7 @@ function CaregiverProfile({
               )}
 
               <label className={`cursor-pointer rounded-full px-6 py-3 text-lg font-semibold text-white shadow-sm active:scale-95 ${profileActionClass}`}>
-                Change Photo
+                {t('changePhoto')}
                 <input
                   type="file"
                   accept="image/*"
@@ -2280,18 +2291,18 @@ function CaregiverProfile({
           </div>
 
           <div className="rounded-3xl bg-white p-5 shadow-sm">
-            <h2 className={`mb-5 text-2xl font-bold ${profileAccentTextClass}`}>Basic Information</h2>
+            <h2 className={`mb-5 text-2xl font-bold ${profileAccentTextClass}`}>{t('basicInformation')}</h2>
 
-            <ProfileField label="Phone Number" value={phone} onChange={setPhone} type="tel" />
-            <ProfileField label="Email" value={personalEmail} onChange={setPersonalEmail} type="email" />
-            <ProfileField label="Address" value={address} onChange={setAddress} isLast />
+            <ProfileField label={t('phoneNumber')} value={phone} onChange={setPhone} type="tel" />
+            <ProfileField label={t('email')} value={personalEmail} onChange={setPersonalEmail} type="email" />
+            <ProfileField label={t('address')} value={address} onChange={setAddress} isLast />
 
             <button
               type="button"
               onClick={handleSavePersonalInfo}
               className={`mt-5 w-full rounded-2xl py-3 text-lg font-semibold text-white active:scale-95 ${profileActionClass}`}
             >
-              Save Changes
+              {t('saveChanges')}
             </button>
           </div>
         </div>
@@ -2312,7 +2323,7 @@ function CaregiverProfile({
           {profileImage ? (
             <img
               src={profileImage}
-              alt="Profile"
+              alt={t('profile')}
               className="h-16 w-16 rounded-full bg-white object-cover min-[390px]:h-20 min-[390px]:w-20"
             />
           ) : (
@@ -2323,7 +2334,7 @@ function CaregiverProfile({
           <div className="min-w-0">
             <h2 className="truncate text-2xl font-bold min-[390px]:text-3xl">{caregiverName}</h2>
             <p className={`mt-1 truncate text-sm ${profileEmailClass} min-[390px]:text-base`}>
-              {caregiverEmail || 'Registered caregiver'}
+              {caregiverEmail || t('registeredCaregiver')}
             </p>
           </div>
         </div>
@@ -2334,13 +2345,13 @@ function CaregiverProfile({
           <SettingsItem
             icon={<User className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
             isAdminMode={isAdminMode}
-            title="Personal Information"
+            title={t('personalInfo')}
             onClick={() => setShowPersonalInfo(true)}
           />
           <SettingsItem
             icon={<Languages className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
             isAdminMode={isAdminMode}
-            title="Select Language"
+            title={t('selectLanguage')}
             onClick={onChangeLanguage}
           />
           
@@ -2349,7 +2360,7 @@ function CaregiverProfile({
           <SettingsItem
             icon={<LogOut className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
             isAdminMode={isAdminMode}
-            title="Log Out"
+            title={t('logOut')}
             textColor="text-red-500"
             onClick={onLogout}
           />
@@ -2465,6 +2476,7 @@ function SeniorCard({
   onSendReminder: (senior: Senior) => void;
   onRequestDeleteSenior: (senior: Senior) => void;
 }) {
+  const { t } = useTranslation();
   const isAlert = tone === 'alert';
   const isSosAlert = isSosTriggered(senior);
   const checkedInToday = hasCheckedInToday(senior.lastCheckIn);
@@ -2493,13 +2505,13 @@ function SeniorCard({
   const primaryActionClass = isAdminMode
     ? 'border-[#0b2f57] bg-[#0b2f57] text-white'
     : 'border-[#075fc7] bg-[#075fc7] text-white';
-  const alertLabel = isSosAlert ? 'SOS triggered' : isAlert ? 'No check-in today' : 'Checked in today';
+  const alertLabel = isSosAlert ? t('sosTriggered') : isAlert ? t('noCheckInToday') : t('checkedInToday');
   const alertTextClass = isSosAlert
     ? 'rounded-full bg-[#c8171d] px-3 py-2 text-white'
     : isAlert
       ? 'text-[#c8171d]'
       : 'text-[#30343a]';
-  const adminStatusLabel = isSosAlert ? 'SOS Active' : isAlert ? 'No Check-in' : 'Checked In';
+  const adminStatusLabel = isSosAlert ? t('sosActive') : isAlert ? t('noCheckIn') : t('checkedIn');
   const lastCheckInParts = formatCheckInDateTimeParts(senior.lastCheckIn);
   const lastCheckInDisplay = lastCheckInParts.time === 'NO'
     ? 'NO'
@@ -2526,9 +2538,9 @@ function SeniorCard({
         <div className="pr-11">
           <h3 className="whitespace-normal break-words text-[28px] font-bold leading-8 text-black">{name}</h3>
           <div className="mt-5 grid gap-4">
-            <AdminSeniorSummaryRow label="Assigned Caregiver" value={adminAssignedCaregiver} />
-            <AdminSeniorSummaryRow label="Status" value={adminStatusLabel} valueClassName={isAlert || isSosAlert ? 'text-[#c8171d]' : 'text-[#18833b]'} />
-            <AdminSeniorSummaryRow label="Last Check-In" value={lastCheckInDisplay} valueClassName={checkedInToday ? 'text-[#18833b]' : 'text-[#c8171d]'} />
+            <AdminSeniorSummaryRow label={t('assignedCaregiver')} value={adminAssignedCaregiver} />
+            <AdminSeniorSummaryRow label={t('status')} value={adminStatusLabel} valueClassName={isAlert || isSosAlert ? 'text-[#c8171d]' : 'text-[#18833b]'} />
+            <AdminSeniorSummaryRow label={t('lastCheckIn')} value={lastCheckInDisplay} valueClassName={checkedInToday ? 'text-[#18833b]' : 'text-[#c8171d]'} />
           </div>
         </div>
 
@@ -2537,7 +2549,7 @@ function SeniorCard({
           onClick={() => onOpenProfile(senior)}
           className="mt-5 flex h-16 w-full items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-lg font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98]"
         >
-          Details
+          {t('details')}
         </button>
       </div>
     );
@@ -2584,7 +2596,7 @@ function SeniorCard({
         <div className="mt-4 flex items-center gap-3 rounded-[14px] border border-[#f3a2a5] bg-white px-4 py-3 text-[#8f1015]">
           <ShieldAlert className="h-6 w-6 flex-shrink-0" />
           <p className="text-base font-black leading-5">
-            Emergency SOS is active for this senior.
+            {t('emergencySosActiveForSenior')}
           </p>
         </div>
       )}
@@ -2593,10 +2605,10 @@ function SeniorCard({
         <div className="mt-4 rounded-[14px] border border-[#f3a2a5] bg-white px-4 py-3">
           <div className="mb-2 flex items-center gap-2 text-[#c8171d]">
             <MapPin className="h-6 w-6 flex-shrink-0" />
-            <p className="text-base font-black">Current Location</p>
+            <p className="text-base font-black">{t('currentLocation')}</p>
           </div>
           <p className="whitespace-normal break-words text-lg font-bold leading-7 text-black">
-            {location || senior.address || 'Unknown'}
+            {location || senior.address || t('unknown')}
           </p>
         </div>
       )}
@@ -2614,14 +2626,14 @@ function SeniorCard({
           <ResidentInfoTile
             icon={<Pill className="h-6 w-6" />}
             iconColor={isAlert ? 'text-[#c8171d]' : 'text-[#12b962]'}
-            label="Medication"
-            value={isAlert ? 'Missed' : 'Taken'}
+            label={t('medication')}
+            value={isAlert ? t('missed') : t('taken')}
           />
           <ResidentInfoTile
             icon={<MapPin className="h-6 w-6" />}
             iconColor={isAdminMode ? 'text-[#1f4f82]' : 'text-[#075fc7]'}
-            label="Location"
-            value={location || 'Unknown'}
+            label={t('location')}
+            value={location || t('unknown')}
           />
         </div>
       )}
@@ -2635,7 +2647,7 @@ function SeniorCard({
               className={`flex h-14 items-center justify-center gap-2 rounded-[10px] border text-lg font-bold uppercase transition-transform active:scale-[0.98] ${callActionClass}`}
             >
               <Phone className="h-5 w-5" />
-              Call
+              {t('call')}
             </a>
             <button
               type="button"
@@ -2644,7 +2656,7 @@ function SeniorCard({
               className={`flex h-14 items-center justify-center gap-2 rounded-[10px] border text-lg font-bold uppercase transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 ${primaryActionClass}`}
             >
               <Bell className="h-5 w-5" />
-              {isSendingReminder ? 'Sending' : 'Remind'}
+              {isSendingReminder ? t('sending') : t('remind')}
             </button>
           </>
         )}
@@ -2653,7 +2665,7 @@ function SeniorCard({
           onClick={() => onOpenProfile(senior)}
           className="col-span-2 flex h-14 items-center justify-center rounded-[10px] border border-[#c7cbd1] bg-white text-base font-bold uppercase text-[#30343a] transition-transform active:scale-[0.98]"
         >
-          Details
+          {t('details')}
         </button>
       </div>
     </div>
@@ -2686,6 +2698,7 @@ function LastCheckInPanel({
   date: string;
   time: string;
 }) {
+  const { t } = useTranslation();
   const hasCheckIn = time !== 'NO';
   const accentClass = checkedInToday ? 'text-[#18833b]' : 'text-[#c8171d]';
   const surfaceClass = checkedInToday
@@ -2698,7 +2711,7 @@ function LastCheckInPanel({
         <Clock className="h-6 w-6" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-black uppercase tracking-wide text-[#71717a]">Last Check-In</p>
+        <p className="text-xs font-black uppercase tracking-wide text-[#71717a]">{t('lastCheckIn')}</p>
         {hasCheckIn ? (
           <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <p className="text-[22px] font-black leading-7 text-black">{time}</p>

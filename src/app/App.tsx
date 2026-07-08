@@ -626,6 +626,9 @@ export default function App() {
   };
 
   const renderScreen = () => {
+    const activeUser = getStoredUser();
+    const activeUserName = activeUser?.displayName || activeUser?.email?.split('@')[0] || '';
+
     switch (currentScreen) {
       case 'welcome':
         return (
@@ -644,6 +647,7 @@ export default function App() {
           <HomePage
             onSOSClick={() => setShowSOSConfirmation(true)}
             onCheckIn={handleCheckIn}
+            displayName={activeUserName}
             isCheckingIn={isCheckingIn}
             completedCheckIn={completedCheckIn}
             isCurrentCheckInWindowCompleted={isCurrentCheckInWindowCompleted}
@@ -704,6 +708,7 @@ export default function App() {
           <HomePage
             onSOSClick={() => setShowSOSConfirmation(true)}
             onCheckIn={handleCheckIn}
+            displayName={activeUserName}
             isCheckingIn={isCheckingIn}
             completedCheckIn={completedCheckIn}
             isCurrentCheckInWindowCompleted={isCurrentCheckInWindowCompleted}

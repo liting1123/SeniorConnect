@@ -28,6 +28,7 @@ import {
   verifyFamilyVerification,
 } from './servicenow.mjs';
 
+// Load environment variables from .env file
 loadEnv();
 
 const PORT = Number(process.env.API_PORT) || 3001;
@@ -68,6 +69,7 @@ function getCheckInRemindersForUser(uid) {
     .map(({ id, message, status, createdAt }) => ({ id, message, status, createdAt }));
 }
 
+// Utility functions for address formatting and reverse geocoding
 function getAddressPart(address = {}, keys = []) {
   for (const key of keys) {
     const value = String(address[key] || '').trim();

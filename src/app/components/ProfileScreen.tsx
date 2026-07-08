@@ -45,15 +45,15 @@ export default function ProfileScreen({
   const [isLoadingSeniorId, setIsLoadingSeniorId] = useState(false);
   const [activeVerification, setActiveVerification] = useState<FamilyVerification | null>(null);
   const [dismissedVerificationId, setDismissedVerificationId] = useState('');
-  const profileEmail = user?.email ?? 'No email found';
+  const profileEmail = user?.email ?? '';
   const shouldShowSeniorId = isSeniorRole(user?.role || '');
   const displayName = useMemo(() => {
     if (user?.displayName?.trim()) {
       return user.displayName.trim();
     }
 
-    return user?.email?.split('@')[0] || 'My Profile';
-  }, [user]);
+    return user?.email?.split('@')[0] || t('myProfile');
+  }, [t, user]);
 
   useEffect(() => {
     const handleUserUpdate = () => setUser(getStoredUser());
@@ -123,7 +123,7 @@ export default function ProfileScreen({
       } catch (error) {
         if (isMounted) {
           console.error('Unable to load family verification codes:', error);
-          setVerificationError(error instanceof Error ? error.message : 'Unable to load verification codes.');
+          setVerificationError(error instanceof Error ? error.message : t('unableLoadVerificationCodes'));
           setIsLoadingSeniorId(false);
         }
       }
@@ -280,16 +280,16 @@ export default function ProfileScreen({
                 <KeyRound className="h-6 w-6" />
               </div>
               <div>
-                <h3 className="text-xl font-bold text-gray-900 min-[390px]:text-2xl">Senior ID</h3>
-                <p className="text-sm font-semibold text-gray-500">Give this ID to your family member.</p>
+                <h3 className="text-xl font-bold text-gray-900 min-[390px]:text-2xl">{t('seniorId')}</h3>
+                <p className="text-sm font-semibold text-gray-500">{t('giveSeniorIdToFamily')}</p>
               </div>
             </div>
             <p className="break-all rounded-2xl bg-gray-50 p-4 text-lg font-bold text-gray-900">
-              {isLoadingSeniorId && !seniorIdForFamily ? 'Loading Senior ID...' : seniorIdForFamily}
+              {isLoadingSeniorId && !seniorIdForFamily ? t('loadingSeniorId') : seniorIdForFamily}
             </p>
 
             <div className="mt-5">
-              <h4 className="text-lg font-bold text-gray-900">Family Verification Codes</h4>
+              <h4 className="text-lg font-bold text-gray-900">{t('familyVerificationCodes')}</h4>
               {verificationCodes.length > 0 ? (
                 <div className="mt-3 flex flex-col gap-3">
                   {verificationCodes.map((verification) => (
@@ -304,7 +304,7 @@ export default function ProfileScreen({
                 </div>
               ) : (
                 <p className="mt-3 rounded-2xl bg-gray-50 p-4 text-base font-medium text-gray-600">
-                  No pending family verification code.
+                  {t('noPendingFamilyVerificationCode')}
                 </p>
               )}
               {verificationError && <p className="mt-3 text-sm font-bold text-red-600">{verificationError}</p>}
@@ -346,7 +346,7 @@ export default function ProfileScreen({
                   setActiveVerification(null);
                 }}
                 className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700 active:scale-95"
-                aria-label="Close verification code"
+                aria-label={t('close')}
               >
                 <X className="h-6 w-6" />
               </button>
@@ -354,15 +354,15 @@ export default function ProfileScreen({
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-50 text-green-700">
               <KeyRound className="h-9 w-9" />
             </div>
-            <h2 className="mt-4 text-2xl font-black text-gray-900">Family Verification Code</h2>
+            <h2 className="mt-4 text-2xl font-black text-gray-900">{t('familyVerificationCode')}</h2>
             <p className="mt-2 text-base font-semibold text-gray-600">
-              Give this code to {activeVerification.familyEmail}.
+              {t('familyVerificationInstructions', { email: activeVerification.familyEmail })}
             </p>
             <p className="mt-5 rounded-3xl bg-green-50 px-5 py-6 text-5xl font-black tracking-[0.18em] text-green-700">
               {activeVerification.code}
             </p>
             <p className="mt-4 text-sm font-semibold text-gray-500">
-              It will become Verified after your family member enters this code.
+              {t('familyVerificationPendingMessage')}
             </p>
             <button
               type="button"
@@ -372,7 +372,7 @@ export default function ProfileScreen({
               }}
               className="mt-6 flex h-14 w-full items-center justify-center rounded-full bg-green-600 text-xl font-bold text-white active:scale-95"
             >
-              Got it
+              {t('gotIt')}
             </button>
           </div>
         </div>

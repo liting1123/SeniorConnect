@@ -66,6 +66,8 @@ type Senior = {
   currentMedication?: string;
   points?: number;
   relationship?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
   caregiverNames?: string[];
   caregiverName?: string;
   caregiverEmail?: string;
@@ -267,6 +269,7 @@ export default function CaregiverDashboardScreen({
       email: updatedUser.email || details.email,
       location: updatedUser.locationZones || details.location,
       address: updatedUser.address || details.address,
+      lastCheckIn: updatedUser.lastCheckInAt || senior.lastCheckIn,
     };
 
     setSelectedSenior(updatedSenior);
@@ -947,9 +950,21 @@ function CaregiverDashboardHome({
   const [searchInput, setSearchInput] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const [checkInFilter, setCheckInFilter] = useState<'all' | 'checked' | 'missing'>('all');
-  const alertSeniors = seniors.filter((senior) => isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn));
-  const stableSeniors = seniors.filter((senior) => !isAlertStatus(senior.status, senior) && hasCheckedInToday(senior.lastCheckIn));
-  const featuredSeniors = [...alertSeniors, ...stableSeniors];
+  const featuredSeniors = [...seniors].sort((firstSenior, secondSenior) => {
+    const getPriority = (senior: Senior) => {
+      if (isSosTriggered(senior)) {
+        return 0;
+      }
+
+      if (isAlertStatus(senior.status, senior) || !hasCheckedInToday(senior.lastCheckIn)) {
+        return 1;
+      }
+
+      return 2;
+    };
+
+    return getPriority(firstSenior) - getPriority(secondSenior);
+  });
   const normalizedSearch = activeSearch.trim().toLowerCase();
   const filteredSeniors = featuredSeniors.filter((senior) => {
     const checkedIn = hasCheckedInToday(senior.lastCheckIn);
@@ -1099,7 +1114,6 @@ function CaregiverDashboardHome({
           </div>
         )}
       </section>
-
     </div>
   );
 }
@@ -1939,6 +1953,8 @@ function ResidentProfileDetails({
   const gender = getSeniorDetailValue(senior.gender);
   const dateOfBirth = getSeniorDetailValue(senior.dateOfBirth);
   const relationship = getSeniorDetailValue(senior.relationship);
+  const emergencyContactName = getSeniorDetailValue(senior.emergencyContactName);
+  const emergencyContactPhone = getSeniorDetailValue(senior.emergencyContactPhone);
   const address = getSeniorDetailValue(senior.address);
   const location = getSeniorDetailValue(senior.location);
   const bloodType = getSeniorDetailValue(senior.bloodType);
@@ -2000,6 +2016,7 @@ function ResidentProfileDetails({
           <ArrowLeft className="h-6 w-6" />
         </button>
         <h1 className="truncate text-2xl font-bold text-black">{t('seniorDetails')}</h1>
+
       </div>
 
       <section className="px-5 pt-5">
@@ -2030,7 +2047,7 @@ function ResidentProfileDetails({
             <SeniorDetailField label={t('locationZone')} value={formValues.location} onChange={(value) => updateFormValue('location', value)} />
             <SeniorDetailField label={t('phoneNumber')} value={formValues.phone} onChange={(value) => updateFormValue('phone', value)} type="tel" />
             <SeniorDetailField label={t('email')} value={formValues.email} onChange={(value) => updateFormValue('email', value)} type="email" />
-            <button
+                  <button
               type="button"
               disabled={isSaving}
               onClick={handleSave}
@@ -2053,9 +2070,8 @@ function ResidentProfileDetails({
             </SeniorDetailSection>
 
             <SeniorDetailSection title={t('emergencyContact')} tone="red" icon={<ShieldAlert className="h-6 w-6" />}>
-              <SeniorDetailRow icon={<User className="h-6 w-6" />} label={t('contactName')} value="NO" />
-              <SeniorDetailRow icon={<Phone className="h-6 w-6" />} label={t('contactPhone')} value="NO" />
-              <SeniorDetailRow icon={<Handshake className="h-6 w-6" />} label={t('relationship')} value={relationship} />
+              <SeniorDetailRow icon={<User className="h-6 w-6" />} label={t('contactName')} value={emergencyContactName} />
+              <SeniorDetailRow icon={<Phone className="h-6 w-6" />} label={t('contactPhone')} value={emergencyContactPhone} />
             </SeniorDetailSection>
 
             <SeniorDetailSection title={t('medicalInformation')} tone="blue" icon={<Pill className="h-6 w-6" />}>
@@ -2118,11 +2134,10 @@ function SeniorDetailRow({
   value: string;
 }) {
   return (
-    <div className="grid grid-cols-[28px_minmax(104px,1fr)_minmax(112px,1.35fr)_20px] items-center gap-3 border-b border-[#eef0f2] px-5 py-4 last:border-b-0">
+    <div className="grid grid-cols-[28px_minmax(92px,0.9fr)_minmax(0,1.8fr)] items-center gap-3 border-b border-[#eef0f2] px-5 py-4 last:border-b-0">
       <div className="text-[#94a3b8]">{icon}</div>
       <p className="text-base font-semibold leading-5 text-[#111827]">{label}</p>
-      <p className="break-words text-right text-base font-semibold leading-6 text-black">{value}</p>
-      <ChevronRight className="h-5 w-5 text-[#cbd5e1]" />
+      <p className="min-w-0 break-words text-right text-base font-semibold leading-6 text-black">{value}</p>
     </div>
   );
 }

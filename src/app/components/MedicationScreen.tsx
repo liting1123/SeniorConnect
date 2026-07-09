@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bell, CheckCircle, Clock, Pill, Trash2, Utensils, X } from 'lucide-react';
+import { Bell, CheckCircle, ChevronLeft, Clock, Pill, Trash2, X } from 'lucide-react';
 import type { Medicine, MedicineInput } from '../services/backend';
 
 export function getMinutesFromTimeLabel(timeLabel: string) {
@@ -45,6 +45,13 @@ export default function MedicationScreen({
 }) {
   const { t } = useTranslation();
   const [currentMinutes, setCurrentMinutes] = useState(() => getCurrentMinutes());
+  const activeMedicineCount = medicines.length;
+  const sortedMedicines = [...medicines].sort((firstMedicine, secondMedicine) => {
+    const firstMinutes = getMinutesFromTimeLabel(firstMedicine.time);
+    const secondMinutes = getMinutesFromTimeLabel(secondMedicine.time);
+
+    return (firstMinutes ?? Number.MAX_SAFE_INTEGER) - (secondMinutes ?? Number.MAX_SAFE_INTEGER);
+  });
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -55,44 +62,53 @@ export default function MedicationScreen({
   }, []);
 
   return (
-    <div className="relative h-full overflow-y-auto bg-[#f7f7f7]">
-      <main className="px-5 pb-6 pt-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-3xl font-bold leading-tight text-[#07122e]">
-              {t('medicineReminder')}
-            </h1>
-          </div>
-
+    <div className="relative h-full overflow-y-auto bg-[#f7f8fb]">
+      <main className="px-4 pb-8 pt-5">
+        <header className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            aria-label={t('backToMenu')}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#2f62bf] active:bg-blue-50"
+          >
+            <ChevronLeft className="h-7 w-7" />
+          </button>
+          <h1 className="text-center text-2xl font-black text-[#171b25]">
+            {t('medicineReminder')}
+          </h1>
           <button
             aria-label={t('notificationsLabel')}
-            className="mt-2 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white text-[#f04a24] shadow-sm active:scale-95"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-[#d84232] shadow-sm active:scale-95"
           >
-            <Bell className="h-7 w-7" />
+            <Bell className="h-6 w-6" />
           </button>
-        </div>
+        </header>
 
-        <div className="mt-5 flex flex-col gap-4">
-          {medicines.length > 0 ? (
-            medicines.map((medicine) => (
-              <MedicineCard
-                currentMinutes={currentMinutes}
-                key={medicine.id}
-                isTaken={takenMedicineIds.includes(medicine.id)}
-                medicine={medicine}
-                onTaken={() => onMedicineTaken(medicine.id)}
-                t={t}
-              />
-            ))
-          ) : (
-            <div className="rounded-[24px] bg-white p-5 text-center shadow-[0_8px_20px_rgba(7,18,46,0.08)]">
-              <p className="text-xl font-bold text-[#07122e]">{t('noMedicineAdded')}</p>
-              <p className="mt-2 text-base text-gray-500">{t('yourMedicineRemindersAppearHere')}</p>
-            </div>
-          )}
-        </div>
+        <section className="mt-7">
+          <h2 className="text-sm font-black uppercase tracking-wide text-[#5f6872]">
+            Today's Medications
+          </h2>
+
+          <div className="mt-3 flex flex-col gap-4">
+            {medicines.length > 0 ? (
+              sortedMedicines.map((medicine) => (
+                <MedicineCard
+                  currentMinutes={currentMinutes}
+                  key={medicine.id}
+                  isTaken={takenMedicineIds.includes(medicine.id)}
+                  medicine={medicine}
+                  onTaken={() => onMedicineTaken(medicine.id)}
+                  t={t}
+                />
+              ))
+            ) : (
+              <div className="rounded-[16px] bg-white p-5 text-center shadow-sm">
+                <p className="text-xl font-bold text-[#07122e]">{t('noMedicineAdded')}</p>
+                <p className="mt-2 text-base text-gray-500">{t('yourMedicineRemindersAppearHere')}</p>
+              </div>
+            )}
+          </div>
+        </section>
       </main>
-
     </div>
   );
 }
@@ -119,98 +135,76 @@ function MedicineCard({
   t: (key: string, options?: Record<string, string | number>) => string;
 }) {
   const medicineMinutes = getMinutesFromTimeLabel(medicine.time);
-  const status =
-    isTaken ? 'Taken' : medicineMinutes !== null && currentMinutes > medicineMinutes ? 'Missed' : 'Not yet';
-  const scheduleLabel = medicine.frequency ? t(medicine.frequency) : t('oneTabletDaily');
-  const instructionLabel = medicine.notes ? t(medicine.notes) : '';
-  const statusLabel = {
-    Taken: t('taken'),
-    'Not yet': t('notYet'),
-    Missed: t('missed'),
-  }[status];
-  const statusStyle = {
-    Taken: {
-      badge: 'bg-[#e9f6ed] text-[#18833b]',
-      row: 'bg-[#e9f6ed]',
-      text: 'text-[#18833b]',
-      button: 'bg-[#18833b]',
-    },
-    'Not yet': {
-      badge: 'bg-[#fff5ef] text-[#f04a24]',
-      row: 'bg-[#fff5ef]',
-      text: 'text-[#f04a24]',
-      button: 'bg-[#f04a24]',
-    },
-    Missed: {
-      badge: 'bg-[#fdeaea] text-[#c62828]',
-      row: 'bg-[#fdeaea]',
-      text: 'text-[#c62828]',
-      button: 'bg-[#c62828]',
-    },
-  }[status];
+  const isLate = medicineMinutes !== null && currentMinutes > medicineMinutes;
+  const status = isTaken ? 'Taken' : isLate ? 'Not taken' : 'Not taken';
+  const purposeLabel = medicine.notes || medicine.name || t('medicineReminder');
+  const medicineNameLabel = medicine.name || t('currentMedication');
+  const takeLabel = medicine.dose || 'Take 1 tablet';
+  const statusStyle = isTaken
+    ? {
+        badge: 'bg-[#edf8e9] text-[#3d9b46]',
+        icon: 'bg-[#eaf7ef] text-[#3d9b46]',
+        pill: 'bg-[#4fba43]',
+      }
+    : {
+        badge: 'bg-[#fff1ea] text-[#e25935]',
+        icon: 'bg-[#eef7e8] text-[#5aaa3d]',
+        pill: 'bg-[#5aaa3d]',
+      };
 
   return (
-    <section className="rounded-[24px] bg-white p-4 shadow-[0_8px_20px_rgba(7,18,46,0.08)]">
-      <div className="mb-3 flex justify-end">
-        <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold ${statusStyle.badge}`}>
-          <CheckCircle className="h-4 w-4" />
-          {statusLabel}
+    <section className="rounded-[16px] bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,0.08)]">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="rounded-full bg-[#fff1ed] px-5 py-2 text-base font-black text-[#d84232]">
+          {medicine.time || '--'}
         </div>
+        {medicine.frequency ? (
+          <div className="rounded-full bg-[#eef6ff] px-4 py-2 text-sm font-black text-[#2f62bf]">
+            {medicine.frequency}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex gap-4">
-        <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-[#fff4ec]">
-          <div className="relative">
-            <div className="flex h-16 w-14 items-center justify-center rounded-xl bg-[#f04a24]">
-              <Pill className="h-8 w-8 text-white" />
-            </div>
-            <div className="absolute -right-2 bottom-0 h-8 w-8 rounded-full bg-white shadow" />
+        <div className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-full ${statusStyle.icon}`}>
+          <div className={`flex h-12 w-10 rotate-45 items-center justify-center rounded-full ${statusStyle.pill} text-white`}>
+            <Pill className="h-7 w-7 -rotate-45" />
           </div>
         </div>
 
         <div className="min-w-0 flex-1">
-          <h2 className="text-2xl font-bold leading-tight text-[#07122e]">
-            {medicine.name}
-          </h2>
-          <p className="text-2xl font-bold leading-tight text-[#07122e]">
-            {medicine.dose}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-xl font-black leading-6 text-[#111827]">
+                {purposeLabel}
+              </h2>
+            </div>
+          </div>
+
+          <p className="mt-2 text-sm font-bold text-[#2f62bf]">
+            Medicine: <span className="font-semibold text-[#334155]">{medicineNameLabel}</span>
           </p>
 
-          <p className="mt-2 text-lg text-gray-500">{scheduleLabel}</p>
+          <div className="mt-4 flex items-center gap-3 text-[#475569]">
+            <Pill className="h-4 w-4" />
+            <p className="text-base font-bold">{takeLabel}</p>
+          </div>
 
-          <div className="my-3 border-t border-gray-200" />
-
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#fff0e8]">
-              <Utensils className="h-5 w-5 text-[#f04a24]" />
-            </div>
-            <p className="text-lg font-semibold text-[#07122e]">
-              {instructionLabel}
-            </p>
+          <div className="mt-4 flex items-end justify-end gap-3">
+            <button
+              type="button"
+              onClick={onTaken}
+              className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-black active:scale-95 ${statusStyle.badge}`}
+            >
+              {isTaken ? <CheckCircle className="h-5 w-5" /> : <Clock className="h-5 w-5" />}
+              {isTaken ? t('taken') : 'Not taken'}
+            </button>
           </div>
         </div>
-      </div>
-
-      <div
-        className={`mt-4 flex items-center justify-between gap-3 rounded-2xl px-4 py-3 transition-colors ${
-          statusStyle.row
-        }`}
-      >
-        <div className={`flex items-center gap-2 ${statusStyle.text}`}>
-          <Clock className="h-7 w-7" />
-          <p className="text-3xl font-bold">{medicine.time}</p>
-        </div>
-        <button
-          onClick={onTaken}
-          className={`rounded-full px-4 py-2 text-base font-bold text-white transition-colors active:scale-95 ${statusStyle.button}`}
-        >
-          {isTaken ? t('done') : t('taken')}
-        </button>
       </div>
     </section>
   );
 }
-
 function MedicineForm({
   medicine,
   onClose,

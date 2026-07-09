@@ -16,11 +16,16 @@ const FIELD_MAP = {
   phone: process.env.SERVICE_NOW_FIELD_PHONE || 'u_phone',
   gender: process.env.SERVICE_NOW_FIELD_GENDER || 'u_gender',
   dateOfBirth: process.env.SERVICE_NOW_FIELD_DATE_OF_BIRTH || 'u_date_of_birth',
+  bloodType: process.env.SERVICE_NOW_FIELD_BLOOD_TYPE || 'u_blood_type',
+  allergies: process.env.SERVICE_NOW_FIELD_ALLERGIES || 'u_allergies',
+  medicalConditions: process.env.SERVICE_NOW_FIELD_MEDICAL_CONDITIONS || 'u_medical_conditions',
   points: process.env.SERVICE_NOW_FIELD_POINTS || 'u_points',
   lastCheckInAt: process.env.SERVICE_NOW_FIELD_LAST_CHECK_IN_AT || 'u_last_check_in_at',
   gameRewardDate: process.env.SERVICE_NOW_FIELD_GAME_REWARD_DATE || 'u_game_reward_date',
   locationZones: process.env.SERVICE_NOW_FIELD_LOCATION_ZONES || 'u_location_zones',
   address: process.env.SERVICE_NOW_FIELD_ADDRESS || 'u_address',
+  emergencyContactName: process.env.SERVICE_NOW_FIELD_EMERGENCY_CONTACT_NAME || 'u_emergency_contact_name',
+  emergencyContactPhone: process.env.SERVICE_NOW_FIELD_EMERGENCY_CONTACT_PHONE || 'u_emergency_contact_phone',
 };
 
 const CHECK_IN_TIME_ZONE = process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore';
@@ -92,21 +97,19 @@ const CAREGIVER_CONNECTION_FIELD_MAP = {
   user: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_USER || 'u_user',
   senior: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_SENIOR || 'u_senior',
   relationship: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_RELATIONSHIP || 'u_relationship',
+  emergencyContactName: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_EMERGENCY_CONTACT_NAME || 'u_emergency_contact_name',
+  emergencyContactPhone: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_EMERGENCY_CONTACT_PHONE || 'u_emergency_contact_phone',
   isNok: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_IS_NOK || 'u_is_nok',
 };
 
 const MEDICINE_FIELD_MAP = {
   senior: process.env.SERVICE_NOW_MEDICINE_FIELD_SENIOR || 'u_senior',
-  name: process.env.SERVICE_NOW_MEDICINE_FIELD_NAME || 'u_medication_name',
+  name: process.env.SERVICE_NOW_MEDICINE_FIELD_CURRENT_MEDICATION || 'u_current_medication',
   dose: process.env.SERVICE_NOW_MEDICINE_FIELD_DOSE || 'u_dosage',
   time: process.env.SERVICE_NOW_MEDICINE_FIELD_TIME || 'u_time',
   frequency: process.env.SERVICE_NOW_MEDICINE_FIELD_FREQUENCY || 'u_frequency',
   status: process.env.SERVICE_NOW_MEDICINE_FIELD_STATUS || 'u_status',
   notes: process.env.SERVICE_NOW_MEDICINE_FIELD_NOTES || 'u_notes',
-  bloodType: process.env.SERVICE_NOW_MEDICINE_FIELD_BLOOD_TYPE || 'u_blood_type',
-  allergies: process.env.SERVICE_NOW_MEDICINE_FIELD_ALLERGIES || 'u_allergies',
-  medicalConditions: process.env.SERVICE_NOW_MEDICINE_FIELD_MEDICAL_CONDITIONS || 'u_medical_conditions',
-  currentMedication: process.env.SERVICE_NOW_MEDICINE_FIELD_CURRENT_MEDICATION || 'u_current_medication',
   isExtra: process.env.SERVICE_NOW_MEDICINE_FIELD_IS_EXTRA || 'u_is_extra',
 };
 
@@ -282,6 +285,9 @@ function toUserRecord(record = {}) {
     phone: record[FIELD_MAP.phone] || '',
     gender: record[FIELD_MAP.gender] || '',
     dateOfBirth: record[FIELD_MAP.dateOfBirth] || '',
+    bloodType: record[FIELD_MAP.bloodType] || '',
+    allergies: record[FIELD_MAP.allergies] || '',
+    medicalConditions: record[FIELD_MAP.medicalConditions] || '',
     locationZones: record[FIELD_MAP.locationZones] || '',
     address: record[FIELD_MAP.address] || '',
     points: Number(record[FIELD_MAP.points]) || 0,
@@ -392,6 +398,7 @@ export async function upsertUserProfile({ userId, email, name, phone, locationZo
   if (address !== undefined) {
     payload[FIELD_MAP.address] = address || '';
   }
+
 
   if (FIELD_MAP.userId !== 'sys_id') {
     payload[FIELD_MAP.userId] = userId;
@@ -1044,6 +1051,9 @@ function getSeniorProfileCompletenessScore(record = {}) {
     FIELD_MAP.email,
     FIELD_MAP.gender,
     FIELD_MAP.dateOfBirth,
+    FIELD_MAP.bloodType,
+    FIELD_MAP.allergies,
+    FIELD_MAP.medicalConditions,
     FIELD_MAP.locationZones,
     FIELD_MAP.lastCheckInAt,
     FIELD_MAP.points,
@@ -1072,6 +1082,9 @@ function getMappedSeniorCompletenessScore(senior = {}) {
     senior.email,
     senior.gender,
     senior.dateOfBirth,
+    senior.bloodType,
+    senior.allergies,
+    senior.medicalConditions,
     senior.location,
     senior.lastCheckIn,
     senior.points,
@@ -1292,12 +1305,17 @@ function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser
     email: getDisplayValue(seniorProfile[FIELD_MAP.email]) || seniorUser[LOGIN_FIELD_MAP.email] || '',
     gender: getDisplayValue(seniorProfile[FIELD_MAP.gender]) || '',
     dateOfBirth: getDisplayValue(seniorProfile[FIELD_MAP.dateOfBirth]) || '',
+    bloodType: getDisplayValue(seniorProfile[FIELD_MAP.bloodType]) || '',
+    allergies: getDisplayValue(seniorProfile[FIELD_MAP.allergies]) || '',
+    medicalConditions: getDisplayValue(seniorProfile[FIELD_MAP.medicalConditions]) || '',
     location: getDisplayValue(seniorProfile[FIELD_MAP.locationZones]) || '',
     address: getDisplayValue(seniorProfile[FIELD_MAP.address]) || '',
     lastCheckIn: getDisplayValue(seniorProfile[FIELD_MAP.lastCheckInAt]) || '',
     points: Number(getDisplayValue(seniorProfile[FIELD_MAP.points])) || 0,
     caregiverName: '',
     caregiverEmail: '',
+    emergencyContactName: getDisplayValue(seniorProfile[FIELD_MAP.emergencyContactName]) || getDisplayValue(seniorProfile.u_emergency_contact_name) || getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.emergencyContactName]) || getDisplayValue(connection.emergency_contact_name) || '',
+    emergencyContactPhone: getDisplayValue(seniorProfile[FIELD_MAP.emergencyContactPhone]) || getDisplayValue(seniorProfile.u_emergency_contact_phone) || getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.emergencyContactPhone]) || getDisplayValue(connection.emergency_contact_phone) || '',
     relationship: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.relationship]) || '',
     status: 'Connected',
   };
@@ -1559,7 +1577,7 @@ function toMedicineRecord(record = {}) {
     name: getDisplayValue(record[MEDICINE_FIELD_MAP.name]),
     dose: getDisplayValue(record[MEDICINE_FIELD_MAP.dose]),
     time: formatMedicineTime(rawTime),
-    frequency: getDisplayValue(record[MEDICINE_FIELD_MAP.frequency]),
+    frequency: getDisplayValue(record[MEDICINE_FIELD_MAP.frequency]) || getDisplayValue(record.u_frequency) || getDisplayValue(record.u_number_of_times),
     status: getDisplayValue(record[MEDICINE_FIELD_MAP.status]),
     notes: getDisplayValue(record[MEDICINE_FIELD_MAP.notes]),
     isExtra: String(isExtraValue || '').toLowerCase() === 'true' || isExtraValue === true,
@@ -1678,9 +1696,6 @@ function getFirstMedicineValue(records = [], field) {
 async function getMedicalInformationForSeniorProfile(seniorProfileId) {
   if (!seniorProfileId) {
     return {
-      bloodType: '',
-      allergies: '',
-      medicalConditions: '',
       currentMedication: '',
     };
   }
@@ -1693,10 +1708,7 @@ async function getMedicalInformationForSeniorProfile(seniorProfileId) {
   const records = data?.result || [];
 
   return {
-    bloodType: getFirstMedicineValue(records, MEDICINE_FIELD_MAP.bloodType),
-    allergies: getFirstMedicineValue(records, MEDICINE_FIELD_MAP.allergies),
-    medicalConditions: getFirstMedicineValue(records, MEDICINE_FIELD_MAP.medicalConditions),
-    currentMedication: getFirstMedicineValue(records, MEDICINE_FIELD_MAP.currentMedication),
+    currentMedication: getFirstMedicineValue(records, MEDICINE_FIELD_MAP.name),
   };
 }
 

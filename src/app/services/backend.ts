@@ -16,6 +16,7 @@ type BackendUser = {
 type PointsResponse = {
   points: number;
   user?: BackendUser | null;
+  redemption?: RewardHistoryItem;
 };
 
 type UserProfileResponse = {
@@ -27,6 +28,13 @@ export type CheckInReminder = {
   message: string;
   status: string;
   createdAt: string;
+};
+
+export type RewardHistoryItem = {
+  id: string;
+  title: string;
+  cost: number;
+  redeemedAt: string;
 };
 
 export type Medicine = {
@@ -294,17 +302,26 @@ export async function getPoints(user: AppUser) {
   return Number(data.points) || 0;
 }
 
-export async function redeemPoints(user: AppUser, pointsToRedeem: number) {
+export async function getRewardHistory(user: AppUser) {
+  const data = await request<{ rewardHistory: RewardHistoryItem[] }>(user, `/api/users/${user.uid}/reward-history`);
+  return data.rewardHistory || [];
+}
+
+export async function redeemPoints(user: AppUser, pointsToRedeem: number, rewardTitle: string) {
   const data = await request<PointsResponse>(user, `/api/users/${user.uid}/points`, {
     method: 'POST',
     body: JSON.stringify({
       email: user.email,
       name: getDisplayName(user),
       pointsToRedeem,
+      rewardTitle,
     }),
   });
 
-  return Number(data.points) || 0;
+  return {
+    points: Number(data.points) || 0,
+    redemption: data.redemption,
+  };
 }
 
 export async function getSeniorProfile(user: AppUser) {

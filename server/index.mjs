@@ -12,6 +12,7 @@ import {
   getCaregiverSeniorConnections,
   getPendingFamilyVerificationCodesForSenior,
   getMedicinesForUser,
+  getRewardRedemptionsForUser,
   getServiceNowLoginConfig,
   getSosAlertHistory,
   getUserById,
@@ -96,7 +97,7 @@ function requireAuth(request) {
 }
 
 function getUidFromPath(pathname) {
-  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|check-in-reminders|game|profile|medicines|family-verification-codes))?$/);
+  const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|check-in-reminders|game|profile|medicines|family-verification-codes|reward-history))?$/);
   return match ? { uid: decodeURIComponent(match[1]), action: match[2] || null } : null;
 }
 
@@ -399,13 +400,20 @@ export async function handleRequest(request, response) {
 
   if (request.method === 'POST' && route.action === 'points') {
     const body = await readJson(request);
-    const user = await redeemUserPoints({
+    const result = await redeemUserPoints({
       userId: route.uid,
       email: body.email,
       name: body.name,
       pointsToRedeem: body.pointsToRedeem,
+      rewardTitle: body.rewardTitle,
     });
-    sendJson(response, 200, { points: user.points, user });
+    sendJson(response, 200, { points: result.user.points, user: result.user, redemption: result.redemption });
+    return;
+  }
+
+  if (request.method === 'GET' && route.action === 'reward-history') {
+    const rewardHistory = await getRewardRedemptionsForUser(route.uid);
+    sendJson(response, 200, { rewardHistory });
     return;
   }
 

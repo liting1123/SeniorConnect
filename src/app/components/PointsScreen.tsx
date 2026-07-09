@@ -3,44 +3,13 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   getCachedUserPoints,
-  getUserStorageIdentity,
   getPoints,
+  getRewardHistory,
   getStoredUser,
   redeemPoints,
   setCachedUserPoints,
-  type AppUser,
+  type RewardHistoryItem,
 } from '../services/backend';
-
-type RedemptionHistoryItem = {
-  id: string;
-  title: string;
-  cost: number;
-  redeemedAt: string;
-};
-
-function getRewardHistoryKey(user: AppUser) {
-  return `careconnect.rewardHistory.${getUserStorageIdentity(user)}`;
-}
-
-function getRewardHistory(user: AppUser): RedemptionHistoryItem[] {
-  const rawHistory = localStorage.getItem(getRewardHistoryKey(user));
-
-  if (!rawHistory) {
-    return [];
-  }
-
-  try {
-    const parsedHistory = JSON.parse(rawHistory);
-    return Array.isArray(parsedHistory) ? parsedHistory : [];
-  } catch {
-    localStorage.removeItem(getRewardHistoryKey(user));
-    return [];
-  }
-}
-
-function saveRewardHistory(user: AppUser, history: RedemptionHistoryItem[]) {
-  localStorage.setItem(getRewardHistoryKey(user), JSON.stringify(history));
-}
 
 function formatRedeemedAt(value: string) {
   const date = new Date(value);
@@ -60,10 +29,7 @@ function formatRedeemedAt(value: string) {
 
 export default function PointsScreen() {
   const { t } = useTranslation();
-  const [rewardHistory, setRewardHistory] = useState(() => {
-    const user = getStoredUser();
-    return user ? getRewardHistory(user) : [];
-  });
+  const [rewardHistory, setRewardHistory] = useState<RewardHistoryItem[]>([]);
   const [points, setPoints] = useState(() => {
     const user = getStoredUser();
     return user ? getCachedUserPoints(user) : 0;
@@ -86,7 +52,7 @@ export default function PointsScreen() {
     setRedeemingReward(title);
 
     try {
-      const nextPoints = await redeemPoints(user, cost);
+      const { points: nextPoints, redemption } = await redeemPoints(user, cost, title);
       setPoints(nextPoints);
       setCachedUserPoints(user, nextPoints);
       window.dispatchEvent(
@@ -94,17 +60,11 @@ export default function PointsScreen() {
           detail: { uid: user.uid, points: nextPoints },
         }),
       );
-      const nextHistory = [
-        {
-          id: `${Date.now()}-${title}`,
-          title,
-          cost,
-          redeemedAt: new Date().toISOString(),
-        },
-        ...getRewardHistory(user),
-      ];
-      saveRewardHistory(user, nextHistory);
-      setRewardHistory(nextHistory);
+      if (redemption) {
+        setRewardHistory((currentHistory) => [redemption, ...currentHistory]);
+      } else {
+        setRewardHistory(await getRewardHistory(user));
+      }
       setSuccessReward(title);
     } catch (error) {
       setError(error instanceof Error ? error.message : t('unableRedeemReward'));
@@ -126,7 +86,12 @@ export default function PointsScreen() {
     setError('');
 
     try {
-      setPoints(await getPoints(user));
+      const [nextPoints, nextRewardHistory] = await Promise.all([
+        getPoints(user),
+        getRewardHistory(user),
+      ]);
+      setPoints(nextPoints);
+      setRewardHistory(nextRewardHistory);
     } catch (error) {
       setError(error instanceof Error ? error.message : t('unableLoadPoints'));
     } finally {
@@ -136,11 +101,6 @@ export default function PointsScreen() {
 
   useEffect(() => {
     loadPoints();
-    const user = getStoredUser();
-
-    if (user) {
-      setRewardHistory(getRewardHistory(user));
-    }
 
     const handlePointsUpdate = (event: Event) => {
       const detail = (event as CustomEvent<{ points?: number }>).detail;

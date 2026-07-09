@@ -1,7 +1,104 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bell, CheckCircle, ChevronLeft, Clock, Pill, Trash2, X } from 'lucide-react';
-import type { Medicine, MedicineInput } from '../services/backend';
+import { Bell, Camera, CheckCircle, ChevronLeft, Clock, Pill, Trash2, X } from 'lucide-react';
+import {
+  getStoredUser,
+  getUserStorageIdentity,
+  type Medicine,
+  type MedicineInput,
+} from '../services/backend';
+
+const MEDICINE_PHOTO_STORAGE_PREFIX = 'careconnect.medicinePhotos';
+const MEDICINE_PHOTO_MAX_SIZE = 640;
+const MEDICINE_PHOTO_QUALITY = 0.72;
+const MEDICINE_PHOTO_MAX_DATA_URL_LENGTH = 450000;
+
+function getMedicinePhotoStorageKey() {
+  const user = getStoredUser();
+  const userKey = user ? getUserStorageIdentity(user) : 'guest';
+
+  return `${MEDICINE_PHOTO_STORAGE_PREFIX}.${userKey}`;
+}
+
+function getStoredMedicinePhotos() {
+  const rawPhotos = localStorage.getItem(getMedicinePhotoStorageKey());
+
+  if (!rawPhotos) {
+    return {};
+  }
+
+  try {
+    const parsedPhotos = JSON.parse(rawPhotos);
+    if (!parsedPhotos || typeof parsedPhotos !== 'object' || Array.isArray(parsedPhotos)) {
+      return {};
+    }
+
+    const safePhotos = Object.fromEntries(
+      Object.entries(parsedPhotos as Record<string, string>).filter(([, photo]) => (
+        typeof photo === 'string' &&
+        photo.startsWith('data:image/') &&
+        photo.length <= MEDICINE_PHOTO_MAX_DATA_URL_LENGTH
+      )),
+    );
+
+    if (Object.keys(safePhotos).length !== Object.keys(parsedPhotos).length) {
+      saveStoredMedicinePhotos(safePhotos);
+    }
+
+    return safePhotos;
+  } catch {
+    localStorage.removeItem(getMedicinePhotoStorageKey());
+    return {};
+  }
+}
+
+function saveStoredMedicinePhotos(photos: Record<string, string>) {
+  try {
+    localStorage.setItem(getMedicinePhotoStorageKey(), JSON.stringify(photos));
+    return true;
+  } catch (error) {
+    console.error('Unable to save medicine photo:', error);
+    return false;
+  }
+}
+
+function resizeMedicinePhoto(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const image = new Image();
+    const imageUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      URL.revokeObjectURL(imageUrl);
+
+      const scale = Math.min(
+        1,
+        MEDICINE_PHOTO_MAX_SIZE / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height),
+      );
+      const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+      const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext('2d');
+
+      if (!context) {
+        reject(new Error('Unable to prepare photo.'));
+        return;
+      }
+
+      context.drawImage(image, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', MEDICINE_PHOTO_QUALITY));
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl);
+      reject(new Error('Unable to read selected photo.'));
+    };
+
+    image.src = imageUrl;
+  });
+}
 
 export function getMinutesFromTimeLabel(timeLabel: string) {
   const match = timeLabel.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
@@ -45,6 +142,8 @@ export default function MedicationScreen({
 }) {
   const { t } = useTranslation();
   const [currentMinutes, setCurrentMinutes] = useState(() => getCurrentMinutes());
+  const [medicinePhotos, setMedicinePhotos] = useState<Record<string, string>>(() => getStoredMedicinePhotos());
+  const [pendingPhotoRemovalId, setPendingPhotoRemovalId] = useState<string | null>(null);
   const activeMedicineCount = medicines.length;
   const sortedMedicines = [...medicines].sort((firstMedicine, secondMedicine) => {
     const firstMinutes = getMinutesFromTimeLabel(firstMedicine.time);
@@ -61,6 +160,26 @@ export default function MedicationScreen({
     return () => window.clearInterval(timer);
   }, []);
 
+  const updateMedicinePhoto = (medicineId: string, photo: string) => {
+    setMedicinePhotos((currentPhotos) => {
+      const nextPhotos = {
+        ...currentPhotos,
+        [medicineId]: photo,
+      };
+
+      return saveStoredMedicinePhotos(nextPhotos) ? nextPhotos : currentPhotos;
+    });
+  };
+
+  const removeMedicinePhoto = (medicineId: string) => {
+    setMedicinePhotos((currentPhotos) => {
+      const nextPhotos = { ...currentPhotos };
+      delete nextPhotos[medicineId];
+      return saveStoredMedicinePhotos(nextPhotos) ? nextPhotos : currentPhotos;
+    });
+    setPendingPhotoRemovalId(null);
+  };
+
   return (
     <div className="relative h-full overflow-y-auto bg-[#f7f8fb]">
       <main className="px-4 pb-8 pt-5">
@@ -70,7 +189,6 @@ export default function MedicationScreen({
             aria-label={t('backToMenu')}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#2f62bf] active:bg-blue-50"
           >
-            <ChevronLeft className="h-7 w-7" />
           </button>
           <h1 className="text-center text-2xl font-black text-[#171b25]">
             {t('medicineReminder')}
@@ -96,6 +214,9 @@ export default function MedicationScreen({
                   key={medicine.id}
                   isTaken={takenMedicineIds.includes(medicine.id)}
                   medicine={medicine}
+                  medicinePhoto={medicinePhotos[medicine.id] || ''}
+                  onPhotoChange={(photo) => updateMedicinePhoto(medicine.id, photo)}
+                  onPhotoRemove={() => setPendingPhotoRemovalId(medicine.id)}
                   onTaken={() => onMedicineTaken(medicine.id)}
                   t={t}
                 />
@@ -109,6 +230,32 @@ export default function MedicationScreen({
           </div>
         </section>
       </main>
+      {pendingPhotoRemovalId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+          <div className="w-full max-w-[320px] rounded-[24px] bg-white p-5 text-center shadow-2xl">
+            <h2 className="text-2xl font-black leading-8 text-[#07122e]">{t('removePhoto')}</h2>
+            <p className="mt-3 text-lg font-bold leading-6 text-[#475569]">
+              {t('removeMedicinePhotoConfirm')}
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingPhotoRemovalId(null)}
+                className="flex h-13 flex-1 items-center justify-center rounded-full border-2 border-[#416642] bg-white text-lg font-black text-[#416642] active:scale-95"
+              >
+                {t('no')}
+              </button>
+              <button
+                type="button"
+                onClick={() => removeMedicinePhoto(pendingPhotoRemovalId)}
+                className="flex h-13 flex-1 items-center justify-center rounded-full bg-[#c62828] text-lg font-black text-white active:scale-95"
+              >
+                {t('yes')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -117,6 +264,9 @@ function MedicineCard({
   currentMinutes,
   isTaken,
   medicine,
+  medicinePhoto,
+  onPhotoChange,
+  onPhotoRemove,
   onTaken,
   t,
 }: {
@@ -131,6 +281,9 @@ function MedicineCard({
     notes?: string;
     isExtra?: boolean;
   };
+  medicinePhoto: string;
+  onPhotoChange: (photo: string) => void;
+  onPhotoRemove: () => void;
   onTaken: () => void;
   t: (key: string, options?: Record<string, string | number>) => string;
 }) {
@@ -152,6 +305,23 @@ function MedicineCard({
         pill: 'bg-[#5aaa3d]',
       };
 
+  const handlePhotoSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const imageDataUrl = await resizeMedicinePhoto(file);
+      onPhotoChange(imageDataUrl);
+    } catch (error) {
+      console.error('Unable to process medicine photo:', error);
+      alert(error instanceof Error ? error.message : 'Unable to save medicine photo.');
+    }
+  };
+
   return (
     <section className="rounded-[16px] bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,0.08)]">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -166,10 +336,43 @@ function MedicineCard({
       </div>
 
       <div className="flex gap-4">
-        <div className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-full ${statusStyle.icon}`}>
-          <div className={`flex h-12 w-10 rotate-45 items-center justify-center rounded-full ${statusStyle.pill} text-white`}>
-            <Pill className="h-7 w-7 -rotate-45" />
-          </div>
+        <div className="flex w-20 shrink-0 flex-col items-center gap-2">
+          <label
+            className={`relative flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-full ${statusStyle.icon} active:scale-95`}
+            title={medicinePhoto ? t('retakePhoto') : t('takePhoto')}
+          >
+            {medicinePhoto ? (
+              <img
+                alt={t('medicinePhoto')}
+                className="h-full w-full object-cover"
+                src={medicinePhoto}
+              />
+            ) : (
+              <div className={`flex h-12 w-10 rotate-45 items-center justify-center rounded-full ${statusStyle.pill} text-white`}>
+                <Pill className="h-7 w-7 -rotate-45" />
+              </div>
+            )}
+            <span className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-[#2f62bf] text-white shadow-sm">
+              <Camera className="h-4 w-4" />
+            </span>
+            <span className="sr-only">{medicinePhoto ? t('retakePhoto') : t('takePhoto')}</span>
+            <input
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handlePhotoSelected}
+              type="file"
+            />
+          </label>
+          {medicinePhoto ? (
+            <button
+              type="button"
+              onClick={onPhotoRemove}
+              className="text-xs font-black text-[#c62828] active:scale-95"
+            >
+              {t('removePhoto')}
+            </button>
+          ) : null}
         </div>
 
         <div className="min-w-0 flex-1">

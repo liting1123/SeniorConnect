@@ -26,6 +26,7 @@ const FIELD_MAP = {
   address: process.env.SERVICE_NOW_FIELD_ADDRESS || 'u_address',
   emergencyContactName: process.env.SERVICE_NOW_FIELD_EMERGENCY_CONTACT_NAME || 'u_emergency_contact_name',
   emergencyContactPhone: process.env.SERVICE_NOW_FIELD_EMERGENCY_CONTACT_PHONE || 'u_emergency_contact_phone',
+  rewardHistory: process.env.SERVICE_NOW_FIELD_REWARD_HISTORY || 'u_reward_history',
 };
 
 const CHECK_IN_TIME_ZONE = process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore';
@@ -293,6 +294,7 @@ function toUserRecord(record = {}) {
     points: Number(record[FIELD_MAP.points]) || 0,
     lastCheckInAt: record[FIELD_MAP.lastCheckInAt] || null,
     gameRewardDate: record[FIELD_MAP.gameRewardDate] || null,
+    rewardHistory: record[FIELD_MAP.rewardHistory] || '',
   };
 }
 
@@ -436,7 +438,38 @@ export async function addUserPoints({ userId, email, name, pointsToAdd = 1 }) {
   return toUserRecord(data.result);
 }
 
-export async function redeemUserPoints({ userId, email, name, pointsToRedeem = 0 }) {
+function parseRewardHistory(value = '') {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsedHistory = JSON.parse(String(value));
+
+    if (!Array.isArray(parsedHistory)) {
+      return [];
+    }
+
+    return parsedHistory
+      .map((item) => ({
+        id: String(item?.id || ''),
+        title: String(item?.title || ''),
+        cost: Number(item?.cost) || 0,
+        redeemedAt: String(item?.redeemedAt || ''),
+      }))
+      .filter((item) => item.id && item.title && item.redeemedAt);
+  } catch {
+    return [];
+  }
+}
+
+export async function getRewardRedemptionsForUser(userId) {
+  const profile = await getUserById(userId);
+
+  return parseRewardHistory(profile?.rewardHistory);
+}
+
+export async function redeemUserPoints({ userId, email, name, pointsToRedeem = 0, rewardTitle = '' }) {
   const redeemCost = Number(pointsToRedeem) || 0;
 
   if (redeemCost <= 0) {
@@ -450,14 +483,29 @@ export async function redeemUserPoints({ userId, email, name, pointsToRedeem = 0
   }
 
   const nextPoints = profile.points - redeemCost;
+  const redeemedAt = new Date().toISOString();
+  const redemption = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: rewardTitle || 'Reward',
+    cost: redeemCost,
+    redeemedAt,
+  };
+  const nextRewardHistory = [
+    redemption,
+    ...parseRewardHistory(profile.rewardHistory),
+  ];
   const data = await serviceNowFetch(getTablePath(`/${profile.sysId}`), {
     method: 'PATCH',
     body: JSON.stringify({
       [FIELD_MAP.points]: String(nextPoints),
+      [FIELD_MAP.rewardHistory]: JSON.stringify(nextRewardHistory),
     }),
   });
 
-  return toUserRecord(data.result);
+  return {
+    user: toUserRecord(data.result),
+    redemption,
+  };
 }
 
 export async function addGamePoint({ userId, email, name, pointsToAdd = 1 }) {

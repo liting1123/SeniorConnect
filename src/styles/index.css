@@ -84,3 +84,61 @@ label.cursor-pointer:hover {
   animation: puzzleImageReveal 480ms ease;
   background: linear-gradient(135deg, #f8fff8, #f1f9f4);
 }
+
+.careconnect-high-contrast body {
+  background: #000;
+  color: #fff;
+}
+
+.careconnect-contrast-shell {
+  background: #000 !important;
+}
+
+.careconnect-contrast-app {
+  background: #000 !important;
+  color: #fff !important;
+  border: 2px solid #fff;
+  box-shadow: none !important;
+}
+
+.careconnect-high-contrast .bg-white,
+.careconnect-high-contrast [class*='bg-gray-50'],
+.careconnect-high-contrast [class*='bg-gray-100'] {
+  background-color: #000 !important;
+  color: #fff !important;
+}
+
+.careconnect-high-contrast [class*='text-gray-900'],
+.careconnect-high-contrast [class*='text-gray-700'],
+.careconnect-high-contrast [class*='text-gray-600'],
+.careconnect-high-contrast [class*='text-gray-500'] {
+  color: #fff !important;
+}
+
+.careconnect-high-contrast [class*='text-[#'] {
+  color: #fff !important;
+}
+
+.careconnect-high-contrast [class*='text-green-'] {
+  color: #fff !important;
+}
+
+.careconnect-high-contrast [class*='border-gray-100'],
+.careconnect-high-contrast [class*='border-gray-200'],
+.careconnect-high-contrast [class*='border-gray-300'] {
+  border-color: #fff !important;
+}
+
+.careconnect-high-contrast button,
+.careconnect-high-contrast a {
+  outline: 2px solid transparent;
+}
+
+.careconnect-high-contrast button:focus-visible,
+.careconnect-high-contrast a:focus-visible,
+.careconnect-high-contrast input:focus-visible,
+.careconnect-high-contrast select:focus-visible,
+.careconnect-high-contrast textarea:focus-visible {
+  outline: 3px solid #ffe452 !important;
+  outline-offset: 2px;
+}

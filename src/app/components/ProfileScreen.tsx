@@ -28,9 +28,13 @@ function getDisplaySeniorId(value = '') {
 export default function ProfileScreen({
   onChangeLanguage,
   onLogout,
+  highContrast,
+  onToggleHighContrast,
 }: {
   onChangeLanguage: () => void;
   onLogout: () => void;
+  highContrast: boolean;
+  onToggleHighContrast: () => void;
 }) {
   const { t } = useTranslation();
   const [user, setUser] = useState<AppUser | null>(() => getStoredUser());
@@ -323,6 +327,14 @@ export default function ProfileScreen({
             title={t('selectLanguage')}
             onClick={onChangeLanguage}
           />
+          <SettingsToggleItem
+            icon={<Shield className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            title={t('highContrast')}
+            value={highContrast}
+            onToggle={onToggleHighContrast}
+            onLabel={t('on')}
+            offLabel={t('off')}
+          />
         </div>
 
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
@@ -432,6 +444,41 @@ function SettingsItem({
         {title}
       </span>
       <ChevronRight className={isDestructive ? 'h-7 w-7 text-gray-400 group-hover:text-red-400 min-[390px]:h-8 min-[390px]:w-8' : 'h-7 w-7 text-gray-400 group-hover:text-green-600 min-[390px]:h-8 min-[390px]:w-8'} />
+    </button>
+  );
+}
+
+function SettingsToggleItem({
+  icon,
+  title,
+  value,
+  onToggle,
+  onLabel,
+  offLabel,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: boolean;
+  onToggle: () => void;
+  onLabel: string;
+  offLabel: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="group flex w-full items-center gap-4 border-b border-gray-100 px-5 py-4 transition-colors last:border-b-0 hover:bg-green-50 active:bg-gray-50 min-[390px]:gap-6 min-[390px]:px-8 min-[390px]:py-6"
+      aria-pressed={value}
+    >
+      <div className="text-gray-600 group-hover:text-green-700">{icon}</div>
+      <span className="flex-1 text-left text-xl font-bold text-gray-900 min-[390px]:text-2xl">{title}</span>
+      <span
+        className={`rounded-full px-3 py-1 text-sm font-bold min-[390px]:text-base ${
+          value ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+        }`}
+      >
+        {value ? onLabel : offLabel}
+      </span>
+      <ChevronRight className="h-7 w-7 text-gray-400 group-hover:text-green-600 min-[390px]:h-8 min-[390px]:w-8" />
     </button>
   );
 }

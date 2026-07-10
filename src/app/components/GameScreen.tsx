@@ -88,7 +88,13 @@ function saveGameState(user: AppUser, cards: CardData[], rewardClaimed: boolean)
   localStorage.setItem(getGameStateKey(user), JSON.stringify(state));
 }
 
-export default function GameScreen() {
+export default function GameScreen({
+  highContrast,
+  onToggleHighContrast,
+}: {
+  highContrast: boolean;
+  onToggleHighContrast: () => void;
+}) {
   const { t } = useTranslation();
   const [cards, setCards] = useState<CardData[]>(initialCards);
   const [confirmed, setConfirmed] = useState(false);
@@ -207,11 +213,11 @@ export default function GameScreen() {
   };
 
   if (gameMode === 'menu') {
-    return <GameLauncher onSelect={setGameMode} />;
+    return <GameLauncher onSelect={setGameMode} highContrast={highContrast} />;
   }
 
   if (gameMode === 'memory') {
-    return <MemoryGame onBack={() => setGameMode('menu')} />;
+    return <MemoryGame onBack={() => setGameMode('menu')} highContrast={highContrast} onToggleHighContrast={onToggleHighContrast} />;
   }
 
   return <PuzzleGame onBack={() => setGameMode('menu')} />;

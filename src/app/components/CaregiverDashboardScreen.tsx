@@ -34,6 +34,7 @@ import { getStoredUser } from '../services/backend';
 
 const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
 const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
+const CAREGIVER_APPOINTMENTS_KEY = 'careconnect.caregiverAppointments';
 const CAREGIVER_DASHBOARD_REFRESH_MS = 5000;
 
 type SosAlertHistory = {
@@ -86,6 +87,29 @@ type SeniorDetailsInput = {
   address: string;
 };
 
+type HealthBuddyAppointment = {
+  id: string;
+  seniorId: string;
+  seniorName: string;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  notes: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  createdAt: string;
+};
+
+type HealthBuddyAppointmentInput = {
+  seniorId: string;
+  seniorName: string;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  notes: string;
+};
+
 function getSosHistoryKey(caregiverEmail: string) {
   return `careconnect.sosHistory.${caregiverEmail.trim().toLowerCase() || 'unknown'}`;
 }
@@ -109,6 +133,57 @@ function saveSosHistory(caregiverEmail: string, history: SosAlertHistory[]) {
   localStorage.setItem(getSosHistoryKey(caregiverEmail), JSON.stringify(history.filter((item) => !isCheckInReminderAlert(item))));
 }
 
+function getAppointmentsKey(caregiverEmail: string) {
+  return `${CAREGIVER_APPOINTMENTS_KEY}.${caregiverEmail.trim().toLowerCase() || 'unknown'}`;
+}
+
+function readStoredAppointments(caregiverEmail: string) {
+  const rawAppointments = localStorage.getItem(getAppointmentsKey(caregiverEmail));
+
+  if (!rawAppointments) {
+    return [] as HealthBuddyAppointment[];
+  }
+
+  try {
+    const parsedAppointments = JSON.parse(rawAppointments) as HealthBuddyAppointment[];
+    return Array.isArray(parsedAppointments) ? parsedAppointments : [];
+  } catch {
+    localStorage.removeItem(getAppointmentsKey(caregiverEmail));
+    return [] as HealthBuddyAppointment[];
+  }
+}
+
+function saveStoredAppointments(caregiverEmail: string, appointments: HealthBuddyAppointment[]) {
+  localStorage.setItem(getAppointmentsKey(caregiverEmail), JSON.stringify(appointments));
+}
+
+function getAppointmentDateTime(appointment: Pick<HealthBuddyAppointment, 'date' | 'time'>) {
+  if (!appointment.date) {
+    return null;
+  }
+
+  const normalizedTime = appointment.time.length === 5 ? `${appointment.time}:00` : appointment.time;
+  const parsedDate = new Date(`${appointment.date}T${normalizedTime}`);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate;
+}
+
+function formatAppointmentDateTime(date: Date | null) {
+  if (!date) {
+    return 'Not scheduled';
+  }
+
+  return new Intl.DateTimeFormat('en-SG', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'Asia/Singapore',
+  }).format(date);
+}
+
 export default function CaregiverDashboardScreen({
   dashboardLabel = 'Dashboard',
   emptyMessage,
@@ -125,7 +200,7 @@ export default function CaregiverDashboardScreen({
   alertsLabel?: string;
 }) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'alerts' | 'profile'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'healthBuddy' | 'alerts' | 'profile'>('dashboard');
   const currentUser = getStoredUser();
   const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || t('caregiver');
   const caregiverId = currentUser?.uid || '';
@@ -145,6 +220,18 @@ export default function CaregiverDashboardScreen({
   const [isAddingSenior, setIsAddingSenior] = useState(false);
   const [addSeniorError, setAddSeniorError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [appointments, setAppointments] = useState<HealthBuddyAppointment[]>(() => readStoredAppointments(caregiverEmail));
+  const [showAppointmentForm, setShowAppointmentForm] = useState(false);
+  const [appointmentError, setAppointmentError] = useState('');
+  const [appointmentForm, setAppointmentForm] = useState<HealthBuddyAppointmentInput>({
+    seniorId: '',
+    seniorName: '',
+    title: '',
+    date: '',
+    time: '',
+    location: '',
+    notes: '',
+  });
 //Senior data loading and polling logic
   useEffect(() => {
     if (!caregiverEmail) {
@@ -229,6 +316,93 @@ export default function CaregiverDashboardScreen({
   useEffect(() => {
     setSosHistory(getStoredSosHistory(caregiverEmail));
   }, [caregiverEmail]);
+
+  useEffect(() => {
+    setAppointments(readStoredAppointments(caregiverEmail));
+  }, [caregiverEmail]);
+
+  useEffect(() => {
+    if (caregiverEmail) {
+      saveStoredAppointments(caregiverEmail, appointments);
+    }
+  }, [appointments, caregiverEmail]);
+
+  const sortedAppointments = [...appointments].sort((left, right) => {
+    const leftTime = getAppointmentDateTime(left)?.getTime() || Number.MAX_SAFE_INTEGER;
+    const rightTime = getAppointmentDateTime(right)?.getTime() || Number.MAX_SAFE_INTEGER;
+
+    return leftTime - rightTime;
+  });
+
+  const appointmentStats = {
+    today: appointments.filter((appointment) => {
+      const appointmentDate = getAppointmentDateTime(appointment);
+
+      if (!appointmentDate) {
+        return false;
+      }
+
+      const formatDate = (value: Date) =>
+        new Intl.DateTimeFormat('en-CA', {
+          day: '2-digit',
+          month: '2-digit',
+          timeZone: 'Asia/Singapore',
+          year: 'numeric',
+        }).format(value);
+
+      return formatDate(appointmentDate) === formatDate(new Date());
+    }).length,
+    upcoming: appointments.filter((appointment) => appointment.status === 'scheduled' && (getAppointmentDateTime(appointment)?.getTime() || Infinity) >= Date.now()).length,
+    completed: appointments.filter((appointment) => appointment.status === 'completed').length,
+  };
+
+  const handleCreateAppointment = (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!appointmentForm.seniorId.trim() || !appointmentForm.title.trim() || !appointmentForm.date.trim() || !appointmentForm.time.trim()) {
+      setAppointmentError(t('pleaseFillAppointmentFields'));
+      return;
+    }
+
+    const matchingSenior = seniors.find((senior) => senior.id === appointmentForm.seniorId || senior.userId === appointmentForm.seniorId || senior.connectionId === appointmentForm.seniorId);
+
+    const seniorName = (matchingSenior?.name || appointmentForm.seniorName || '').trim();
+
+    if (!seniorName) {
+      setAppointmentError(t('selectSeniorForAppointment'));
+      return;
+    }
+
+    const nextAppointment: HealthBuddyAppointment = {
+      id: `appt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      seniorId: appointmentForm.seniorId.trim(),
+      seniorName,
+      title: appointmentForm.title.trim(),
+      date: appointmentForm.date,
+      time: appointmentForm.time,
+      location: appointmentForm.location.trim(),
+      notes: appointmentForm.notes.trim(),
+      status: 'scheduled',
+      createdAt: new Date().toISOString(),
+    };
+
+    setAppointments((currentAppointments) => [nextAppointment, ...currentAppointments]);
+    setAppointmentForm({ seniorId: '', seniorName: '', title: '', date: '', time: '', location: '', notes: '' });
+    setShowAppointmentForm(false);
+    setAppointmentError('');
+  };
+
+  const handleUpdateAppointmentStatus = (appointmentId: string, status: HealthBuddyAppointment['status']) => {
+    setAppointments((currentAppointments) =>
+      currentAppointments.map((appointment) =>
+        appointment.id === appointmentId ? { ...appointment, status } : appointment,
+      ),
+    );
+  };
+
+  const handleDeleteAppointment = (appointmentId: string) => {
+    setAppointments((currentAppointments) => currentAppointments.filter((appointment) => appointment.id !== appointmentId));
+  };
 
   const handleUpdateSeniorDetails = async (senior: Senior, details: SeniorDetailsInput) => {
     const seniorId = senior.userId || senior.id;
@@ -519,6 +693,26 @@ export default function CaregiverDashboardScreen({
             isAdminMode={isAdminMode}
           />
         )}
+        {!selectedSenior && activeTab === 'healthBuddy' && (
+          <HealthBuddyScreen
+            appointmentError={appointmentError}
+            appointmentForm={appointmentForm}
+            appointmentStats={appointmentStats}
+            appointments={sortedAppointments}
+            caregiverName={caregiverName}
+            onChangeAppointmentForm={setAppointmentForm}
+            onCloseForm={() => {
+              setShowAppointmentForm(false);
+              setAppointmentError('');
+            }}
+            onCreateAppointment={handleCreateAppointment}
+            onDeleteAppointment={handleDeleteAppointment}
+            onOpenForm={() => setShowAppointmentForm(true)}
+            onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
+            seniors={seniors}
+            showAppointmentForm={showAppointmentForm}
+          />
+        )}
         {!selectedSenior && activeTab === 'alerts' && (
           <CaregiverAlerts
             alertsLabel={alertsTabLabel}
@@ -656,6 +850,16 @@ export default function CaregiverDashboardScreen({
           onClick={() => {
             setSelectedSenior(null);
             setActiveTab('alerts');
+          }}
+        />
+        <DashboardNavItem
+          active={activeTab === 'healthBuddy'}
+          icon={<Calendar className="h-6 w-6" />}
+          isAdminMode={isAdminMode}
+          label={t('healthBuddy')}
+          onClick={() => {
+            setSelectedSenior(null);
+            setActiveTab('healthBuddy');
           }}
         />
         <DashboardNavItem
@@ -2784,6 +2988,253 @@ function DashboardMetricCard({
         <h3 className="text-[28px] font-bold leading-8 text-black">{title}</h3>
         <p className="mt-1 text-lg font-bold text-[#71717a]">{subtitle}</p>
       </div>
+    </div>
+  );
+}
+
+function HealthBuddyScreen({
+  appointmentError,
+  appointmentForm,
+  appointmentStats,
+  appointments,
+  caregiverName,
+  onChangeAppointmentForm,
+  onCloseForm,
+  onCreateAppointment,
+  onDeleteAppointment,
+  onOpenForm,
+  onUpdateAppointmentStatus,
+  seniors,
+  showAppointmentForm,
+}: {
+  appointmentError: string;
+  appointmentForm: HealthBuddyAppointmentInput;
+  appointmentStats: { today: number; upcoming: number; completed: number };
+  appointments: HealthBuddyAppointment[];
+  caregiverName: string;
+  onChangeAppointmentForm: React.Dispatch<React.SetStateAction<HealthBuddyAppointmentInput>>;
+  onCloseForm: () => void;
+  onCreateAppointment: (event: React.FormEvent) => void;
+  onDeleteAppointment: (appointmentId: string) => void;
+  onOpenForm: () => void;
+  onUpdateAppointmentStatus: (appointmentId: string, status: HealthBuddyAppointment['status']) => void;
+  seniors: Senior[];
+  showAppointmentForm: boolean;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="flex flex-col gap-6">
+      <section className="rounded-[22px] bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{t('healthBuddy')}</p>
+            <h2 className="mt-1 text-[30px] font-bold leading-9 text-black">{t('appointmentManager')}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenForm}
+            className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-[#416642] px-5 text-lg font-black text-white shadow-sm active:scale-95"
+          >
+            <Plus className="h-6 w-6" />
+            {t('newAppointment')}
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 min-[390px]:grid-cols-3">
+          <HealthBuddyStatCard label={t('today')} value={appointmentStats.today} />
+          <HealthBuddyStatCard label={t('upcoming')} value={appointmentStats.upcoming} />
+          <HealthBuddyStatCard label={t('completed')} value={appointmentStats.completed} />
+        </div>
+      </section>
+
+      {showAppointmentForm && (
+        <form onSubmit={onCreateAppointment} className="rounded-[22px] bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xl font-black text-black">{t('createAppointment')}</h3>
+            <button
+              type="button"
+              onClick={onCloseForm}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eef2ee] text-[#416642] active:scale-95"
+              aria-label={t('close')}
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="mt-4 grid gap-4">
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-[#71717a]">{t('selectSenior')}</span>
+              <select
+                value={appointmentForm.seniorId}
+                onChange={(event) => {
+                  const selectedSenior = seniors.find((senior) => senior.id === event.target.value || senior.userId === event.target.value || senior.connectionId === event.target.value);
+
+                  onChangeAppointmentForm((currentValue) => ({
+                    ...currentValue,
+                    seniorId: event.target.value,
+                    seniorName: selectedSenior?.name || currentValue.seniorName,
+                  }));
+                }}
+                className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-base font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
+              >
+                <option value="">{t('selectSenior')}</option>
+                {seniors.map((senior) => (
+                  <option key={senior.id} value={senior.id}>
+                    {senior.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-[#71717a]">{t('appointmentTitle')}</span>
+              <input
+                value={appointmentForm.title}
+                onChange={(event) => onChangeAppointmentForm((currentValue) => ({ ...currentValue, title: event.target.value }))}
+                placeholder={t('medicalReview')}
+                className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-base font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
+              />
+            </label>
+
+            <div className="grid gap-4 min-[390px]:grid-cols-2">
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-[#71717a]">{t('appointmentDate')}</span>
+                <input
+                  type="date"
+                  value={appointmentForm.date}
+                  onChange={(event) => onChangeAppointmentForm((currentValue) => ({ ...currentValue, date: event.target.value }))}
+                  className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-base font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-bold text-[#71717a]">{t('appointmentTime')}</span>
+                <input
+                  type="time"
+                  value={appointmentForm.time}
+                  onChange={(event) => onChangeAppointmentForm((currentValue) => ({ ...currentValue, time: event.target.value }))}
+                  className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-base font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
+                />
+              </label>
+            </div>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-[#71717a]">{t('location')}</span>
+              <input
+                value={appointmentForm.location}
+                onChange={(event) => onChangeAppointmentForm((currentValue) => ({ ...currentValue, location: event.target.value }))}
+                placeholder={t('appointmentLocation')}
+                className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-base font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-[#71717a]">{t('notes')}</span>
+              <textarea
+                value={appointmentForm.notes}
+                onChange={(event) => onChangeAppointmentForm((currentValue) => ({ ...currentValue, notes: event.target.value }))}
+                placeholder={t('appointmentNotes')}
+                rows={3}
+                className="w-full rounded-2xl bg-[#f4f6f8] px-4 py-3 text-base font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
+              />
+            </label>
+          </div>
+
+          {appointmentError && (
+            <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">
+              {appointmentError}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            className="mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-full bg-[#416642] text-lg font-black text-white active:scale-95"
+          >
+            <Calendar className="h-5 w-5" />
+            {t('saveAppointment')}
+          </button>
+        </form>
+      )}
+
+      <section className="flex flex-col gap-3">
+        {appointments.length > 0 ? (
+          appointments.map((appointment) => {
+            const appointmentDate = getAppointmentDateTime(appointment);
+            const isCompleted = appointment.status === 'completed';
+            const isCancelled = appointment.status === 'cancelled';
+
+            return (
+              <div key={appointment.id} className="rounded-[22px] bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{appointment.seniorName}</p>
+                    <h3 className="mt-1 text-2xl font-black text-black">{appointment.title}</h3>
+                    <p className="mt-2 text-base font-bold text-[#416642]">{formatAppointmentDateTime(appointmentDate)}</p>
+                  </div>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
+                      isCompleted
+                        ? 'bg-[#e7f3e8] text-[#416642]'
+                        : isCancelled
+                        ? 'bg-[#f4f6f8] text-[#71717a]'
+                        : 'bg-[#fff4df] text-[#8c5a00]'
+                    }`}
+                  >
+                    {appointment.status}
+                  </span>
+                </div>
+
+                <div className="mt-3 grid gap-2 text-sm font-semibold text-[#5f6368]">
+                  {appointment.location && <p>{t('location')}: {appointment.location}</p>}
+                  {appointment.notes && <p>{appointment.notes}</p>}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {appointment.status !== 'completed' && (
+                    <button
+                      type="button"
+                      onClick={() => onUpdateAppointmentStatus(appointment.id, 'completed')}
+                      className="rounded-full bg-[#18833b] px-4 py-2 text-sm font-black text-white active:scale-95"
+                    >
+                      {t('markCompleted')}
+                    </button>
+                  )}
+                  {appointment.status !== 'cancelled' && (
+                    <button
+                      type="button"
+                      onClick={() => onUpdateAppointmentStatus(appointment.id, 'cancelled')}
+                      className="rounded-full bg-[#954a00] px-4 py-2 text-sm font-black text-white active:scale-95"
+                    >
+                      {t('cancel')}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onDeleteAppointment(appointment.id)}
+                    className="rounded-full border border-[#c7cbd1] bg-white px-4 py-2 text-sm font-black text-[#30343a] active:scale-95"
+                  >
+                    {t('remove')}
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="rounded-[22px] bg-white p-5 text-center shadow-sm">
+            <h3 className="text-xl font-black text-black">{t('noAppointmentsYet')}</h3>
+            <p className="mt-2 text-base font-semibold text-[#71717a]">{t('healthBuddyEmptyState')}</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function HealthBuddyStatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-[18px] bg-[#f4f6f8] p-4 text-center">
+      <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{label}</p>
+      <p className="mt-2 text-3xl font-black text-black">{value}</p>
     </div>
   );
 }

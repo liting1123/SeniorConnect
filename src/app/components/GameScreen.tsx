@@ -91,9 +91,11 @@ function saveGameState(user: AppUser, cards: CardData[], rewardClaimed: boolean)
 export default function GameScreen({
   highContrast,
   onToggleHighContrast,
+  onGamePlayCheckIn,
 }: {
   highContrast: boolean;
   onToggleHighContrast: () => void;
+  onGamePlayCheckIn?: () => Promise<void> | void;
 }) {
   const { t } = useTranslation();
   const [cards, setCards] = useState<CardData[]>(initialCards);
@@ -212,8 +214,13 @@ export default function GameScreen({
     updateRewardCount();
   };
 
+  const handleSelectGame = async (mode: 'memory' | 'puzzle') => {
+    setGameMode(mode);
+    await onGamePlayCheckIn?.();
+  };
+
   if (gameMode === 'menu') {
-    return <GameLauncher onSelect={setGameMode} highContrast={highContrast} />;
+    return <GameLauncher onSelect={handleSelectGame} highContrast={highContrast} />;
   }
 
   if (gameMode === 'memory') {

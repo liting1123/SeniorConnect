@@ -671,7 +671,13 @@ export default function App() {
     }
   };
 
-  const handleCheckIn = async () => {
+  const handleCheckIn = async ({
+    redirectToPoints = true,
+    suppressWindowCompletedAlert = false,
+  }: {
+    redirectToPoints?: boolean;
+    suppressWindowCompletedAlert?: boolean;
+  } = {}) => {
     if (isCheckingInRef.current) {
       return;
     }
@@ -701,7 +707,9 @@ export default function App() {
           detail: { uid: user.uid, points: nextPoints },
         }),
       );
-      setCurrentScreen('points');
+      if (redirectToPoints) {
+        setCurrentScreen('points');
+      }
     } catch (error) {
       console.error('Check-in failed:', error);
       const completedWindowId = getCompletedWindowFromError(error);
@@ -710,7 +718,9 @@ export default function App() {
         setCompletedCheckIn(saveCompletedCheckIn(user, completedWindowId));
       }
 
-      alert(error instanceof Error ? error.message : t('unableCheckIn'));
+      if (!(suppressWindowCompletedAlert && completedWindowId)) {
+        alert(error instanceof Error ? error.message : t('unableCheckIn'));
+      }
     } finally {
       isCheckingInRef.current = false;
       setIsCheckingIn(false);
@@ -803,7 +813,13 @@ export default function App() {
           />
         );
       case 'game':
-        return <GameScreen highContrast={highContrast} onToggleHighContrast={() => setHighContrast((value) => !value)} />;
+        return (
+          <GameScreen
+            highContrast={highContrast}
+            onToggleHighContrast={() => setHighContrast((value) => !value)}
+            onGamePlayCheckIn={() => handleCheckIn({ redirectToPoints: false, suppressWindowCompletedAlert: true })}
+          />
+        );
       case 'carePortal':
         return (
           <CarePortalScreen

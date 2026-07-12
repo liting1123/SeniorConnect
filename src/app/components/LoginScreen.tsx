@@ -1,10 +1,37 @@
 import { Eye, EyeOff, LogIn, Lock, Mail, ShieldCheck, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { type AppUser, login, registerFamilyMember, resetPassword } from '../services/backend';
+import { type AppUser, login, registerFamilyMember, requestLoginMfaCode, resetPassword, verifyLoginMfaCode } from '../services/backend';
 
-function createMfaCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+function notifyVolunteerOrCaregiver(message: string) {
+  if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+    return;
+  }
+
+  if (Notification.permission === 'granted') {
+    new Notification('CareConnect', { body: message });
+    return;
+  }
+
+  if (Notification.permission === 'default') {
+    Notification.requestPermission().then((permission) => {
+      if (permission === 'granted') {
+        new Notification('CareConnect', { body: message });
+      }
+    }).catch(() => {
+      // Ignore notification permission errors.
+    });
+  }
+}
+
+function getFriendlyMfaError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : fallback;
+
+  if (/badcredentials|invalid login: 535|username and password not accepted/i.test(message)) {
+    return 'Unable to notify caregiver/volunteer by email. Please update SMTP app password in .env.';
+  }
+
+  return message;
 }
 
 export default function LoginScreen({
@@ -28,7 +55,6 @@ export default function LoginScreen({
   const [resetConfirmPassword, setResetConfirmPassword] = useState('');
   const [selectedLoginType, setSelectedLoginType] = useState<'senior' | 'family'>('senior');
   const [mfaCodeInput, setMfaCodeInput] = useState('');
-  const [pendingMfaCode, setPendingMfaCode] = useState('');
   const [pendingMfaUser, setPendingMfaUser] = useState<AppUser | null>(null);
 
   const handleLogin = async (event: React.FormEvent) => {
@@ -41,11 +67,18 @@ export default function LoginScreen({
       const user = await login(identifier.trim(), password, selectedLoginType);
 
       if (selectedLoginType === 'family') {
-        const nextCode = createMfaCode();
+        const delivery = await requestLoginMfaCode(user);
         setPendingMfaUser(user);
-        setPendingMfaCode(nextCode);
         setMfaCodeInput('');
-        setNotice(t('verificationCode', { code: nextCode }));
+
+        if (delivery?.delivery === 'in-app-notification' && delivery.code) {
+          setNotice('Email failed. Verification code sent as app notification to caregiver/volunteer.');
+          notifyVolunteerOrCaregiver(`Your CareConnect verification code is ${delivery.code}`);
+        } else {
+          setNotice('Notification sent to caregiver/volunteer email. Please check your inbox for the 6-digit code.');
+          notifyVolunteerOrCaregiver('Verification code sent to caregiver/volunteer email.');
+        }
+
         return;
       }
 
@@ -63,7 +96,7 @@ export default function LoginScreen({
     }
   };
 
-  const handleVerifyMfa = (event: React.FormEvent) => {
+  const handleVerifyMfa = async (event: React.FormEvent) => {
     event.preventDefault();
 
     if (!pendingMfaUser) {
@@ -71,31 +104,52 @@ export default function LoginScreen({
       return;
     }
 
-    if (mfaCodeInput.trim() !== pendingMfaCode) {
-      setError(t('incorrectVerificationCode'));
+    setError('');
+    setIsLoggingIn(true);
+
+    try {
+      await verifyLoginMfaCode(pendingMfaUser, mfaCodeInput.trim());
+      setNotice(t('verificationSuccessful'));
+      const verifiedUser = pendingMfaUser;
+      setPendingMfaUser(null);
+      setMfaCodeInput('');
+      onGetStarted(verifiedUser);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : t('incorrectVerificationCode'));
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleResendMfaCode = async () => {
+    if (!pendingMfaUser) {
+      setError(t('noPendingVerification'));
       return;
     }
 
+    setIsLoggingIn(true);
     setError('');
-    setNotice(t('verificationSuccessful'));
-    const verifiedUser = pendingMfaUser;
-    setPendingMfaUser(null);
-    setPendingMfaCode('');
-    setMfaCodeInput('');
-    onGetStarted(verifiedUser);
-  };
 
-  const handleResendMfaCode = () => {
-    const nextCode = createMfaCode();
-    setPendingMfaCode(nextCode);
-    setMfaCodeInput('');
-    setError('');
-    setNotice(t('verificationCode', { code: nextCode }));
+    try {
+      const delivery = await requestLoginMfaCode(pendingMfaUser);
+      setMfaCodeInput('');
+
+      if (delivery?.delivery === 'in-app-notification' && delivery.code) {
+        setNotice('Email failed. Verification code sent as app notification to caregiver/volunteer.');
+        notifyVolunteerOrCaregiver(`Your CareConnect verification code is ${delivery.code}`);
+      } else {
+        setNotice('Notification sent to caregiver/volunteer email. Please check your inbox for the 6-digit code.');
+        notifyVolunteerOrCaregiver('Verification code resent to caregiver/volunteer email.');
+      }
+    } catch (error) {
+      setError(getFriendlyMfaError(error, t('unableResetPassword')));
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const handleCancelMfa = () => {
     setPendingMfaUser(null);
-    setPendingMfaCode('');
     setMfaCodeInput('');
     setNotice('');
     setError('');

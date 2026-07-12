@@ -453,6 +453,25 @@ export async function verifyFamilyCode(
   return data;
 }
 
+export async function requestLoginMfaCode(user: AppUser) {
+  return request<{ ok: boolean; delivery?: 'email' | 'in-app-notification'; code?: string; warning?: string }>(user, '/api/mfa/request', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: user.email,
+    }),
+  });
+}
+
+export async function verifyLoginMfaCode(user: AppUser, code: string) {
+  await request<{ ok: boolean }>(user, '/api/mfa/verify', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: user.email,
+      code,
+    }),
+  });
+}
+
 export async function getFamilyVerificationCodes(user: AppUser) {
   const data = await request<{ verifications: FamilyVerification[] }>(
     user,

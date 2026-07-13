@@ -13,8 +13,10 @@ import {
   getPendingFamilyVerificationCodesForSenior,
   getMedicinesForUser,
   getRewardRedemptionsForUser,
+  getSensorActivitySnapshot,
   getServiceNowLoginConfig,
   getSosAlertHistory,
+  getVitalsHistory,
   getUserById,
   loginWithServiceNow,
   redeemUserPoints,
@@ -370,6 +372,23 @@ export async function handleRequest(request, response) {
     });
 
     sendJson(response, 200, { seniors });
+    return;
+  }
+
+  // Live Sensors panel (Senior_stuff pipeline) — sensor snapshot + 15-min
+  // vitals history. NOTE: the pre-2026-07-09 admin-seniors/admin-senior
+  // routes were dropped here — upstream removed getAllSeniorProfiles/
+  // deleteSeniorProfile from servicenow.mjs in the same pull that deleted
+  // AdminDashboardScreen.tsx, so those routes would ReferenceError.
+  if (url.pathname === '/api/servicenow/sensor-status' && request.method === 'GET') {
+    const status = await getSensorActivitySnapshot();
+    sendJson(response, 200, { status });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/vitals-history' && request.method === 'GET') {
+    const history = await getVitalsHistory();
+    sendJson(response, 200, { history });
     return;
   }
 

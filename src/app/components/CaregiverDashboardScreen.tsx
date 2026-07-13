@@ -1,6 +1,8 @@
 import {
   Activity,
   ArrowLeft,
+  Bath,
+  Bed,
   Bell,
   Calendar,
   CheckCircle,
@@ -23,14 +25,37 @@ import {
   Search,
   ShieldAlert,
   Shield,
+  Sofa,
   Trash2,
   TriangleAlert,
   User,
+  Wind,
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  Line,
+  LineChart,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { getStoredUser } from '../services/backend';
+import { useLiveVitals, type LiveRoomState, type VitalPoint } from '../hooks/useLiveVitals';
+import {
+  getSensorStatus,
+  getVitalsHistory,
+  type RoomOccupancy,
+  type SensorStatus,
+  type SensorTrendPoint,
+  type VitalsHistory,
+} from '../services/serviceNow';
+
+const SENSOR_STATUS_REFRESH_MS = 30000;
 
 const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
 const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
@@ -125,7 +150,7 @@ export default function CaregiverDashboardScreen({
   alertsLabel?: string;
 }) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'alerts' | 'profile'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'live' | 'alerts' | 'profile'>('dashboard');
   const currentUser = getStoredUser();
   const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || t('caregiver');
   const caregiverId = currentUser?.uid || '';
@@ -517,8 +542,10 @@ export default function CaregiverDashboardScreen({
             deletingSeniorIds={deletingSeniorIds}
             canDeleteSenior={canDeleteSenior}
             isAdminMode={isAdminMode}
+            onOpenLive={() => setActiveTab('live')}
           />
         )}
+        {!selectedSenior && activeTab === 'live' && <LiveMonitorTab />}
         {!selectedSenior && activeTab === 'alerts' && (
           <CaregiverAlerts
             alertsLabel={alertsTabLabel}
@@ -645,6 +672,16 @@ export default function CaregiverDashboardScreen({
           onClick={() => {
             setSelectedSenior(null);
             setActiveTab('dashboard');
+          }}
+        />
+        <DashboardNavItem
+          active={activeTab === 'live'}
+          icon={<Activity className="h-6 w-6" />}
+          isAdminMode={isAdminMode}
+          label="Live"
+          onClick={() => {
+            setSelectedSenior(null);
+            setActiveTab('live');
           }}
         />
         <DashboardNavItem
@@ -930,6 +967,7 @@ function CaregiverDashboardHome({
   deletingSeniorIds,
   canDeleteSenior,
   isAdminMode,
+  onOpenLive,
 }: {
   canAddSenior: boolean;
   caregiverName: string;
@@ -945,6 +983,7 @@ function CaregiverDashboardHome({
   deletingSeniorIds: string[];
   canDeleteSenior: boolean;
   isAdminMode: boolean;
+  onOpenLive: () => void;
 }) {
   const { t } = useTranslation();
   const [searchInput, setSearchInput] = useState('');
@@ -1081,6 +1120,7 @@ function CaregiverDashboardHome({
           ))}
         </div>
       </div>
+      <DashboardVitalsStrip onOpenLive={onOpenLive} />
       <section className="flex flex-col gap-5">
         {isLoading ? (
           <p className="rounded-[18px] bg-white p-5 text-base font-semibold text-[#414942] shadow-sm">
@@ -1115,6 +1155,120 @@ function CaregiverDashboardHome({
         )}
       </section>
     </div>
+  );
+}
+
+// Compact live-vitals strip for the Dashboard tab: same live-first rules as
+// LiveMonitorTab (MQTT/WS values win while fresh, the ServiceNow snapshot
+// fills gaps and survives reloads), squeezed into one tappable card that
+// jumps to the full Live monitor. Renders nothing at all when there is no
+// sensor deployment (snapshot null/failed AND no live frames) so
+// non-instrumented installs keep a clean dashboard.
+function DashboardVitalsStrip({ onOpenLive }: { onOpenLive: () => void }) {
+  const live = useLiveVitals(true);
+  const [status, setStatus] = useState<SensorStatus | null>(null);
+  // 5 s re-render tick: keeps the staleness chip honest — an OPEN WebSocket
+  // is not the same as flowing data (same reasoning as LiveMonitorTab).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function load() {
+      try {
+        const result = await getSensorStatus();
+        if (isMounted) {
+          setStatus(result);
+        }
+      } catch {
+        // Snapshot unavailable — the strip runs live-only (or hides below).
+      }
+    }
+
+    load();
+    const timer = window.setInterval(load, LIVE_TAB_REFRESH_MS);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const hr = live.hr ?? status?.vitals.hr ?? null;
+  const br = live.br ?? status?.vitals.br ?? null;
+
+  // No deployment signal from either source: stay invisible.
+  if (!status && live.lastMessageAt === null) {
+    return null;
+  }
+
+  const dataAgeMs = live.lastMessageAt ? nowTick - live.lastMessageAt : null;
+  const feed: 'connecting' | 'waiting' | 'live' | 'idle' = !live.connected
+    ? 'connecting'
+    : dataAgeMs === null
+      ? 'waiting'
+      : dataAgeMs > 30000
+        ? 'idle'
+        : 'live';
+
+  const vitalClass = (value: number | null, low: number, high: number) =>
+    value === null
+      ? 'text-[#94a3b8]'
+      : value < low || value > high
+        ? 'text-[#dc2626]'
+        : 'text-[#151515]';
+
+  return (
+    <button
+      type="button"
+      onClick={onOpenLive}
+      className="flex w-full items-center gap-4 rounded-[18px] bg-white p-4 text-left shadow-sm active:scale-[0.99]"
+    >
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#e9f6ed] text-[#18833b]">
+        <Activity className="h-6 w-6" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex items-center gap-2">
+          <span className="text-sm font-black uppercase tracking-wide text-[#151515]">Live Vitals</span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+              feed === 'live'
+                ? 'bg-[#e9f6ed] text-[#18833b]'
+                : feed === 'idle'
+                  ? 'bg-[#fff4e5] text-[#b45309]'
+                  : 'bg-[#f0f2f5] text-[#94a3b8]'
+            }`}
+          >
+            {feed === 'live' && '● LIVE'}
+            {feed === 'idle' && `◐ ${Math.round((dataAgeMs ?? 0) / 1000)}s`}
+            {feed === 'waiting' && '○ WAITING'}
+            {feed === 'connecting' && '○ CONNECTING'}
+          </span>
+        </span>
+        <span className="mt-1 flex items-center gap-5">
+          <span className="flex items-center gap-1.5">
+            <Heart className="h-4 w-4 text-[#dc2626]" />
+            <span className={`text-xl font-extrabold ${vitalClass(hr, 60, 100)}`}>
+              {hr ?? '–'}
+            </span>
+            <span className="text-[10px] font-bold uppercase text-[#71717a]">bpm</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Wind className="h-4 w-4 text-[#2563eb]" />
+            <span className={`text-xl font-extrabold ${vitalClass(br, 12, 20)}`}>
+              {br ?? '–'}
+            </span>
+            <span className="text-[10px] font-bold uppercase text-[#71717a]">brpm</span>
+          </span>
+        </span>
+      </span>
+      <ChevronRight className="h-5 w-5 shrink-0 text-[#94a3b8]" />
+    </button>
   );
 }
 
@@ -1928,6 +2082,792 @@ function AlertHistoryItem({
   );
 }
 
+// Fed by Senior_stuff's route_engine.queue_activity_log() via the ServiceNow
+// u_sensor_activity_log table (see server/servicenow.mjs's getSensorActivitySnapshot).
+// v1 is a single-senior link (SERVICE_NOW_SENSOR_SENIOR_ID), so this renders the
+// same live data regardless of which senior's profile is open.
+function LiveSensorStatus({ seniorKey }: { seniorKey: string }) {
+  const [status, setStatus] = useState<SensorStatus | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [error, setError] = useState('');
+  // Phase 9 — vitals sub-tabs: "Live" rides the MQTT/WebSocket bridge (1 Hz,
+  // 60 s rolling sparkline); "History" fetches 15-min batched averages from
+  // ServiceNow. Dense multi-day time-series are deliberately not rendered
+  // on mobile.
+  const [vitalsTab, setVitalsTab] = useState<'live' | 'history'>('live');
+  const live = useLiveVitals(vitalsTab === 'live');
+  const [history, setHistory] = useState<VitalsHistory | null>(null);
+  const [historyError, setHistoryError] = useState('');
+
+  useEffect(() => {
+    if (vitalsTab !== 'history') {
+      return;
+    }
+
+    let isMounted = true;
+
+    getVitalsHistory()
+      .then((result) => {
+        if (isMounted) {
+          setHistory(result);
+          setHistoryError('');
+        }
+      })
+      .catch((loadError) => {
+        if (isMounted) {
+          setHistoryError(
+            loadError instanceof Error ? loadError.message : 'Unable to load vitals history.',
+          );
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [vitalsTab, seniorKey]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function load() {
+      try {
+        const result = await getSensorStatus();
+
+        if (isMounted) {
+          setStatus(result);
+          setError('');
+        }
+      } catch (loadError) {
+        console.error('Unable to load live sensor status:', loadError);
+
+        if (isMounted) {
+          setError(loadError instanceof Error ? loadError.message : 'Unable to load live sensor status.');
+        }
+      } finally {
+        if (isMounted) {
+          setHasLoaded(true);
+        }
+      }
+    }
+
+    load();
+    const refreshTimer = window.setInterval(load, SENSOR_STATUS_REFRESH_MS);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(refreshTimer);
+    };
+  }, [seniorKey]);
+
+  // Avoid a flash of "not configured" before the first response, and render
+  // nothing at all when SERVICE_NOW_SENSOR_SENIOR_ID isn't configured (status
+  // stays null in that case - see getSensorActivitySnapshot).
+  if (!hasLoaded || !status) {
+    return null;
+  }
+
+  const hasAnyData =
+    Boolean(status.rooms.bedroom.value) ||
+    Boolean(status.rooms.bathroom.value) ||
+    Boolean(status.rooms.livingRoom.value) ||
+    status.vitals.hr !== null ||
+    status.vitals.br !== null;
+
+  return (
+    <SeniorDetailSection title="Live Sensors" tone="blue" icon={<Activity className="h-6 w-6" />}>
+      {!hasAnyData ? (
+        <div className="px-5 py-6 text-center text-sm font-semibold text-[#71717a]">
+          {error || 'No live sensor data yet.'}
+        </div>
+      ) : (
+        <div className="space-y-4 px-5 py-4">
+          <div className="grid grid-cols-3 gap-3">
+            <RoomStatusTile icon={<Bed className="h-6 w-6" />} label="Bedroom" room={status.rooms.bedroom} />
+            <RoomStatusTile icon={<Bath className="h-6 w-6" />} label="Bathroom" room={status.rooms.bathroom} />
+            <RoomStatusTile icon={<Sofa className="h-6 w-6" />} label="Living Room" room={status.rooms.livingRoom} />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1 rounded-full bg-[#f0f2f5] p-1">
+              {(['live', 'history'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setVitalsTab(tab)}
+                  className={`rounded-full px-4 py-1 text-xs font-bold uppercase tracking-wide transition-colors ${
+                    vitalsTab === tab ? 'bg-white text-[#18833b] shadow-sm' : 'text-[#71717a]'
+                  }`}
+                >
+                  {tab === 'live' ? 'Live' : 'History'}
+                </button>
+              ))}
+            </div>
+            {vitalsTab === 'live' && (
+              <span
+                className={`text-xs font-semibold ${live.connected ? 'text-[#18833b]' : 'text-[#94a3b8]'}`}
+              >
+                {live.connected ? '● live link' : '○ connecting…'}
+              </span>
+            )}
+          </div>
+
+          {vitalsTab === 'live' ? (
+            <div className="grid grid-cols-2 gap-3">
+              <LiveVitalCard
+                icon={<Heart className="h-6 w-6" />}
+                label="Heart Rate"
+                unit="BPM"
+                value={live.hr ?? status.vitals.hr}
+                isLive={live.hr !== null}
+                series={live.hrSeries}
+                fallbackTrend={status.vitals.hrTrend}
+                normalLow={60}
+                normalHigh={100}
+              />
+              <LiveVitalCard
+                icon={<Wind className="h-6 w-6" />}
+                label="Breath Rate"
+                unit="BRPM"
+                value={live.br ?? status.vitals.br}
+                isLive={live.br !== null}
+                series={live.brSeries}
+                fallbackTrend={status.vitals.brTrend}
+                normalLow={12}
+                normalHigh={20}
+              />
+            </div>
+          ) : (
+            <VitalsHistoryPanel history={history} error={historyError} />
+          )}
+
+          {vitalsTab === 'live' && !live.connected && status.lastUpdated && (
+            <p className="text-center text-xs font-semibold text-[#94a3b8]">
+              Live link offline — showing last synced ({formatDetailDateTime(status.lastUpdated)})
+            </p>
+          )}
+        </div>
+      )}
+    </SeniorDetailSection>
+  );
+}
+
+function RoomStatusTile({
+  icon,
+  label,
+  room,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  room: RoomOccupancy;
+}) {
+  const isKnown = room.occupied !== null;
+  const isOccupied = room.occupied === true;
+  const toneClass = !isKnown
+    ? 'bg-[#f0f2f5] text-[#94a3b8]'
+    : isOccupied
+      ? 'bg-[#e9f6ed] text-[#18833b]'
+      : 'bg-[#f0f2f5] text-[#71717a]';
+
+  return (
+    <div className={`flex flex-col items-center gap-2 rounded-[14px] px-2 py-4 ${toneClass}`}>
+      {icon}
+      <p className="text-sm font-bold">{label}</p>
+      <p className="text-xs font-semibold">{!isKnown ? 'No data' : isOccupied ? 'Occupied' : 'Empty'}</p>
+    </div>
+  );
+}
+
+// Clinical threshold coloring (Phase 9.2): green inside the normal band,
+// red outside it (tachycardia/bradycardia, tachypnea/bradypnea).
+function vitalTone(value: number | null, low: number, high: number) {
+  if (value === null) {
+    return '#94a3b8';
+  }
+
+  return value >= low && value <= high ? '#18833b' : '#c8171d';
+}
+
+function LiveVitalCard({
+  icon,
+  label,
+  unit,
+  value,
+  isLive,
+  series,
+  fallbackTrend,
+  normalLow,
+  normalHigh,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  unit: string;
+  value: number | null;
+  isLive: boolean;
+  series: VitalPoint[];
+  fallbackTrend: SensorTrendPoint[];
+  normalLow: number;
+  normalHigh: number;
+}) {
+  const tone = vitalTone(value, normalLow, normalHigh);
+  // 60-second rolling live sparkline; before the first live tick arrives,
+  // fall back to the last synced ServiceNow trend so the card is never blank.
+  const chartData: Array<{ value: number }> = series.length > 1 ? series : fallbackTrend;
+
+  return (
+    <div className="rounded-[14px] bg-[#f0f2f5] p-4">
+      <div className="flex items-center gap-2">
+        <div style={{ color: tone }}>{icon}</div>
+        <p className="text-sm font-semibold text-[#71717a]">{label}</p>
+      </div>
+      <p className="mt-1 text-4xl font-extrabold leading-none" style={{ color: tone }}>
+        {value !== null ? value : '–'}
+        <span className="ml-1 text-sm font-bold text-[#71717a]">{unit}</span>
+      </p>
+      <p className="mt-1 text-[11px] font-semibold text-[#94a3b8]">
+        Normal {normalLow}–{normalHigh} · {isLive ? 'live · 60s window' : 'last synced'}
+      </p>
+      {chartData.length > 1 && (
+        <div className="mt-2 h-12 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData}>
+              <Line type="monotone" dataKey="value" stroke={tone} strokeWidth={2} dot={false} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VitalsHistoryPanel({ history, error }: { history: VitalsHistory | null; error: string }) {
+  if (error) {
+    return <p className="py-4 text-center text-sm font-semibold text-[#c8171d]">{error}</p>;
+  }
+
+  if (!history) {
+    return <p className="py-4 text-center text-sm font-semibold text-[#94a3b8]">Loading history…</p>;
+  }
+
+  if (history.hr.length === 0 && history.br.length === 0) {
+    return (
+      <p className="py-4 text-center text-sm font-semibold text-[#94a3b8]">
+        No vitals history{history.date ? ` for ${history.date}` : ''} yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <HistoryTrend
+        title="Heart Rate — 15-min averages (bpm)"
+        data={history.hr}
+        color="#c8171d"
+        unit="bpm"
+        normalLow={60}
+        normalHigh={100}
+      />
+      <HistoryTrend
+        title="Breath Rate — 15-min averages (brpm)"
+        data={history.br}
+        color="#075fc7"
+        unit="brpm"
+        normalLow={12}
+        normalHigh={20}
+      />
+      <p className="text-center text-[11px] font-semibold text-[#94a3b8]">
+        Daily baseline · {history.date} · {history.samples} readings · source: ServiceNow
+      </p>
+    </div>
+  );
+}
+
+// 15-min vitals averages as a line over the clinical normal band. The band
+// (recessive neutral fill + dashed bounds, labeled in the header) is what
+// makes a breach readable at a glance — the line visibly exits it. Y domain
+// always contains BOTH the band and the data, so two similar in-range values
+// no longer render as identical full-height blocks (the old bar version's
+// [0, auto] domain did exactly that). Y ticks sit exactly on the two
+// thresholds — they're the only reference values that matter here.
+function HistoryTrend({
+  title,
+  data,
+  color,
+  unit,
+  normalLow,
+  normalHigh,
+}: {
+  title: string;
+  data: Array<{ time: string; avg: number }>;
+  color: string;
+  unit: string;
+  normalLow: number;
+  normalHigh: number;
+}) {
+  if (data.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-[14px] bg-[#f0f2f5] p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-xs font-bold text-[#71717a]">{title}</p>
+        <p className="shrink-0 text-[10px] font-semibold text-[#94a3b8]">
+          normal {normalLow}–{normalHigh}
+        </p>
+      </div>
+      <div className="mt-1 h-32 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
+            <XAxis
+              dataKey="time"
+              tick={{ fontSize: 9, fill: '#94a3b8' }}
+              interval="preserveStartEnd"
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              width={30}
+              domain={[
+                (dataMin: number) => Math.floor(Math.min(dataMin - 4, normalLow - 8)),
+                (dataMax: number) => Math.ceil(Math.max(dataMax + 4, normalHigh + 8)),
+              ]}
+              ticks={[normalLow, normalHigh]}
+              tick={{ fontSize: 9, fill: '#94a3b8' }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <ReferenceArea y1={normalLow} y2={normalHigh} fill="#64748b" fillOpacity={0.1} stroke="none" />
+            <ReferenceLine y={normalLow} stroke="#94a3b8" strokeDasharray="4 3" strokeWidth={1} />
+            <ReferenceLine y={normalHigh} stroke="#94a3b8" strokeDasharray="4 3" strokeWidth={1} />
+            <Tooltip
+              formatter={(value) => [`${value} ${unit}`, '']}
+              separator=""
+              labelStyle={{ fontSize: 11, fontWeight: 700, color: '#30343a' }}
+              itemStyle={{ fontSize: 11, fontWeight: 700, color: '#30343a' }}
+              contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', padding: '4px 8px' }}
+              cursor={{ stroke: '#94a3b8', strokeWidth: 1 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="avg"
+              stroke={color}
+              strokeWidth={2}
+              dot={{ r: 2.5, strokeWidth: 0, fill: color }}
+              activeDot={{ r: 5, strokeWidth: 2, stroke: '#ffffff' }}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ── LIVE MONITOR TAB — controller-grade live view, phone-sized ──
+// Mirrors the Pi dashboard's live surfaces (vitals, room occupancy, movement/
+// distance, per-node heartbeats, alert feed) as stacked mobile cards. Vitals
+// ride the MQTT/WebSocket bridge; everything else polls the ServiceNow
+// snapshot every LIVE_TAB_REFRESH_MS.
+const LIVE_TAB_REFRESH_MS = 10000;
+
+function parseLoggedAt(value: string) {
+  if (!value || value.length < 19) {
+    return null;
+  }
+
+  const parsed = new Date(value.replace(' ', 'T'));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function timeAgo(value: string) {
+  const parsed = parseLoggedAt(value);
+
+  if (!parsed) {
+    return 'unknown';
+  }
+
+  const seconds = Math.max(0, Math.round((Date.now() - parsed.getTime()) / 1000));
+
+  if (seconds < 90) {
+    return `${seconds}s ago`;
+  }
+
+  if (seconds < 5400) {
+    return `${Math.round(seconds / 60)}m ago`;
+  }
+
+  return `${Math.round(seconds / 3600)}h ago`;
+}
+
+// Same thresholds as the Pi fleet watchdog: fresh ≤2 min, stale ≤5 min
+// (FLEET_OFFLINE_SEC), offline beyond that.
+function nodeFreshness(value: string) {
+  const parsed = parseLoggedAt(value);
+  const seconds = parsed ? (Date.now() - parsed.getTime()) / 1000 : Infinity;
+
+  if (seconds <= 120) {
+    return { dot: 'bg-[#18833b]', label: 'online', text: 'text-[#18833b]' };
+  }
+
+  if (seconds <= 300) {
+    return { dot: 'bg-[#b45309]', label: 'stale', text: 'text-[#b45309]' };
+  }
+
+  return { dot: 'bg-[#c8171d]', label: 'offline', text: 'text-[#c8171d]' };
+}
+
+function alertTone(value: string) {
+  const v = String(value || '').toUpperCase();
+
+  if (v.includes('CRITICAL') || v.includes('FALL')) {
+    return 'bg-[#fdecec] text-[#c8171d]';
+  }
+
+  if (v.includes('MODERATE') || v.includes('WARNING')) {
+    return 'bg-[#fff4e5] text-[#b45309]';
+  }
+
+  if (v.includes('MINIMAL') || v.includes('RECOVER')) {
+    return 'bg-[#e9f6ed] text-[#18833b]';
+  }
+
+  return 'bg-[#f0f2f5] text-[#71717a]';
+}
+
+function LiveMonitorCard({
+  title,
+  live,
+  children,
+}: {
+  title: string;
+  live?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-[24px] bg-white p-4 shadow-[0_6px_18px_rgba(0,0,0,0.05)]">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-black uppercase tracking-widest text-[#71717a]">{title}</p>
+        {live !== undefined && (
+          <span className={`text-[10px] font-black uppercase ${live ? 'text-[#18833b]' : 'text-[#94a3b8]'}`}>
+            {live ? '● live' : 'synced'}
+          </span>
+        )}
+      </div>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+// Live samples older than this fall back to the ServiceNow snapshot.
+const LIVE_FRESH_MS = 5 * 60 * 1000;
+
+function toLoggedAt(epoch: number) {
+  const d = new Date(epoch);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function isLiveFresh(room: LiveRoomState | null) {
+  return Boolean(room && Date.now() - room.at < LIVE_FRESH_MS);
+}
+
+// Prefer the MQTT-fed room state while fresh; otherwise the SN snapshot.
+function liveRoomToOccupancy(liveRoom: LiveRoomState | null, fallback?: RoomOccupancy): RoomOccupancy {
+  if (liveRoom && isLiveFresh(liveRoom)) {
+    return { occupied: liveRoom.occupied, value: liveRoom.value, loggedAt: toLoggedAt(liveRoom.at) };
+  }
+
+  return fallback ?? { occupied: null, value: '', loggedAt: '' };
+}
+
+function LiveMonitorTab() {
+  const [status, setStatus] = useState<SensorStatus | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [error, setError] = useState('');
+  const [vitalsTab, setVitalsTab] = useState<'live' | 'history'>('live');
+  // The whole tab rides the MQTT/WS bridge now (rooms, activity, nodes,
+  // events) — keep the socket open regardless of the vitals sub-tab.
+  const live = useLiveVitals(true);
+  const [history, setHistory] = useState<VitalsHistory | null>(null);
+  const [historyError, setHistoryError] = useState('');
+  // 5 s re-render tick: keeps the "x ago" labels and the link-staleness chip
+  // honest — an OPEN WebSocket is not the same as flowing data (the Pi's
+  // network path flaps; the bridge socket stays up while MQTT is dead).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const dataAgeMs = live.lastMessageAt ? nowTick - live.lastMessageAt : null;
+  const feed: 'connecting' | 'waiting' | 'live' | 'idle' = !live.connected
+    ? 'connecting'
+    : dataAgeMs === null
+      ? 'waiting'
+      : dataAgeMs > 30000
+        ? 'idle'
+        : 'live';
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function load() {
+      try {
+        const result = await getSensorStatus();
+
+        if (isMounted) {
+          setStatus(result);
+          setError('');
+        }
+      } catch (loadError) {
+        if (isMounted) {
+          setError(loadError instanceof Error ? loadError.message : 'Unable to load sensor status.');
+        }
+      } finally {
+        if (isMounted) {
+          setHasLoaded(true);
+        }
+      }
+    }
+
+    load();
+    const timer = window.setInterval(load, LIVE_TAB_REFRESH_MS);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (vitalsTab !== 'history') {
+      return;
+    }
+
+    let isMounted = true;
+
+    getVitalsHistory()
+      .then((result) => {
+        if (isMounted) {
+          setHistory(result);
+          setHistoryError('');
+        }
+      })
+      .catch((loadError) => {
+        if (isMounted) {
+          setHistoryError(loadError instanceof Error ? loadError.message : 'Unable to load history.');
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [vitalsTab]);
+
+  // ── LIVE-FIRST derivation: MQTT-fed values win while fresh; the
+  // ServiceNow snapshot fills the gaps and survives reloads. ──
+  const roomsLive = isLiveFresh(live.rooms.bedroom) || isLiveFresh(live.rooms.bathroom)
+    || isLiveFresh(live.rooms.livingRoom);
+  const bedroomRoom = liveRoomToOccupancy(live.rooms.bedroom, status?.rooms.bedroom);
+  const bathroomRoom = liveRoomToOccupancy(live.rooms.bathroom, status?.rooms.bathroom);
+  const livingRoomRoom = liveRoomToOccupancy(live.rooms.livingRoom, status?.rooms.livingRoom);
+  const hasRoomData = [bedroomRoom, bathroomRoom, livingRoomRoom].some((room) => room.occupied !== null);
+
+  const movement = live.movement ?? status?.activity?.movement ?? null;
+  const distanceCm = live.distanceCm ?? status?.activity?.distanceCm ?? null;
+  const activityLive = live.movement !== null || live.distanceCm !== null;
+
+  // Node freshness: newest of (live socket sighting, ServiceNow row).
+  const nodeMap = new Map<string, string>();
+  for (const node of status?.nodes ?? []) {
+    nodeMap.set(node.location, node.lastSeen);
+  }
+  for (const [location, epoch] of Object.entries(live.nodes)) {
+    const liveSeen = toLoggedAt(epoch);
+    const known = nodeMap.get(location);
+    if (!known || known < liveSeen) {
+      nodeMap.set(location, liveSeen);
+    }
+  }
+  const nodes = [...nodeMap.entries()]
+    .map(([location, lastSeen]) => ({ location, lastSeen }))
+    .sort((a, b) => (a.location < b.location ? -1 : 1));
+
+  // Alert feed: live fall/recovery events first, then the logged history.
+  const liveEventRows = live.events.map((event) => ({
+    location: event.location,
+    value: event.value,
+    status: 'live radar event',
+    loggedAt: toLoggedAt(event.at),
+  }));
+  const recentAlerts = [...liveEventRows, ...(status?.recentAlerts ?? [])].slice(0, 8);
+
+  return (
+    <div className="space-y-4">
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-black text-[#151515]">Live Monitor</h1>
+          <p className="text-sm font-semibold text-[#71717a]">Sensor node · live telemetry</p>
+        </div>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-black ${
+            feed === 'live'
+              ? 'bg-[#e9f6ed] text-[#18833b]'
+              : feed === 'idle'
+                ? 'bg-[#fff4e5] text-[#b45309]'
+                : 'bg-[#f0f2f5] text-[#94a3b8]'
+          }`}
+        >
+          {feed === 'live' && '● LIVE'}
+          {feed === 'idle' && `◐ NO DATA ${Math.round((dataAgeMs ?? 0) / 1000)}s`}
+          {feed === 'waiting' && '○ WAITING FOR DATA…'}
+          {feed === 'connecting' && '○ CONNECTING…'}
+        </span>
+      </header>
+
+      {/* ── Clinical vitals: live (WS) / history (ServiceNow 15-min avgs) ── */}
+      <LiveMonitorCard title="Clinical Vitals">
+        <div className="mb-3 flex gap-1 rounded-full bg-[#f0f2f5] p-1">
+          {(['live', 'history'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setVitalsTab(tab)}
+              className={`flex-1 rounded-full px-4 py-1 text-xs font-bold uppercase tracking-wide transition-colors ${
+                vitalsTab === tab ? 'bg-white text-[#18833b] shadow-sm' : 'text-[#71717a]'
+              }`}
+            >
+              {tab === 'live' ? 'Live' : 'History'}
+            </button>
+          ))}
+        </div>
+        {vitalsTab === 'live' ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <LiveVitalCard
+                icon={<Heart className="h-6 w-6" />}
+                label="Heart Rate"
+                unit="BPM"
+                value={live.hr ?? status?.vitals.hr ?? null}
+                isLive={live.hr !== null}
+                series={live.hrSeries}
+                fallbackTrend={status?.vitals.hrTrend ?? []}
+                normalLow={60}
+                normalHigh={100}
+              />
+              <LiveVitalCard
+                icon={<Wind className="h-6 w-6" />}
+                label="Breath Rate"
+                unit="BRPM"
+                value={live.br ?? status?.vitals.br ?? null}
+                isLive={live.br !== null}
+                series={live.brSeries}
+                fallbackTrend={status?.vitals.brTrend ?? []}
+                normalLow={12}
+                normalHigh={20}
+              />
+            </div>
+            {!live.connected && status?.lastUpdated && (
+              <p className="mt-2 text-center text-xs font-semibold text-[#94a3b8]">
+                Live link offline — showing last synced ({timeAgo(status.lastUpdated)})
+              </p>
+            )}
+          </>
+        ) : (
+          <VitalsHistoryPanel history={history} error={historyError} />
+        )}
+      </LiveMonitorCard>
+
+      {/* ── Room occupancy (MQTT-fed, ServiceNow fallback) ── */}
+      <LiveMonitorCard title="Rooms" live={roomsLive}>
+        {hasRoomData ? (
+          <div className="grid grid-cols-3 gap-3">
+            <RoomStatusTile icon={<Bed className="h-6 w-6" />} label="Bedroom" room={bedroomRoom} />
+            <RoomStatusTile icon={<Bath className="h-6 w-6" />} label="Bathroom" room={bathroomRoom} />
+            <RoomStatusTile icon={<Sofa className="h-6 w-6" />} label="Living Room" room={livingRoomRoom} />
+          </div>
+        ) : (
+          <p className="py-2 text-center text-sm font-semibold text-[#94a3b8]">
+            {hasLoaded ? error || 'No sensor data yet.' : 'Loading…'}
+          </p>
+        )}
+      </LiveMonitorCard>
+
+      {/* ── Movement / distance (living-room radar) ── */}
+      <LiveMonitorCard title="Activity — Living Room Radar" live={activityLive}>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-[14px] bg-[#f0f2f5] p-4 text-center">
+            <p className="text-3xl font-extrabold text-[#151515]">{movement !== null ? movement : '–'}</p>
+            <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[#71717a]">Body movement</p>
+          </div>
+          <div className="rounded-[14px] bg-[#f0f2f5] p-4 text-center">
+            <p className="text-3xl font-extrabold text-[#151515]">
+              {distanceCm !== null ? `${distanceCm}` : '–'}
+              <span className="ml-1 text-sm font-bold text-[#71717a]">cm</span>
+            </p>
+            <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[#71717a]">Target distance</p>
+          </div>
+        </div>
+      </LiveMonitorCard>
+
+      {/* ── Node heartbeats (per sensor location) ── */}
+      <LiveMonitorCard title="Node Health" live={Object.keys(live.nodes).length > 0}>
+        {nodes.length === 0 ? (
+          <p className="py-2 text-center text-sm font-semibold text-[#94a3b8]">No node activity yet.</p>
+        ) : (
+          <ul className="divide-y divide-[#eef1f4]">
+            {nodes.map((node) => {
+              const tone = nodeFreshness(node.lastSeen);
+
+              return (
+                <li key={node.location} className="flex items-center justify-between py-2">
+                  <span className="flex items-center gap-2 text-sm font-bold text-[#30343a]">
+                    <span className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
+                    {node.location}
+                  </span>
+                  <span className={`text-xs font-bold ${tone.text}`}>
+                    {tone.label} · {timeAgo(node.lastSeen)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </LiveMonitorCard>
+
+      {/* ── Recent alert feed (live radar events + logged ALERTS rows) ── */}
+      <LiveMonitorCard title="Recent Alerts" live={live.events.length > 0}>
+        {recentAlerts.length === 0 ? (
+          <p className="py-2 text-center text-sm font-semibold text-[#94a3b8]">No alerts logged.</p>
+        ) : (
+          <ul className="space-y-2">
+            {recentAlerts.map((alert, index) => (
+              <li key={`${alert.loggedAt}-${index}`} className="flex items-start gap-3">
+                <span className={`mt-0.5 rounded-full px-2 py-0.5 text-[11px] font-black ${alertTone(alert.value)}`}>
+                  {alert.value || '—'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-bold text-[#30343a]">
+                    {alert.location} · <span className="font-semibold text-[#71717a]">{alert.status}</span>
+                  </p>
+                  <p className="text-xs font-semibold text-[#94a3b8]">{timeAgo(alert.loggedAt)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </LiveMonitorCard>
+
+      {status?.lastUpdated && (
+        <p className="text-center text-xs font-semibold text-[#94a3b8]">
+          ServiceNow sync {timeAgo(status.lastUpdated)} · refreshes every {LIVE_TAB_REFRESH_MS / 1000}s
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ResidentProfileDetails({
   senior,
   onBack,
@@ -2080,6 +3020,8 @@ function ResidentProfileDetails({
               <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label={t('medicalConditions')} value={medicalConditions} />
               <SeniorDetailRow icon={<Pill className="h-6 w-6" />} label={t('currentMedication')} value={currentMedication} />
             </SeniorDetailSection>
+
+            <LiveSensorStatus seniorKey={senior.userId || senior.id} />
 
             <button
               type="button"

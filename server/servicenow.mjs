@@ -75,6 +75,12 @@ const MEDICINE_TABLE = process.env.SERVICE_NOW_MEDICINE_TABLE || 'u_medicine';
 const FAMILY_VERIFICATION_TABLE = process.env.SERVICE_NOW_FAMILY_VERIFICATION_TABLE || 'u_family_verification_code';
 const SENIOR_DISPLAY_ID_LENGTH = Number(process.env.SENIOR_DISPLAY_ID_LENGTH) || 8;
 
+// Populated by the Senior_stuff Raspberry Pi system's route_engine.queue_activity_log()
+// (batched every ~60s). v1 is a single-senior link: SERVICE_NOW_SENSOR_SENIOR_ID must
+// match SENIOR_ID in Senior_stuff's own .env. Leave blank to disable this panel.
+const SENSOR_ACTIVITY_TABLE = process.env.SERVICE_NOW_SENSOR_ACTIVITY_TABLE || 'u_sensor_activity_log';
+const SENSOR_ACTIVITY_SENIOR_ID = process.env.SERVICE_NOW_SENSOR_SENIOR_ID || '';
+
 const LOGIN_FIELD_MAP = {
   username: process.env.SERVICE_NOW_LOGIN_FIELD_USERNAME || 'u_username',
   email: process.env.SERVICE_NOW_LOGIN_FIELD_EMAIL || 'u_email',
@@ -122,6 +128,15 @@ const FAMILY_VERIFICATION_FIELD_MAP = {
   status: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_STATUS || 'u_status',
   verifiedAt: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_VERIFIED_AT || 'u_verified_at',
   familyUser: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_FAMILY_USER || 'u_family_user_id',
+};
+
+const SENSOR_ACTIVITY_FIELD_MAP = {
+  seniorId: process.env.SERVICE_NOW_SENSOR_ACTIVITY_FIELD_SENIOR_ID || 'u_senior_id',
+  sensorType: process.env.SERVICE_NOW_SENSOR_ACTIVITY_FIELD_TYPE || 'u_sensor_type',
+  location: process.env.SERVICE_NOW_SENSOR_ACTIVITY_FIELD_LOCATION || 'u_location',
+  value: process.env.SERVICE_NOW_SENSOR_ACTIVITY_FIELD_VALUE || 'u_value',
+  status: process.env.SERVICE_NOW_SENSOR_ACTIVITY_FIELD_STATUS || 'u_status',
+  loggedAt: process.env.SERVICE_NOW_SENSOR_ACTIVITY_FIELD_LOGGED_AT || 'u_logged_at',
 };
 
 function getConfig() {
@@ -1068,9 +1083,17 @@ async function getLoginRecordById(userId) {
     return null;
   }
 
-  const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(userId)}`));
-
-  return data?.result || null;
+  // Tolerate dangling references: a connection row pointing at a deleted (or
+  // never-valid) login must resolve to null, not blow up the whole request.
+  try {
+    const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(userId)}`));
+    return data?.result || null;
+  } catch (error) {
+    if (error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function findSeniorProfileByUserId(userId) {
@@ -1079,8 +1102,15 @@ async function findSeniorProfileByUserId(userId) {
   }
 
   if (FIELD_MAP.userId === 'sys_id') {
-    const data = await serviceNowFetch(getTablePath(`/${encodeURIComponent(userId)}`));
-    return data?.result || null;
+    try {
+      const data = await serviceNowFetch(getTablePath(`/${encodeURIComponent(userId)}`));
+      return data?.result || null;
+    } catch (error) {
+      if (error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   const params = new URLSearchParams({
@@ -1474,8 +1504,17 @@ export async function getCheckInRemindersForSenior(userId) {
 export async function createCaregiverConnection(data) {
   const caregiverIdentifier = normalizeLoginValue(data.caregiverEmail || data.caregiverUsername);
   const seniorIdentifier = normalizeLoginValue(data.seniorEmail || data.seniorUsername);
-  const caregiverUser = data.caregiverId ? { sys_id: data.caregiverId } : await findLoginRecordByIdentifier(caregiverIdentifier);
-  const seniorUser = data.seniorUserId ? { sys_id: data.seniorUserId } : await findLoginRecordByIdentifier(seniorIdentifier);
+  // Only trust a caller-supplied caregiverId that is an actual sys_id —
+  // anything else written into the u_user reference is silently stored as an
+  // EMPTY reference by ServiceNow, leaving orphan connection rows (13 of
+  // those were found in u_caregiver_profiles on 2026-07-07).
+  const looksLikeSysId = (value) => /^[a-f0-9]{32}$/i.test(String(value || '').trim());
+  const caregiverUser = looksLikeSysId(data.caregiverId)
+    ? { sys_id: data.caregiverId }
+    : await findLoginRecordByIdentifier(caregiverIdentifier);
+  const seniorUser = looksLikeSysId(data.seniorUserId)
+    ? { sys_id: data.seniorUserId }
+    : await findLoginRecordByIdentifier(seniorIdentifier);
   const seniorProfile = data.seniorId
     ? await findSeniorProfileByIdOrUserId(data.seniorId)
     : await findSeniorProfileByUserId(seniorUser?.sys_id);
@@ -1547,40 +1586,51 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
     sysparm_limit: '100',
   });
   const data = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${params.toString()}`));
+  // One broken connection row (deleted senior profile, dangling login ref)
+  // must not reject the whole Promise.all and empty the caregiver's list —
+  // resolve what we can, skip the rest.
   const seniors = await Promise.all((data?.result || []).map(async (connection) => {
-    const seniorProfileId = getReferenceValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.senior]);
-    const seniorProfileData = seniorProfileId
-      ? await serviceNowFetch(getTablePath(`/${encodeURIComponent(seniorProfileId)}`))
-      : null;
-    const referencedSeniorProfile = seniorProfileData?.result || {};
-    const referencedSeniorUserId = getReferenceValue(referencedSeniorProfile[FIELD_MAP.userId]);
-    const seniorProfile = referencedSeniorUserId
-      ? await findSeniorProfileByUserId(referencedSeniorUserId) || referencedSeniorProfile
-      : referencedSeniorProfile;
-    const seniorUserId = getReferenceValue(seniorProfile[FIELD_MAP.userId]);
-    const seniorUser = seniorUserId ? await getLoginRecordById(seniorUserId) : null;
-    const senior = toCaregiverSeniorRecord(connection, seniorProfile, seniorUser || {});
-    const sosAlert = await getLatestActiveSosAlertForSenior(senior);
-    const medicationSummary = await getMedicationSummaryForSeniorProfile(seniorProfile.sys_id);
-    const medicalInformation = await getMedicalInformationForSeniorProfile(seniorProfile.sys_id);
+    // Merged 2026-07-09: upstream's medication/medical-info enrichment kept,
+    // wrapped in the pre-existing dangling-ref try/catch (one broken
+    // connection row must not reject the whole Promise.all).
+    try {
+      const seniorProfileId = getReferenceValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.senior]);
+      const seniorProfileData = seniorProfileId
+        ? await serviceNowFetch(getTablePath(`/${encodeURIComponent(seniorProfileId)}`))
+        : null;
+      const referencedSeniorProfile = seniorProfileData?.result || {};
+      const referencedSeniorUserId = getReferenceValue(referencedSeniorProfile[FIELD_MAP.userId]);
+      const seniorProfile = referencedSeniorUserId
+        ? await findSeniorProfileByUserId(referencedSeniorUserId) || referencedSeniorProfile
+        : referencedSeniorProfile;
+      const seniorUserId = getReferenceValue(seniorProfile[FIELD_MAP.userId]);
+      const seniorUser = seniorUserId ? await getLoginRecordById(seniorUserId) : null;
+      const senior = toCaregiverSeniorRecord(connection, seniorProfile, seniorUser || {});
+      const sosAlert = await getLatestActiveSosAlertForSenior(senior);
+      const medicationSummary = await getMedicationSummaryForSeniorProfile(seniorProfile.sys_id);
+      const medicalInformation = await getMedicalInformationForSeniorProfile(seniorProfile.sys_id);
 
-    return sosAlert
-      ? {
-          ...senior,
-          ...medicationSummary,
-          ...medicalInformation,
-          status: 'SOS Active',
-          alertId: sosAlert.id,
-          location: sosAlert.location || senior.location,
-          alertMessage: sosAlert.message,
-          alertStatus: sosAlert.status,
-          alertTime: sosAlert.createdAt,
-        }
-      : { ...senior, ...medicationSummary, ...medicalInformation };
+      return sosAlert
+        ? {
+            ...senior,
+            ...medicationSummary,
+            ...medicalInformation,
+            status: 'SOS Active',
+            alertId: sosAlert.id,
+            location: sosAlert.location || senior.location,
+            alertMessage: sosAlert.message,
+            alertStatus: sosAlert.status,
+            alertTime: sosAlert.createdAt,
+          }
+        : { ...senior, ...medicationSummary, ...medicalInformation };
+    } catch (error) {
+      console.error(`Skipping unresolvable caregiver connection ${connection?.sys_id || '?'}:`, error.message);
+      return null;
+    }
   }));
 
   const uniqueSeniors = Array.from(
-    seniors.reduce((seniorMap, senior) => {
+    seniors.filter(Boolean).reduce((seniorMap, senior) => {
       const key = senior.userId || senior.id || senior.connectionId;
       const existing = seniorMap.get(key);
 
@@ -1591,6 +1641,26 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
       return seniorMap;
     }, new Map()).values(),
   );
+
+  // ── Live location from the sensor deployment ──
+  // The senior whose home carries the Pi sensors (matched by name — the
+  // daemon's SENIOR_NAME) gets their card location driven by room occupancy
+  // instead of the (empty) profile field. An active SOS keeps the alert's
+  // GPS/address — that is more actionable than a room name.
+  const sensorSeniorName = normalizeLoginValue(process.env.SERVICE_NOW_SENSOR_SENIOR_NAME || '');
+
+  if (sensorSeniorName) {
+    const snapshot = await getSensorActivitySnapshot().catch(() => null);
+    const sensorLocation = getSensorRoomLocation(snapshot);
+
+    if (sensorLocation) {
+      for (const senior of uniqueSeniors) {
+        if (normalizeLoginValue(senior.name) === sensorSeniorName && senior.status !== 'SOS Active') {
+          senior.location = sensorLocation;
+        }
+      }
+    }
+  }
 
   return uniqueSeniors.filter((senior) => {
     const matchesName = !nameSearch || senior.name.toLowerCase().includes(nameSearch);
@@ -1858,6 +1928,237 @@ export async function deleteMedicineForUser(userId, medicineId) {
   });
 
   return { id: existingRecord.sys_id };
+}
+
+function toSensorActivityRecord(record = {}) {
+  return {
+    sensorType: getDisplayValue(record[SENSOR_ACTIVITY_FIELD_MAP.sensorType]),
+    location: getDisplayValue(record[SENSOR_ACTIVITY_FIELD_MAP.location]),
+    value: getDisplayValue(record[SENSOR_ACTIVITY_FIELD_MAP.value]),
+    status: getDisplayValue(record[SENSOR_ACTIVITY_FIELD_MAP.status]),
+    loggedAt: getDisplayValue(record[SENSOR_ACTIVITY_FIELD_MAP.loggedAt]),
+  };
+}
+
+// occupiedValues are matched against the exact strings controller.py's _log() calls
+// write for that (sensorType, location) pair - see Senior_stuff/sensors/Controller/controller.py.
+function getRoomOccupancy(latestByKey, sensorType, location, occupiedValues) {
+  const row = latestByKey.get(`${sensorType}|${location}`);
+
+  if (!row) {
+    return { occupied: null, value: '', loggedAt: '' };
+  }
+
+  return {
+    occupied: occupiedValues.includes(String(row.value).trim().toUpperCase()),
+    value: row.value,
+    loggedAt: row.loggedAt,
+  };
+}
+
+// Short TTL cache: the caregiver dashboard polls every 5 s and now ALSO
+// enriches each senior's location from this snapshot — without the cache
+// every poll would fan out into 3 extra ServiceNow queries.
+const SENSOR_SNAPSHOT_TTL_MS = 10000;
+let sensorSnapshotCache = { at: 0, value: null };
+
+export async function getSensorActivitySnapshot() {
+  if (!SENSOR_ACTIVITY_SENIOR_ID) {
+    return null;
+  }
+
+  if (Date.now() - sensorSnapshotCache.at < SENSOR_SNAPSHOT_TTL_MS) {
+    return sensorSnapshotCache.value;
+  }
+
+  try {
+    const field = SENSOR_ACTIVITY_FIELD_MAP;
+
+    const statusParams = new URLSearchParams({
+      sysparm_query: `${field.seniorId}=${SENSOR_ACTIVITY_SENIOR_ID}^ORDERBYDESC${field.loggedAt}`,
+      sysparm_limit: '50',
+    });
+    const statusData = await serviceNowFetch(getNamedTablePath(SENSOR_ACTIVITY_TABLE, `?${statusParams.toString()}`));
+    const statusRows = (statusData?.result || []).map(toSensorActivityRecord);
+
+    const latestByKey = new Map();
+    let lastUpdated = '';
+
+    for (const row of statusRows) {
+      const key = `${row.sensorType}|${row.location}`;
+
+      if (!latestByKey.has(key)) {
+        latestByKey.set(key, row);
+      }
+
+      if (!lastUpdated || row.loggedAt > lastUpdated) {
+        lastUpdated = row.loggedAt;
+      }
+    }
+
+    const bedroom = getRoomOccupancy(latestByKey, 'mmWave(InBed)', 'Bedroom', ['IN BED']);
+    const bathroom = getRoomOccupancy(latestByKey, 'Proximity', 'Bathroom Door', ['ENTER']);
+    const livingRoom = getRoomOccupancy(latestByKey, 'mmWave', 'Living Room', ['PRESENCE']);
+
+    const hrRow = latestByKey.get('mmWave(HR)|Bedroom');
+    const brRow = latestByKey.get('mmWave(BR)|Bedroom');
+
+    // Controller-grade extras for the mobile Live tab: body-movement count and
+    // target distance (living-room radar), newest row per node location
+    // (heartbeat proxy), and the recent alert feed (ALERTS/System rows).
+    const movementRow = latestByKey.get('mmWave(Movement)|Living Room');
+    const distanceRow = latestByKey.get('mmWave(Dist)|Living Room');
+
+    const nodeLastSeen = new Map();
+    for (const row of statusRows) {
+      if (row.location && !nodeLastSeen.has(row.location)) {
+        nodeLastSeen.set(row.location, row.loggedAt); // rows are newest-first
+      }
+    }
+    const nodes = [...nodeLastSeen.entries()]
+      .map(([location, lastSeen]) => ({ location, lastSeen }))
+      .sort((a, b) => (a.location < b.location ? -1 : 1));
+
+    const alertParams = new URLSearchParams({
+      sysparm_query: `${field.seniorId}=${SENSOR_ACTIVITY_SENIOR_ID}^${field.sensorType}INALERTS,System^ORDERBYDESC${field.loggedAt}`,
+      sysparm_limit: '8',
+    });
+    const alertData = await serviceNowFetch(getNamedTablePath(SENSOR_ACTIVITY_TABLE, `?${alertParams.toString()}`));
+    const recentAlerts = (alertData?.result || []).map(toSensorActivityRecord).map((row) => ({
+      location: row.location,
+      value: row.value,
+      status: row.status,
+      loggedAt: row.loggedAt,
+    }));
+
+    const trendParams = new URLSearchParams({
+      sysparm_query: `${field.seniorId}=${SENSOR_ACTIVITY_SENIOR_ID}^${field.sensorType}INmmWave(HR),mmWave(BR)^ORDERBYDESC${field.loggedAt}`,
+      sysparm_limit: '120',
+    });
+    const trendData = await serviceNowFetch(getNamedTablePath(SENSOR_ACTIVITY_TABLE, `?${trendParams.toString()}`));
+    const trendRows = (trendData?.result || []).map(toSensorActivityRecord).reverse();
+
+    const hrTrend = trendRows
+      .filter((row) => row.sensorType === 'mmWave(HR)')
+      .map((row) => ({ value: Number(row.value) || 0, loggedAt: row.loggedAt }));
+    const brTrend = trendRows
+      .filter((row) => row.sensorType === 'mmWave(BR)')
+      .map((row) => ({ value: Number(row.value) || 0, loggedAt: row.loggedAt }));
+
+    const snapshot = {
+      rooms: { bedroom, bathroom, livingRoom },
+      vitals: {
+        hr: hrRow ? Number(hrRow.value) || 0 : null,
+        br: brRow ? Number(brRow.value) || 0 : null,
+        hrTrend,
+        brTrend,
+      },
+      activity: {
+        movement: movementRow ? Number(movementRow.value) || 0 : null,
+        distanceCm: distanceRow ? Number(distanceRow.value) || 0 : null,
+      },
+      nodes,
+      recentAlerts,
+      lastUpdated,
+    };
+    sensorSnapshotCache = { at: Date.now(), value: snapshot };
+    return snapshot;
+  } catch (error) {
+    console.error('getSensorActivitySnapshot failed:', error);
+    return null;
+  }
+}
+
+// The senior's CURRENT location, derived from sensor occupancy: the most
+// recently updated occupied room wins; known-but-empty rooms report "Home";
+// no sensor data at all yields '' so the caller keeps its existing value.
+export function getSensorRoomLocation(snapshot) {
+  if (!snapshot?.rooms) {
+    return '';
+  }
+
+  const rooms = [
+    ['Bedroom', snapshot.rooms.bedroom],
+    ['Bathroom', snapshot.rooms.bathroom],
+    ['Living Room', snapshot.rooms.livingRoom],
+  ];
+  const occupied = rooms.filter(([, room]) => room?.occupied === true);
+
+  if (occupied.length > 0) {
+    occupied.sort((a, b) => (a[1].loggedAt < b[1].loggedAt ? 1 : -1));
+    return `${occupied[0][0]} · sensors`;
+  }
+
+  const anyKnown = rooms.some(([, room]) => room?.occupied !== null && room?.value);
+  return anyKnown ? 'Home · no presence' : '';
+}
+
+// Phase 9.3 — 15-minute batched HR/BR averages for the mobile "History" tab.
+// Continuous ticks stay on the live MQTT/WebSocket path; history renders a
+// bar chart of the daily baseline computed here from u_sensor_activity_log.
+export function bucketVitalRows(rows) {
+  // rows: [{ value, loggedAt: 'YYYY-MM-DD HH:MM:SS' }] → 15-min averages
+  const buckets = new Map();
+
+  for (const row of rows) {
+    const value = Number(row.value);
+
+    if (!Number.isFinite(value) || value <= 0 || row.loggedAt.length < 16) {
+      continue;
+    }
+
+    const hour = row.loggedAt.slice(11, 13);
+    const minute = Number(row.loggedAt.slice(14, 16));
+    const bucketMinute = String(Math.floor(minute / 15) * 15).padStart(2, '0');
+    const key = `${hour}:${bucketMinute}`;
+    const bucket = buckets.get(key) || { sum: 0, count: 0 };
+    bucket.sum += value;
+    bucket.count += 1;
+    buckets.set(key, bucket);
+  }
+
+  return [...buckets.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([time, { sum, count }]) => ({
+      time,
+      avg: Math.round((sum / count) * 10) / 10,
+      samples: count,
+    }));
+}
+
+export async function getVitalsHistory() {
+  if (!SENSOR_ACTIVITY_SENIOR_ID) {
+    return null;
+  }
+
+  try {
+    const field = SENSOR_ACTIVITY_FIELD_MAP;
+    const params = new URLSearchParams({
+      sysparm_query: `${field.seniorId}=${SENSOR_ACTIVITY_SENIOR_ID}^${field.sensorType}INmmWave(HR),mmWave(BR)^ORDERBYDESC${field.loggedAt}`,
+      sysparm_limit: '2000',
+    });
+    const data = await serviceNowFetch(getNamedTablePath(SENSOR_ACTIVITY_TABLE, `?${params.toString()}`));
+    const rows = (data?.result || []).map(toSensorActivityRecord);
+
+    if (rows.length === 0) {
+      return { date: '', hr: [], br: [], samples: 0 };
+    }
+
+    // Bucket the most recent day PRESENT in the data (avoids timezone
+    // mismatches between the Pi's local u_logged_at strings and this server).
+    const latestDate = rows[0].loggedAt.slice(0, 10);
+    const dayRows = rows.filter((row) => row.loggedAt.slice(0, 10) === latestDate);
+
+    return {
+      date: latestDate,
+      hr: bucketVitalRows(dayRows.filter((row) => row.sensorType === 'mmWave(HR)')),
+      br: bucketVitalRows(dayRows.filter((row) => row.sensorType === 'mmWave(BR)')),
+      samples: dayRows.length,
+    };
+  } catch (error) {
+    console.error('getVitalsHistory failed:', error);
+    return null;
+  }
 }
 
 export function getServiceNowLoginConfig() {

@@ -1,4 +1,5 @@
 import { loadEnv } from './env.mjs';
+import nodemailer from 'nodemailer';
 
 loadEnv();
 
@@ -138,6 +139,15 @@ const SENSOR_ACTIVITY_FIELD_MAP = {
   status: process.env.SERVICE_NOW_SENSOR_ACTIVITY_FIELD_STATUS || 'u_status',
   loggedAt: process.env.SERVICE_NOW_SENSOR_ACTIVITY_FIELD_LOGGED_AT || 'u_logged_at',
 };
+
+const MFA_EMAIL_HOST = String(process.env.MFA_EMAIL_HOST || '').trim();
+const MFA_EMAIL_PORT = Number(process.env.MFA_EMAIL_PORT) || 587;
+const MFA_EMAIL_SECURE = String(process.env.MFA_EMAIL_SECURE || '').trim().toLowerCase() === 'true';
+const MFA_EMAIL_USER = String(process.env.MFA_EMAIL_USER || '').trim();
+const MFA_EMAIL_PASS = String(process.env.MFA_EMAIL_PASS || '').trim();
+const MFA_EMAIL_FROM = String(process.env.MFA_EMAIL_FROM || '').trim();
+
+let mfaMailer = null;
 
 function getConfig() {
   const missing = REQUIRED_FIELDS.filter((key) => !process.env[key]);
@@ -680,6 +690,82 @@ function getServiceNowUtcDateTime(value = new Date()) {
 
 function generateVerificationCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function getMfaEmailTransporter() {
+  const missing = [];
+
+  if (!MFA_EMAIL_HOST) missing.push('MFA_EMAIL_HOST');
+  if (!MFA_EMAIL_PORT) missing.push('MFA_EMAIL_PORT');
+  if (!MFA_EMAIL_USER) missing.push('MFA_EMAIL_USER');
+  if (!MFA_EMAIL_PASS) missing.push('MFA_EMAIL_PASS');
+  if (!MFA_EMAIL_FROM) missing.push('MFA_EMAIL_FROM');
+
+  if (missing.length > 0) {
+    throw Object.assign(
+      new Error(`MFA email is not configured. Missing: ${missing.join(', ')}`),
+      { status: 503 },
+    );
+  }
+
+  if (!mfaMailer) {
+    mfaMailer = nodemailer.createTransport({
+      host: MFA_EMAIL_HOST,
+      port: MFA_EMAIL_PORT,
+      secure: MFA_EMAIL_SECURE,
+      auth: {
+        user: MFA_EMAIL_USER,
+        pass: MFA_EMAIL_PASS,
+      },
+    });
+  }
+
+  return mfaMailer;
+}
+
+function formatVerificationExpiry(value) {
+  const date = new Date(String(value || '').replace(' ', 'T') + 'Z');
+
+  if (Number.isNaN(date.getTime())) {
+    return '10 minutes';
+  }
+
+  return new Intl.DateTimeFormat('en-SG', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: CHECK_IN_TIME_ZONE,
+  }).format(date);
+}
+
+async function sendFamilyVerificationEmail({ toEmail, code, seniorName, seniorShortId, expiresAt }) {
+  const transporter = getMfaEmailTransporter();
+  const normalizedEmail = normalizeLoginValue(toEmail);
+
+  if (!normalizedEmail) {
+    throw Object.assign(new Error('Family email is required for MFA delivery.'), { status: 400 });
+  }
+
+  const friendlySeniorName = String(seniorName || 'Senior').trim() || 'Senior';
+  const subject = `CareConnect verification code for ${friendlySeniorName}`;
+  const expiryText = formatVerificationExpiry(expiresAt);
+  const safeSeniorId = String(seniorShortId || '').trim() || 'N/A';
+  const text = [
+    'Your CareConnect verification code is below:',
+    '',
+    `Code: ${code}`,
+    `Senior: ${friendlySeniorName}`,
+    `Senior ID: ${safeSeniorId}`,
+    `Expires: ${expiryText}`,
+    '',
+    'If you did not request this code, you can ignore this email.',
+  ].join('\n');
+
+  await transporter.sendMail({
+    from: MFA_EMAIL_FROM,
+    to: normalizedEmail,
+    subject,
+    text,
+  });
 }
 
 function isExpiredServiceNowDateTime(value = '') {
@@ -1244,17 +1330,34 @@ export async function createFamilyVerification({ seniorId, familyEmail, familyUs
   }
 
   const expiresAt = getServiceNowUtcDateTime(new Date(Date.now() + 10 * 60 * 1000));
+  const verificationCode = generateVerificationCode();
   const data = await serviceNowFamilyVerificationFetch('', {
     method: 'POST',
     body: JSON.stringify({
       [FAMILY_VERIFICATION_FIELD_MAP.senior]: seniorProfile.sys_id,
       [FAMILY_VERIFICATION_FIELD_MAP.familyEmail]: normalizedFamilyEmail,
-      [FAMILY_VERIFICATION_FIELD_MAP.code]: generateVerificationCode(),
+      [FAMILY_VERIFICATION_FIELD_MAP.code]: verificationCode,
       [FAMILY_VERIFICATION_FIELD_MAP.expiresAt]: expiresAt,
       [FAMILY_VERIFICATION_FIELD_MAP.familyUser]: normalizedFamilyUserId,
     }),
   });
   const verification = toFamilyVerificationRecord(data?.result || {});
+
+  try {
+    await sendFamilyVerificationEmail({
+      toEmail: normalizedFamilyEmail,
+      code: verificationCode,
+      seniorName: getDisplayValue(seniorProfile[FIELD_MAP.name]) || 'Senior',
+      seniorShortId: getShortSeniorId(seniorProfile),
+      expiresAt,
+    });
+  } catch (error) {
+    console.error('Unable to send family verification email:', error);
+    throw Object.assign(
+      new Error('Unable to send verification code email. Please check email settings and try again.'),
+      { status: 502 },
+    );
+  }
 
   return {
     verification: {

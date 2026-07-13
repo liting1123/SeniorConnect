@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
+import nodemailer from 'nodemailer';
 import { loadEnv } from './env.mjs';
 import {
   addCheckInPoints,
@@ -34,6 +35,16 @@ loadEnv();
 
 const PORT = Number(process.env.API_PORT) || 3001;
 const checkInReminders = [];
+const loginMfaCodes = new Map();
+
+const MFA_EMAIL_HOST = String(process.env.MFA_EMAIL_HOST || '').trim();
+const MFA_EMAIL_PORT = Number(process.env.MFA_EMAIL_PORT) || 587;
+const MFA_EMAIL_SECURE = String(process.env.MFA_EMAIL_SECURE || '').trim().toLowerCase() === 'true';
+const MFA_EMAIL_USER = String(process.env.MFA_EMAIL_USER || '').trim();
+const MFA_EMAIL_PASS = String(process.env.MFA_EMAIL_PASS || '').trim();
+const MFA_EMAIL_FROM = String(process.env.MFA_EMAIL_FROM || '').trim();
+
+let mfaMailer = null;
 
 function normalizeReminderValue(value = '') {
   return String(value || '').trim().toLowerCase();
@@ -96,6 +107,67 @@ function requireAuth(request) {
   if (!authHeader.startsWith('Bearer ')) {
     throw Object.assign(new Error('Missing app session token'), { status: 401 });
   }
+}
+
+function normalizeEmail(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function createMfaCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function getMfaTransporter() {
+  const missing = [];
+
+  if (!MFA_EMAIL_HOST) missing.push('MFA_EMAIL_HOST');
+  if (!MFA_EMAIL_PORT) missing.push('MFA_EMAIL_PORT');
+  if (!MFA_EMAIL_USER) missing.push('MFA_EMAIL_USER');
+  if (!MFA_EMAIL_PASS) missing.push('MFA_EMAIL_PASS');
+  if (!MFA_EMAIL_FROM) missing.push('MFA_EMAIL_FROM');
+
+  if (missing.length > 0) {
+    throw Object.assign(new Error(`MFA email is not configured. Missing: ${missing.join(', ')}`), {
+      status: 503,
+    });
+  }
+
+  if (!mfaMailer) {
+    mfaMailer = nodemailer.createTransport({
+      host: MFA_EMAIL_HOST,
+      port: MFA_EMAIL_PORT,
+      secure: MFA_EMAIL_SECURE,
+      auth: {
+        user: MFA_EMAIL_USER,
+        pass: MFA_EMAIL_PASS,
+      },
+    });
+  }
+
+  return mfaMailer;
+}
+
+async function sendLoginMfaCodeEmail(email, code) {
+  const transporter = getMfaTransporter();
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedEmail) {
+    throw Object.assign(new Error('A valid email is required to deliver MFA code.'), { status: 400 });
+  }
+
+  await transporter.sendMail({
+    from: MFA_EMAIL_FROM,
+    to: normalizedEmail,
+    subject: 'CareConnect login verification code',
+    text: [
+      'Your CareConnect login verification code is below:',
+      '',
+      `Code: ${code}`,
+      'Expires in 10 minutes.',
+      '',
+      'If you did not attempt to log in, you can ignore this email.',
+    ].join('\n'),
+  });
 }
 
 function getUidFromPath(pathname) {
@@ -256,6 +328,82 @@ export async function handleRequest(request, response) {
       password: body.password,
       loginType: body.loginType,
     });
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/mfa/request' && request.method === 'POST') {
+    requireAuth(request);
+    const body = await readJson(request);
+    const email = normalizeEmail(body.email);
+
+    if (!email) {
+      sendJson(response, 400, { error: 'Email is required.' });
+      return;
+    }
+
+    const code = createMfaCode();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+    loginMfaCodes.set(email, { code, expiresAt });
+
+    try {
+      await sendLoginMfaCodeEmail(email, code);
+    } catch (error) {
+      console.error('Unable to send login MFA email:', error instanceof Error ? error.message : error);
+      const rawMessage = String(error?.message || '');
+      const friendlyMessage = /badcredentials|invalid login: 535|username and password not accepted/i.test(rawMessage)
+        ? 'Unable to notify caregiver/volunteer by email. Please check SMTP app password settings.'
+        : rawMessage || 'Unable to send verification code email.';
+
+      if (process.env.NODE_ENV !== 'production') {
+        sendJson(response, 200, {
+          ok: true,
+          delivery: 'in-app-notification',
+          code,
+          warning: friendlyMessage,
+        });
+        return;
+      }
+
+      sendJson(response, error.status || 502, {
+        error: friendlyMessage,
+      });
+      return;
+    }
+
+    sendJson(response, 200, { ok: true, delivery: 'email' });
+    return;
+  }
+
+  if (url.pathname === '/api/mfa/verify' && request.method === 'POST') {
+    requireAuth(request);
+    const body = await readJson(request);
+    const email = normalizeEmail(body.email);
+    const code = String(body.code || '').trim();
+    const saved = loginMfaCodes.get(email);
+
+    if (!email || !code) {
+      sendJson(response, 400, { error: 'Email and code are required.' });
+      return;
+    }
+
+    if (!saved) {
+      sendJson(response, 404, { error: 'No pending verification found. Please request a new code.' });
+      return;
+    }
+
+    if (saved.expiresAt < Date.now()) {
+      loginMfaCodes.delete(email);
+      sendJson(response, 410, { error: 'Verification code has expired. Please request a new code.' });
+      return;
+    }
+
+    if (saved.code !== code) {
+      sendJson(response, 401, { error: 'Incorrect verification code. Please try again.' });
+      return;
+    }
+
+    loginMfaCodes.delete(email);
     sendJson(response, 200, { ok: true });
     return;
   }

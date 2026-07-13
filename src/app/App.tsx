@@ -34,6 +34,7 @@ import { createSosAlert } from './services/serviceNow';
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
 type LanguageReturnScreen = 'home' | 'caregiverDashboard';
 type CheckInWindowId = 'morning' | 'evening';
+const HIGH_CONTRAST_STORAGE_KEY = 'careconnect.highContrast';
 type CompletedCheckInStatus = {
   dateKey: string;
   time: string;
@@ -309,6 +310,14 @@ function getCompletedWindowFromError(error: unknown): CheckInWindowId | null {
 
 export default function App() {
   const { t } = useTranslation();
+  const [highContrast, setHighContrast] = useState(() => {
+    const stored = localStorage.getItem(HIGH_CONTRAST_STORAGE_KEY);
+
+    if (stored === 'true') return true;
+    if (stored === 'false') return false;
+
+    return window.matchMedia('(prefers-contrast: more)').matches;
+  });
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
   const [languageReturnScreen, setLanguageReturnScreen] = useState<LanguageReturnScreen>('home');
   const [showSOSConfirmation, setShowSOSConfirmation] = useState(false);
@@ -328,6 +337,33 @@ export default function App() {
   const [snoozedMedicineUntil, setSnoozedMedicineUntil] = useState<Record<string, number>>({});
   const snoozedMedicineUntilRef = useRef<Record<string, number>>({});
   const [familyRegistrationNotice, setFamilyRegistrationNotice] = useState('');
+
+  useEffect(() => {
+    localStorage.setItem(HIGH_CONTRAST_STORAGE_KEY, String(highContrast));
+    document.documentElement.classList.toggle('careconnect-high-contrast', highContrast);
+  }, [highContrast]);
+
+  useEffect(() => {
+    const handleStorageUpdate = (event: StorageEvent) => {
+      if (event.key !== HIGH_CONTRAST_STORAGE_KEY) {
+        return;
+      }
+
+      if (event.newValue === 'true') {
+        setHighContrast(true);
+      }
+
+      if (event.newValue === 'false') {
+        setHighContrast(false);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageUpdate);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageUpdate);
+    };
+  }, []);
 
   const activeMedicineReminder = useMemo(() => {
     return medicines.find((medicine) => medicine.id === activeMedicineReminderId) || null;
@@ -635,7 +671,13 @@ export default function App() {
     }
   };
 
-  const handleCheckIn = async () => {
+  const handleCheckIn = async ({
+    redirectToPoints = true,
+    suppressWindowCompletedAlert = false,
+  }: {
+    redirectToPoints?: boolean;
+    suppressWindowCompletedAlert?: boolean;
+  } = {}) => {
     if (isCheckingInRef.current) {
       return;
     }
@@ -665,7 +707,9 @@ export default function App() {
           detail: { uid: user.uid, points: nextPoints },
         }),
       );
-      setCurrentScreen('points');
+      if (redirectToPoints) {
+        setCurrentScreen('points');
+      }
     } catch (error) {
       console.error('Check-in failed:', error);
       const completedWindowId = getCompletedWindowFromError(error);
@@ -674,7 +718,9 @@ export default function App() {
         setCompletedCheckIn(saveCompletedCheckIn(user, completedWindowId));
       }
 
-      alert(error instanceof Error ? error.message : t('unableCheckIn'));
+      if (!(suppressWindowCompletedAlert && completedWindowId)) {
+        alert(error instanceof Error ? error.message : t('unableCheckIn'));
+      }
     } finally {
       isCheckingInRef.current = false;
       setIsCheckingIn(false);
@@ -723,6 +769,7 @@ export default function App() {
       case 'welcome':
         return (
           <LoginScreen
+            highContrast={highContrast}
             onGetStarted={handleLoginSuccess}
             onFamilyRegister={(user) => {
               setFamilyRegistrationNotice(t('familyMemberRegistered', { email: user.email || t('familyMember') }));
@@ -748,13 +795,16 @@ export default function App() {
           <ProfileScreen
             onChangeLanguage={() => openLanguageSelection('home')}
             onLogout={handleLogout}
+            highContrast={highContrast}
+            onToggleHighContrast={() => setHighContrast((value) => !value)}
           />
         );
       case 'points':
-        return <PointsScreen />;
+        return <PointsScreen highContrast={highContrast} />;
       case 'medication':
         return (
           <MedicationScreen
+            highContrast={highContrast}
             medicines={medicines}
             takenMedicineIds={takenMedicineIds}
             onMedicineTaken={markMedicineTaken}
@@ -763,7 +813,14 @@ export default function App() {
           />
         );
       case 'game':
-        return <GameScreen />;
+        return (
+          <GameScreen
+            highContrast={highContrast}
+            onToggleHighContrast={() => setHighContrast((value) => !value)}
+            onGamePlayCheckIn={() => handleCheckIn({ redirectToPoints: false, suppressWindowCompletedAlert: true })}
+            shouldPromptCheckIn={Boolean(activeUser && isSeniorRole(activeUser.role) && !isCurrentCheckInWindowCompleted)}
+          />
+        );
       case 'carePortal':
         return (
           <CarePortalScreen
@@ -801,42 +858,51 @@ export default function App() {
   };
 
   return (
-    <div className="h-[100dvh] w-full overflow-hidden bg-gray-100 min-[415px]:flex min-[415px]:items-center min-[415px]:justify-center">
-      <div className="mx-auto flex h-full max-h-[896px] min-h-0 w-full max-w-[414px] flex-col bg-white shadow-2xl min-[415px]:rounded-[2px] relative">
+    <div className={`h-[100dvh] w-full overflow-hidden bg-gray-100 min-[415px]:flex min-[415px]:items-center min-[415px]:justify-center ${highContrast ? 'careconnect-contrast-shell' : ''}`}>
+      <div className={`mx-auto flex h-full max-h-[896px] min-h-0 w-full max-w-[414px] flex-col bg-white shadow-2xl min-[415px]:rounded-[2px] relative ${highContrast ? 'careconnect-contrast-app' : ''}`}>
         <div className="flex-1 overflow-hidden">
           {renderScreen()}
         </div>
 
         {currentScreen !== 'welcome' && currentScreen !== 'language' && currentScreen !== 'carePortal' && currentScreen !== 'caregiverDashboard' && (
-          <nav className="shrink-0 bg-white border-t-2 border-gray-200 flex justify-around items-center">
+          <nav
+            className={`shrink-0 border-t-2 flex justify-around items-center ${
+              highContrast ? 'border-white bg-black' : 'border-gray-200 bg-white'
+            }`}
+          >
             <NavButton
               icon={<Home className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('home')}
               active={currentScreen === 'home'}
+              highContrast={highContrast}
               onClick={() => setCurrentScreen('home')}
             />
             <NavButton
               icon={<Pill className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('meds')}
               active={currentScreen === 'medication'}
+              highContrast={highContrast}
               onClick={() => setCurrentScreen('medication')}
             />
             <NavButton
               icon={<Trophy className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('points')}
               active={currentScreen === 'points'}
+              highContrast={highContrast}
               onClick={() => setCurrentScreen('points')}
             />
             <NavButton
               icon={<Gamepad2 className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('game')}
               active={currentScreen === 'game'}
+              highContrast={highContrast}
               onClick={() => setCurrentScreen('game')}
             />
             <NavButton
               icon={<User className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('profile')}
               active={currentScreen === 'profile'}
+              highContrast={highContrast}
               onClick={() => setCurrentScreen('profile')}
             />
           </nav>
@@ -899,7 +965,7 @@ export default function App() {
               </p>
               <div className="mt-6 flex flex-col gap-3">
                 <button
-                  onClick={handleCheckIn}
+                  onClick={() => handleCheckIn()}
                   disabled={isCheckingIn}
                   className="flex h-14 items-center justify-center rounded-full bg-[#18833b] text-xl font-bold text-white active:scale-95 disabled:cursor-wait disabled:opacity-70"
                 >
@@ -924,18 +990,26 @@ function NavButton({
   icon,
   label,
   active,
+  highContrast,
   onClick
 }: {
   icon: React.ReactNode;
   label: string;
   active: boolean;
+  highContrast: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex min-w-[72px] flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors hover:bg-green-50 hover:text-green-700 active:scale-95 min-[390px]:gap-2 min-[390px]:px-2 ${
-        active ? 'bg-green-50 text-green-700' : 'text-gray-400'
+      className={`flex min-w-[72px] flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors active:scale-95 min-[390px]:gap-2 min-[390px]:px-2 ${
+        highContrast
+          ? active
+            ? 'bg-white text-black'
+            : 'text-white hover:bg-white/10 hover:text-white'
+          : active
+          ? 'bg-green-50 text-green-700'
+          : 'text-gray-400 hover:bg-green-50 hover:text-green-700'
       }`}
     >
       {icon}

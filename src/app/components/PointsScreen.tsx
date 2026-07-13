@@ -27,7 +27,7 @@ function formatRedeemedAt(value: string) {
   });
 }
 
-export default function PointsScreen() {
+export default function PointsScreen({ highContrast = false }: { highContrast?: boolean }) {
   const { t } = useTranslation();
   const [rewardHistory, setRewardHistory] = useState<RewardHistoryItem[]>([]);
   const [points, setPoints] = useState(() => {
@@ -118,7 +118,7 @@ export default function PointsScreen() {
   }, []);
 
   return (
-    <div className="h-full overflow-y-auto bg-[#fbf9f8] text-[#1b1c1c]">
+    <div className={`h-full overflow-y-auto ${highContrast ? 'bg-black text-white' : 'bg-[#fbf9f8] text-[#1b1c1c]'}`}>
       <main className="flex flex-col gap-7 px-5 pb-8 pt-5 min-[390px]:gap-8 min-[390px]:px-6">
         <section className="rounded-[30px] bg-white px-5 py-7 text-center shadow-[0_10px_28px_rgba(49,99,66,0.08)] min-[390px]:rounded-[34px] min-[390px]:py-8">
           <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-full bg-[#eda256] text-[#6b3a12] min-[390px]:h-32 min-[390px]:w-32">
@@ -136,7 +136,7 @@ export default function PointsScreen() {
           {error && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
         </section>
 
-        <section className="flex items-center justify-between rounded-[26px] bg-[#5d7f61] px-5 py-5 shadow-[0_8px_20px_rgba(49,99,66,0.08)] min-[390px]:rounded-[30px]">
+        <section className={`flex items-center justify-between rounded-[26px] px-5 py-5 shadow-[0_8px_20px_rgba(49,99,66,0.08)] min-[390px]:rounded-[30px] ${highContrast ? 'border-2 border-white bg-black' : 'bg-[#5d7f61]'}`}>
           <div className="flex items-center gap-4 text-white">
             <Calendar className="h-9 w-9 fill-current stroke-[1.5]" />
             <div>
@@ -144,20 +144,20 @@ export default function PointsScreen() {
               <p className="text-lg font-semibold leading-6 opacity-80">{t('logInToday')}</p>
             </div>
           </div>
-          <div className="rounded-full bg-[#e1ffe5] px-5 py-3 text-lg font-black text-[#5d7f61] shadow-sm">
+          <div className={`rounded-full px-5 py-3 text-lg font-black shadow-sm ${highContrast ? 'border border-white bg-black text-white' : 'bg-[#e1ffe5] text-[#5d7f61]'}`}>
             +5
           </div>
         </section>
 
         <section>
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-[24px] font-black leading-8 text-[#151515]">
+            <h2 className={`text-[24px] font-black leading-8 ${highContrast ? 'text-white' : 'text-[#151515]'}`}>
               {t('redeemRewards')}
             </h2>
             <button
               type="button"
               onClick={() => setShowRewardHistory(true)}
-              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-[#e7f3e8] px-4 text-base font-black text-[#416642] active:scale-95"
+              className={`flex h-11 shrink-0 items-center justify-center gap-2 rounded-full px-4 text-base font-black active:scale-95 ${highContrast ? 'border border-white bg-black text-white' : 'bg-[#e7f3e8] text-[#416642]'}`}
               aria-label={t('viewRewardHistory')}
             >
               <Gift className="h-5 w-5" />
@@ -173,6 +173,7 @@ export default function PointsScreen() {
               redeemLabel={t('redeem')}
               userPoints={points}
               isRedeeming={redeemingReward === '$5 NTUC Voucher'}
+              highContrast={highContrast}
               onRedeem={handleRedeem}
             />
             <RewardCard
@@ -183,6 +184,7 @@ export default function PointsScreen() {
               redeemLabel={t('redeem')}
               userPoints={points}
               isRedeeming={redeemingReward === '$10 Grab Voucher'}
+              highContrast={highContrast}
               onRedeem={handleRedeem}
             />
             <RewardCard
@@ -193,6 +195,7 @@ export default function PointsScreen() {
               redeemLabel={t('redeem')}
               userPoints={points}
               isRedeeming={redeemingReward === '1-for-1 Kaya Butter Toast Set (Fun Toast)'}
+              highContrast={highContrast}
               onRedeem={handleRedeem}
             />
           </div>
@@ -287,6 +290,7 @@ function RewardCard({
   pointsLabel,
   redeemLabel,
   isRedeeming,
+  highContrast,
   onRedeem,
 }: {
   icon: React.ReactNode;
@@ -296,6 +300,7 @@ function RewardCard({
   pointsLabel: string;
   redeemLabel: string;
   isRedeeming: boolean;
+  highContrast: boolean;
   onRedeem: (title: string, cost: number) => void;
 }) {
   const canRedeem = userPoints >= cost;
@@ -303,21 +308,21 @@ function RewardCard({
   return (
     <div
       className={`flex items-center gap-3 rounded-[22px] px-4 py-3 transition-colors ${
-        canRedeem ? 'bg-[#f4f2f2]' : 'bg-[#f4f2f2] opacity-70'
+        highContrast ? 'border border-white bg-black' : canRedeem ? 'bg-[#f4f2f2]' : 'bg-[#f4f2f2] opacity-70'
       }`}
     >
       <div
         className={`flex h-[54px] w-[54px] flex-shrink-0 items-center justify-center rounded-2xl ${
-          canRedeem ? 'bg-white text-[#4a6b4b]' : 'bg-white text-gray-400'
+          highContrast ? 'bg-black text-[#ffe452] border border-white' : canRedeem ? 'bg-white text-[#4a6b4b]' : 'bg-white text-gray-400'
         }`}
       >
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <h3 className={`text-lg font-black leading-6 ${canRedeem ? 'text-[#151515]' : 'text-gray-500'}`}>
+        <h3 className={`text-lg font-black leading-6 ${highContrast ? 'text-white' : canRedeem ? 'text-[#151515]' : 'text-gray-500'}`}>
           {title}
         </h3>
-        <p className={`mt-0.5 text-sm font-black leading-5 ${canRedeem ? 'text-[#4a6b4b]' : 'text-gray-400'}`}>
+        <p className={`mt-0.5 text-sm font-black leading-5 ${highContrast ? 'text-white/90' : canRedeem ? 'text-[#4a6b4b]' : 'text-gray-400'}`}>
           {cost} {pointsLabel}
         </p>
       </div>
@@ -326,7 +331,11 @@ function RewardCard({
         disabled={!canRedeem || isRedeeming}
         onClick={() => onRedeem(title, cost)}
         className={`flex min-w-[82px] items-center justify-center rounded-full px-4 py-2.5 text-sm font-black uppercase leading-5 transition-transform ${
-          canRedeem
+          highContrast
+            ? canRedeem
+              ? 'bg-[#ffe452] text-black active:scale-95'
+              : 'cursor-not-allowed border border-white bg-black text-white/45'
+            : canRedeem
             ? 'bg-[#416642] text-white active:scale-95'
             : 'cursor-not-allowed bg-gray-300 text-gray-500'
         }`}

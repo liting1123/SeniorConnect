@@ -19,19 +19,19 @@ type PuzzleTheme = {
 const PUZZLE_THEMES: PuzzleTheme[] = [
   {
     label: 'Marina Bay Sands',
-    imageUrl: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?auto=format&fit=crop&w=1200&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?auto=format&fit=crop&w=1200&h=1200&q=50&blur=4',
   },
   {
     label: 'Merlion Park',
-    imageUrl: 'https://images.unsplash.com/photo-1565967511849-76a60a516170?auto=format&fit=crop&w=1200&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1565967511849-76a60a516170?auto=format&fit=crop&w=1200&h=1200&q=50&blur=4',
   },
   {
     label: 'Gardens by the Bay',
-    imageUrl: 'https://images.unsplash.com/photo-1508964942454-1a56651d54ac?auto=format&fit=crop&w=1200&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1508964942454-1a56651d54ac?auto=format&fit=crop&w=1200&h=1200&q=50&blur=4',
   },
   {
     label: 'Singapore Flyer',
-    imageUrl: 'https://images.unsplash.com/photo-1513245543132-31f507417b26?auto=format&fit=crop&w=1200&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1513245543132-31f507417b26?auto=format&fit=crop&w=1200&h=1200&q=50&blur=4',
   },
 ];
 

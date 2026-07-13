@@ -128,12 +128,14 @@ export function getCurrentMinutes() {
 }
 
 export default function MedicationScreen({
+  highContrast = false,
   medicines = [],
   takenMedicineIds,
   onMedicineTaken,
   onSaveMedicine,
   onDeleteMedicine,
 }: {
+  highContrast?: boolean;
   medicines?: Medicine[];
   takenMedicineIds: string[];
   onMedicineTaken: (medicineId: string) => void;
@@ -181,7 +183,7 @@ export default function MedicationScreen({
   };
 
   return (
-    <div className="relative h-full overflow-y-auto bg-[#f7f8fb]">
+    <div className={`relative h-full overflow-y-auto ${highContrast ? 'bg-black text-white' : 'bg-[#f7f8fb]'}`}>
       <main className="px-4 pb-8 pt-5">
         <header className="flex items-center justify-between gap-3">
           <button
@@ -218,6 +220,7 @@ export default function MedicationScreen({
                   onPhotoChange={(photo) => updateMedicinePhoto(medicine.id, photo)}
                   onPhotoRemove={() => setPendingPhotoRemovalId(medicine.id)}
                   onTaken={() => onMedicineTaken(medicine.id)}
+                  highContrast={highContrast}
                   t={t}
                 />
               ))
@@ -268,6 +271,7 @@ function MedicineCard({
   onPhotoChange,
   onPhotoRemove,
   onTaken,
+  highContrast,
   t,
 }: {
   currentMinutes: number;
@@ -285,6 +289,7 @@ function MedicineCard({
   onPhotoChange: (photo: string) => void;
   onPhotoRemove: () => void;
   onTaken: () => void;
+  highContrast: boolean;
   t: (key: string, options?: Record<string, string | number>) => string;
 }) {
   const medicineMinutes = getMinutesFromTimeLabel(medicine.time);
@@ -295,13 +300,13 @@ function MedicineCard({
   const takeLabel = medicine.dose || 'Take 1 tablet';
   const statusStyle = isTaken
     ? {
-        badge: 'bg-[#edf8e9] text-[#3d9b46]',
-        icon: 'bg-[#eaf7ef] text-[#3d9b46]',
+        badge: highContrast ? 'border border-white bg-black text-white' : 'bg-[#edf8e9] text-[#3d9b46]',
+        icon: highContrast ? 'border border-white bg-black text-[#ffe452]' : 'bg-[#eaf7ef] text-[#3d9b46]',
         pill: 'bg-[#4fba43]',
       }
     : {
-        badge: 'bg-[#fff1ea] text-[#e25935]',
-        icon: 'bg-[#eef7e8] text-[#5aaa3d]',
+        badge: highContrast ? 'border border-white bg-black text-white' : 'bg-[#fff1ea] text-[#e25935]',
+        icon: highContrast ? 'border border-white bg-black text-[#ffe452]' : 'bg-[#eef7e8] text-[#5aaa3d]',
         pill: 'bg-[#5aaa3d]',
       };
 
@@ -323,13 +328,13 @@ function MedicineCard({
   };
 
   return (
-    <section className="rounded-[16px] bg-white p-4 shadow-[0_6px_18px_rgba(15,23,42,0.08)]">
+    <section className={`rounded-[16px] p-4 shadow-[0_6px_18px_rgba(15,23,42,0.08)] ${highContrast ? 'border border-white bg-black' : 'bg-white'}`}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="rounded-full bg-[#fff1ed] px-5 py-2 text-base font-black text-[#d84232]">
+        <div className={`rounded-full px-5 py-2 text-base font-black ${highContrast ? 'border border-white bg-black text-white' : 'bg-[#fff1ed] text-[#d84232]'}`}>
           {medicine.time || '--'}
         </div>
         {medicine.frequency ? (
-          <div className="rounded-full bg-[#eef6ff] px-4 py-2 text-sm font-black text-[#2f62bf]">
+          <div className={`rounded-full px-4 py-2 text-sm font-black ${highContrast ? 'border border-white bg-black text-white' : 'bg-[#eef6ff] text-[#2f62bf]'}`}>
             {medicine.frequency}
           </div>
         ) : null}

@@ -6,10 +6,49 @@ import {
   getPoints,
   getRewardHistory,
   getStoredUser,
+  getUserStorageIdentity,
   redeemPoints,
   setCachedUserPoints,
+  type AppUser,
   type RewardHistoryItem,
 } from '../services/backend';
+
+function getRewardHistoryKey(user: AppUser) {
+  return `careconnect.rewardHistory.${getUserStorageIdentity(user)}`;
+}
+
+function getStoredRewardHistory(user: AppUser): RewardHistoryItem[] {
+  const storedHistory = localStorage.getItem(getRewardHistoryKey(user));
+
+  if (!storedHistory) {
+    return [];
+  }
+
+  try {
+    const parsedHistory = JSON.parse(storedHistory);
+    return Array.isArray(parsedHistory) ? parsedHistory : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeRewardHistory(user: AppUser, history: RewardHistoryItem[]) {
+  localStorage.setItem(getRewardHistoryKey(user), JSON.stringify(history));
+}
+
+function mergeRewardHistory(...historyGroups: RewardHistoryItem[][]) {
+  const uniqueHistory = new Map<string, RewardHistoryItem>();
+
+  historyGroups.flat().forEach((item) => {
+    if (item?.id && item?.title && item?.redeemedAt) {
+      uniqueHistory.set(item.id, item);
+    }
+  });
+
+  return [...uniqueHistory.values()].sort(
+    (first, second) => new Date(second.redeemedAt).getTime() - new Date(first.redeemedAt).getTime(),
+  );
+}
 
 function formatRedeemedAt(value: string) {
   const date = new Date(value);
@@ -29,7 +68,10 @@ function formatRedeemedAt(value: string) {
 
 export default function PointsScreen() {
   const { t } = useTranslation();
-  const [rewardHistory, setRewardHistory] = useState<RewardHistoryItem[]>([]);
+  const [rewardHistory, setRewardHistory] = useState<RewardHistoryItem[]>(() => {
+    const user = getStoredUser();
+    return user ? getStoredRewardHistory(user) : [];
+  });
   const [points, setPoints] = useState(() => {
     const user = getStoredUser();
     return user ? getCachedUserPoints(user) : 0;
@@ -61,9 +103,15 @@ export default function PointsScreen() {
         }),
       );
       if (redemption) {
-        setRewardHistory((currentHistory) => [redemption, ...currentHistory]);
+        setRewardHistory((currentHistory) => {
+          const nextHistory = mergeRewardHistory([redemption], currentHistory, getStoredRewardHistory(user));
+          storeRewardHistory(user, nextHistory);
+          return nextHistory;
+        });
       } else {
-        setRewardHistory(await getRewardHistory(user));
+        const nextHistory = mergeRewardHistory(await getRewardHistory(user), getStoredRewardHistory(user));
+        storeRewardHistory(user, nextHistory);
+        setRewardHistory(nextHistory);
       }
       setSuccessReward(title);
     } catch (error) {
@@ -90,8 +138,10 @@ export default function PointsScreen() {
         getPoints(user),
         getRewardHistory(user),
       ]);
+      const mergedRewardHistory = mergeRewardHistory(nextRewardHistory, getStoredRewardHistory(user));
       setPoints(nextPoints);
-      setRewardHistory(nextRewardHistory);
+      storeRewardHistory(user, mergedRewardHistory);
+      setRewardHistory(mergedRewardHistory);
     } catch (error) {
       setError(error instanceof Error ? error.message : t('unableLoadPoints'));
     } finally {

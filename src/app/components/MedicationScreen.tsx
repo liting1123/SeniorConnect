@@ -83,7 +83,7 @@ function resizeMedicinePhoto(file: File) {
       const context = canvas.getContext('2d');
 
       if (!context) {
-        reject(new Error('Unable to prepare photo.'));
+        reject(new Error('unablePrepareMedicinePhoto'));
         return;
       }
 
@@ -93,7 +93,7 @@ function resizeMedicinePhoto(file: File) {
 
     image.onerror = () => {
       URL.revokeObjectURL(imageUrl);
-      reject(new Error('Unable to read selected photo.'));
+      reject(new Error('unableReadMedicinePhoto'));
     };
 
     image.src = imageUrl;
@@ -125,6 +125,27 @@ export function getMinutesFromTimeLabel(timeLabel: string) {
 export function getCurrentMinutes() {
   const now = new Date();
   return now.getHours() * 60 + now.getMinutes();
+}
+
+function translateMedicineValue(
+  value: string | undefined,
+  t: (key: string, options?: Record<string, string | number>) => string,
+) {
+  const originalValue = String(value || '').trim();
+  const normalizedValue = originalValue.toLowerCase().replace(/\s+/g, ' ');
+  const translationKeys: Record<string, string> = {
+    'after breakfast': 'afterBreakfast',
+    'after meal': 'afterMeal',
+    'after meals': 'afterMeal',
+    'one tablet daily': 'oneTabletDaily',
+    '1 tablet - daily': 'oneTabletDaily',
+    'take 1 tablet': 'takeOneTablet',
+    'take 1 tablet, after meal': 'takeOneTabletAfterMeal',
+    'take 1 tablet after meal': 'takeOneTabletAfterMeal',
+  };
+  const translationKey = translationKeys[normalizedValue];
+
+  return translationKey ? t(translationKey) : originalValue;
 }
 
 export default function MedicationScreen({
@@ -205,7 +226,7 @@ export default function MedicationScreen({
 
         <section className="mt-7">
           <h2 className="text-sm font-black uppercase tracking-wide text-[#5f6872]">
-            Today's Medications
+            {t('todaysMedications')}
           </h2>
 
           <div className="mt-3 flex flex-col gap-4">
@@ -294,10 +315,9 @@ function MedicineCard({
 }) {
   const medicineMinutes = getMinutesFromTimeLabel(medicine.time);
   const isLate = medicineMinutes !== null && currentMinutes > medicineMinutes;
-  const status = isTaken ? 'Taken' : isLate ? 'Not taken' : 'Not taken';
-  const purposeLabel = medicine.notes || medicine.name || t('medicineReminder');
-  const medicineNameLabel = medicine.name || t('currentMedication');
-  const takeLabel = medicine.dose || 'Take 1 tablet';
+  const purposeLabel = translateMedicineValue(medicine.notes || medicine.name, t) || t('medicineReminder');
+  const medicineNameLabel = translateMedicineValue(medicine.name, t) || t('currentMedication');
+  const takeLabel = translateMedicineValue(medicine.dose, t) || t('takeOneTablet');
   const statusStyle = isTaken
     ? {
         badge: highContrast ? 'border border-white bg-black text-white' : 'bg-[#edf8e9] text-[#3d9b46]',
@@ -323,7 +343,8 @@ function MedicineCard({
       onPhotoChange(imageDataUrl);
     } catch (error) {
       console.error('Unable to process medicine photo:', error);
-      alert(error instanceof Error ? error.message : 'Unable to save medicine photo.');
+      const errorKey = error instanceof Error ? error.message : 'unableSaveMedicinePhoto';
+      alert(t(errorKey));
     }
   };
 
@@ -335,7 +356,7 @@ function MedicineCard({
         </div>
         {medicine.frequency ? (
           <div className={`rounded-full px-4 py-2 text-sm font-black ${highContrast ? 'border border-white bg-black text-white' : 'bg-[#eef6ff] text-[#2f62bf]'}`}>
-            {medicine.frequency}
+            {translateMedicineValue(medicine.frequency, t)}
           </div>
         ) : null}
       </div>
@@ -390,7 +411,7 @@ function MedicineCard({
           </div>
 
           <p className="mt-2 text-sm font-bold text-[#2f62bf]">
-            Medicine: <span className="font-semibold text-[#334155]">{medicineNameLabel}</span>
+            {t('medicineLabel')}: <span className="font-semibold text-[#334155]">{medicineNameLabel}</span>
           </p>
 
           <div className="mt-4 flex items-center gap-3 text-[#475569]">
@@ -405,7 +426,7 @@ function MedicineCard({
               className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-black active:scale-95 ${statusStyle.badge}`}
             >
               {isTaken ? <CheckCircle className="h-5 w-5" /> : <Clock className="h-5 w-5" />}
-              {isTaken ? t('taken') : 'Not taken'}
+              {isTaken ? t('taken') : t('notTaken')}
             </button>
           </div>
         </div>
@@ -512,8 +533,8 @@ function MedicineForm({
           />
           <MedicineInput disabled={isFixedMedicine} label={t('dose')} value={dose} onChange={setDose} placeholder="500mg" />
           <MedicineInput disabled={isFixedMedicine} label={t('time')} value={time} onChange={setTime} placeholder="8:00 AM" />
-          <MedicineInput disabled={isFixedMedicine} label="Frequency" value={frequency} onChange={setFrequency} placeholder="1 tablet - Daily" />
-          <MedicineInput disabled={isFixedMedicine} label="Notes" value={notes} onChange={setNotes} placeholder={t('afterBreakfast')} />
+          <MedicineInput disabled={isFixedMedicine} label={t('frequency')} value={frequency} onChange={setFrequency} placeholder={t('oneTabletDaily')} />
+          <MedicineInput disabled={isFixedMedicine} label={t('notes')} value={notes} onChange={setNotes} placeholder={t('afterBreakfast')} />
         </div>
 
         <button

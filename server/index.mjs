@@ -170,6 +170,88 @@ async function sendLoginMfaCodeEmail(email, code) {
   });
 }
 
+// ── Care Assistant (chatbot for caregiver / family accounts) ──────────────
+// Thin proxy to OpenAI chat completions: the API key lives ONLY here on the
+// server (gitignored .env), never in the browser bundle. The client sends
+// the conversation plus a plain-text "care context" block it assembled
+// locally (seniors, check-ins, HealthBuddy schedule, and — only when the
+// user opted in — medicine/prescription and medical records).
+const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
+const OPENAI_MODEL = String(process.env.OPENAI_MODEL || 'gpt-4o-mini').trim();
+
+const CARE_ASSISTANT_SYSTEM_PROMPT = [
+  'You are the SeniorConnect Care Assistant, helping caregivers and family',
+  'members look after the seniors linked to their account.',
+  '',
+  'Rules:',
+  '- Answer ONLY from the care data provided below. If the answer is not in',
+  '  the data, say so plainly and suggest where in the app to look.',
+  '- You may summarise vitals history, daily check-ins, medicine labels,',
+  '  prescriptions and upcoming HealthBuddy appointments.',
+  '- You are NOT a doctor. Never diagnose, never adjust doses or schedules;',
+  '  for anything clinical, advise contacting the care team or a doctor.',
+  '- If the data block says medical-record sharing is OFF, explain that the',
+  '  caregiver can enable it from the assistant panel.',
+  '- Be concise and warm. Use short sentences. This is read on a phone.',
+].join('\n');
+
+async function askCareAssistant({ messages = [], context = '' } = {}) {
+  if (!OPENAI_API_KEY) {
+    throw Object.assign(new Error('Care assistant is not configured. Set OPENAI_API_KEY on the API server.'), {
+      status: 503,
+    });
+  }
+
+  const history = (Array.isArray(messages) ? messages : [])
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .slice(-20)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
+
+  if (history.length === 0 || history[history.length - 1].role !== 'user') {
+    throw Object.assign(new Error('A user message is required.'), { status: 400 });
+  }
+
+  const contextBlock = String(context || '').slice(0, 24000);
+  const chat = [
+    {
+      role: 'system',
+      content: `${CARE_ASSISTANT_SYSTEM_PROMPT}\n\n=== CARE DATA ===\n${contextBlock || '(No care data was shared for this conversation.)'}`,
+    },
+    ...history,
+  ];
+
+  const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      messages: chat,
+      max_tokens: 600,
+      temperature: 0.4,
+    }),
+  });
+
+  const data = await aiResponse.json().catch(() => null);
+
+  if (!aiResponse.ok) {
+    throw Object.assign(
+      new Error(data?.error?.message || `Care assistant request failed (${aiResponse.status})`),
+      { status: 502 },
+    );
+  }
+
+  const reply = String(data?.choices?.[0]?.message?.content || '').trim();
+
+  if (!reply) {
+    throw Object.assign(new Error('Care assistant returned an empty reply.'), { status: 502 });
+  }
+
+  return reply;
+}
+
 function getUidFromPath(pathname) {
   const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|check-in-reminders|game|profile|medicines|family-verification-codes|reward-history))?$/);
   return match ? { uid: decodeURIComponent(match[1]), action: match[2] || null } : null;
@@ -528,6 +610,14 @@ export async function handleRequest(request, response) {
   // routes were dropped here — upstream removed getAllSeniorProfiles/
   // deleteSeniorProfile from servicenow.mjs in the same pull that deleted
   // AdminDashboardScreen.tsx, so those routes would ReferenceError.
+  if (url.pathname === '/api/care-assistant' && request.method === 'POST') {
+    requireAuth(request);
+    const body = await readJson(request);
+    const reply = await askCareAssistant(body);
+    sendJson(response, 200, { reply });
+    return;
+  }
+
   if (url.pathname === '/api/servicenow/sensor-status' && request.method === 'GET') {
     const status = await getSensorActivitySnapshot();
     sendJson(response, 200, { status });

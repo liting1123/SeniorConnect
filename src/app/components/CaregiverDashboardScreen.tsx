@@ -45,6 +45,7 @@ import {
   YAxis,
 } from 'recharts';
 import { getStoredUser } from '../services/backend';
+import { CareAssistantChat } from './CareAssistantChat';
 import { useLiveVitals, type LiveRoomState, type VitalPoint } from '../hooks/useLiveVitals';
 import {
   getSensorStatus,
@@ -910,6 +911,15 @@ export default function CaregiverDashboardScreen({
           }}
         />
       </nav>
+
+      {/* Care Assistant chatbot (caregiver + family accounts): floating
+          button, available on every tab. See CareAssistantChat.tsx for the
+          local caching + medical-record opt-in model. */}
+      <CareAssistantChat
+        caregiverEmail={caregiverEmail}
+        seniors={seniors}
+        appointments={appointments}
+      />
     </div>
   );
 }

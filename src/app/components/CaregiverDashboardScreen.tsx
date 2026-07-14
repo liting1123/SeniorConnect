@@ -3968,15 +3968,15 @@ function HealthBuddyScreen({
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-[22px] bg-white p-5 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
-          <div>
+        <div className="flex flex-col items-stretch gap-4 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between">
+          <div className="min-w-0">
             <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{t('healthBuddy')}</p>
             <h2 className="mt-1 text-[30px] font-bold leading-9 text-black">{t('appointmentManager')}</h2>
           </div>
           <button
             type="button"
             onClick={onOpenForm}
-            className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-full bg-[#416642] px-5 text-lg font-black text-white shadow-sm active:scale-95"
+            className="flex h-14 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-[#416642] px-5 text-lg font-black text-white shadow-sm active:scale-95 min-[520px]:w-auto"
           >
             <Plus className="h-6 w-6" />
             {t('newAppointment')}
@@ -4207,7 +4207,7 @@ function DashboardNavItem({
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex min-w-[96px] flex-col items-center justify-center gap-1 rounded-[18px] px-4 py-3 transition-transform active:scale-95 ${
+      className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[18px] px-1 py-3 transition-transform active:scale-95 sm:px-4 ${
         active ? activeClass : inactiveClass
       }`}
     >

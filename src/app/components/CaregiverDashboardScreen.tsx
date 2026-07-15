@@ -1236,7 +1236,7 @@ function CaregiverDashboardHome({
   const filterOptions: Array<{ id: 'all' | 'checked' | 'missing'; label: string }> = [
     { id: 'all', label: t('all') },
     { id: 'checked', label: t('checkedIn') },
-    { id: 'missing', label: t('notCheckedIn') },
+    { id: 'missing', label: t('missed') },
   ];
   const handleSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -1315,7 +1315,9 @@ function CaregiverDashboardHome({
               onClick={() => setCheckInFilter(option.id)}
               className={`flex h-10 min-w-0 items-center justify-center rounded-[12px] px-2 text-xs font-black transition-colors active:scale-95 ${
                 checkInFilter === option.id
-                  ? 'bg-[#416642] text-white'
+                  ? option.id === 'missing'
+                    ? 'bg-[#d94b3d] text-white'
+                    : 'bg-[#416642] text-white'
                   : 'bg-[#f4f6f8] text-[#5f6368]'
               }`}
             >

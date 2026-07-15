@@ -3816,15 +3816,26 @@ function SeniorCard({
               <Phone className="h-5 w-5" />
               {t('call')}
             </a>
-            <button
-              type="button"
-              disabled={isSendingReminder}
-              onClick={() => onSendReminder(senior)}
-              className={`flex h-14 items-center justify-center gap-2 rounded-[10px] border text-lg font-bold uppercase transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 ${primaryActionClass}`}
-            >
-              <Bell className="h-5 w-5" />
-              {isSendingReminder ? t('sending') : t('remind')}
-            </button>
+            {isSosAlert ? (
+              <a
+                href="tel:995"
+                aria-label={`${t('emergency')} 995`}
+                className="flex h-14 items-center justify-center gap-2 rounded-[10px] border border-[#c8171d] bg-[#c8171d] text-lg font-bold uppercase text-white transition-transform active:scale-[0.98]"
+              >
+                <Phone className="h-5 w-5" />
+                {t('emergency')}
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled={isSendingReminder}
+                onClick={() => onSendReminder(senior)}
+                className={`flex h-14 items-center justify-center gap-2 rounded-[10px] border text-lg font-bold uppercase transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 ${primaryActionClass}`}
+              >
+                <Bell className="h-5 w-5" />
+                {isSendingReminder ? t('sending') : t('remind')}
+              </button>
+            )}
           </>
         )}
         <button

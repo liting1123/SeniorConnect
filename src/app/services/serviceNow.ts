@@ -6,6 +6,31 @@ type SosAlertInput = {
   status: string;
 };
 
+export type CaregiverAppointment = {
+  id: string;
+  seniorId: string;
+  seniorName: string;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  notes: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  createdAt: string;
+};
+
+export type CaregiverAppointmentInput = {
+  caregiverId: string;
+  caregiverEmail: string;
+  seniorId: string;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  notes: string;
+  status?: 'scheduled' | 'completed' | 'cancelled';
+};
+
 export async function createSosAlert(input: SosAlertInput) {
   const response = await fetch('/api/servicenow/sos-alert', {
     method: 'POST',
@@ -19,6 +44,85 @@ export async function createSosAlert(input: SosAlertInput) {
   }
 
   return data?.alert;
+}
+
+export async function getCaregiverAppointments(caregiverId: string, caregiverEmail: string): Promise<CaregiverAppointment[]> {
+  const params = new URLSearchParams();
+
+  if (caregiverId) {
+    params.set('caregiverId', caregiverId);
+  }
+
+  if (caregiverEmail) {
+    params.set('caregiverEmail', caregiverEmail);
+  }
+
+  const response = await fetch(`/api/servicenow/appointments?${params.toString()}`);
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointments || [];
+}
+
+export async function createCaregiverAppointment(input: CaregiverAppointmentInput): Promise<CaregiverAppointment> {
+  const response = await fetch('/api/servicenow/appointments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointment;
+}
+
+export async function updateCaregiverAppointment(
+  appointmentId: string,
+  input: Partial<Omit<CaregiverAppointmentInput, 'caregiverId' | 'caregiverEmail'>> & {
+    caregiverId: string;
+    caregiverEmail: string;
+  },
+): Promise<CaregiverAppointment> {
+  const response = await fetch('/api/servicenow/appointments', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      appointmentId,
+      ...input,
+    }),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointment;
+}
+
+export async function deleteCaregiverAppointment(
+  appointmentId: string,
+  caregiverId: string,
+  caregiverEmail: string,
+): Promise<{ id: string }> {
+  const response = await fetch('/api/servicenow/appointments', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ appointmentId, caregiverId, caregiverEmail }),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointment || { id: appointmentId };
 }
 
 export type RoomOccupancy = {

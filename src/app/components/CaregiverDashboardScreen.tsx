@@ -29,6 +29,7 @@ import {
   Trash2,
   TriangleAlert,
   User,
+  Video,
   Wind,
   X,
 } from 'lucide-react';
@@ -47,8 +48,14 @@ import {
 import { getStoredUser } from '../services/backend';
 import { useLiveVitals, type LiveRoomState, type VitalPoint } from '../hooks/useLiveVitals';
 import {
+  createCaregiverAppointment,
+  deleteCaregiverAppointment,
+  getCaregiverAppointments,
   getSensorStatus,
+  updateCaregiverAppointment,
   getVitalsHistory,
+  type CaregiverAppointmentInput,
+  type CaregiverAppointment,
   type RoomOccupancy,
   type SensorStatus,
   type SensorTrendPoint,
@@ -59,7 +66,7 @@ const SENSOR_STATUS_REFRESH_MS = 30000;
 
 const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
 const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
-const CAREGIVER_APPOINTMENTS_KEY = 'careconnect.caregiverAppointments';
+const CAREGIVER_APPOINTMENT_REMINDER_ACK_KEY = 'careconnect.caregiverAppointmentReminderAck';
 const CAREGIVER_DASHBOARD_REFRESH_MS = 5000;
 
 type SosAlertHistory = {
@@ -112,18 +119,7 @@ type SeniorDetailsInput = {
   address: string;
 };
 
-type HealthBuddyAppointment = {
-  id: string;
-  seniorId: string;
-  seniorName: string;
-  title: string;
-  date: string;
-  time: string;
-  location: string;
-  notes: string;
-  status: 'scheduled' | 'completed' | 'cancelled';
-  createdAt: string;
-};
+type HealthBuddyAppointment = CaregiverAppointment;
 
 type HealthBuddyAppointmentInput = {
   seniorId: string;
@@ -158,28 +154,20 @@ function saveSosHistory(caregiverEmail: string, history: SosAlertHistory[]) {
   localStorage.setItem(getSosHistoryKey(caregiverEmail), JSON.stringify(history.filter((item) => !isCheckInReminderAlert(item))));
 }
 
-function getAppointmentsKey(caregiverEmail: string) {
-  return `${CAREGIVER_APPOINTMENTS_KEY}.${caregiverEmail.trim().toLowerCase() || 'unknown'}`;
+function getSingaporeDateKey(value: Date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Singapore',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return `${map.year}-${map.month}-${map.day}`;
 }
 
-function readStoredAppointments(caregiverEmail: string) {
-  const rawAppointments = localStorage.getItem(getAppointmentsKey(caregiverEmail));
-
-  if (!rawAppointments) {
-    return [] as HealthBuddyAppointment[];
-  }
-
-  try {
-    const parsedAppointments = JSON.parse(rawAppointments) as HealthBuddyAppointment[];
-    return Array.isArray(parsedAppointments) ? parsedAppointments : [];
-  } catch {
-    localStorage.removeItem(getAppointmentsKey(caregiverEmail));
-    return [] as HealthBuddyAppointment[];
-  }
-}
-
-function saveStoredAppointments(caregiverEmail: string, appointments: HealthBuddyAppointment[]) {
-  localStorage.setItem(getAppointmentsKey(caregiverEmail), JSON.stringify(appointments));
+function getAppointmentReminderAckKey(caregiverIdentity: string, reminderDate: string) {
+  return `${CAREGIVER_APPOINTMENT_REMINDER_ACK_KEY}.${caregiverIdentity.trim().toLowerCase() || 'unknown'}.${reminderDate}`;
 }
 
 function getAppointmentDateTime(appointment: Pick<HealthBuddyAppointment, 'date' | 'time'>) {
@@ -207,6 +195,116 @@ function formatAppointmentDateTime(date: Date | null) {
     timeStyle: 'short',
     timeZone: 'Asia/Singapore',
   }).format(date);
+}
+
+function formatAppointmentDateOnly(value = '') {
+  const text = String(value || '').trim();
+
+  if (!text) {
+    return 'Not set';
+  }
+
+  const date = new Date(`${text}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+
+  return new Intl.DateTimeFormat('en-SG', {
+    dateStyle: 'medium',
+    timeZone: 'Asia/Singapore',
+  }).format(date);
+}
+
+function formatAppointmentTimeOnly(value = '') {
+  const text = String(value || '').trim();
+
+  if (!text) {
+    return 'Not set';
+  }
+
+  const timeMatch = /^(\d{2}:\d{2}(?::\d{2})?)$/.exec(text);
+
+  if (!timeMatch) {
+    return text;
+  }
+
+  const date = new Date(`1970-01-01T${timeMatch[1]}`);
+
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+
+  return new Intl.DateTimeFormat('en-SG', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Asia/Singapore',
+  }).format(date);
+}
+
+function resolveAppointmentSeniorName(appointment: HealthBuddyAppointment, seniors: Senior[]) {
+  const appointmentSeniorId = String(appointment.seniorId || '').trim();
+
+  const linkedSenior = seniors.find((senior) => {
+    const candidates = [senior.id, senior.userId, senior.connectionId]
+      .map((candidate) => String(candidate || '').trim())
+      .filter(Boolean);
+
+    return candidates.includes(appointmentSeniorId);
+  });
+
+  if (linkedSenior?.name?.trim()) {
+    return linkedSenior.name.trim();
+  }
+
+  return appointment.seniorName || 'Senior';
+}
+
+function getAppointmentCategory(appointment: HealthBuddyAppointment) {
+  const source = [appointment.title, appointment.notes].join(' ').toLowerCase();
+
+  if (/therapy|physio|rehab/.test(source)) {
+    return 'therapy';
+  }
+
+  if (/vaccine|vaccination|booster|immuni/.test(source)) {
+    return 'vaccination';
+  }
+
+  if (/community|activity|social|club|event/.test(source)) {
+    return 'community';
+  }
+
+  return 'medical';
+}
+
+function getAppointmentCategoryLabel(category: 'medical' | 'therapy' | 'vaccination' | 'community', t: (key: string) => string) {
+  const labelByCategory = {
+    medical: t('appointmentCategoryMedical'),
+    therapy: t('appointmentCategoryTherapy'),
+    vaccination: t('appointmentCategoryVaccination'),
+    community: t('appointmentCategoryCommunity'),
+  };
+
+  return labelByCategory[category];
+}
+
+function getTransportReminderLabel(appointmentDate: Date | null, t: (key: string) => string) {
+  if (!appointmentDate) {
+    return t('transportReminderPlanAhead');
+  }
+
+  const hoursUntil = (appointmentDate.getTime() - Date.now()) / (1000 * 60 * 60);
+
+  if (hoursUntil <= 0) {
+    return t('transportReminderDepartSoon');
+  }
+
+  if (hoursUntil <= 24) {
+    return t('transportReminderWithinDay');
+  }
+
+  return t('transportReminderPlanAhead');
 }
 
 export default function CaregiverDashboardScreen({
@@ -245,8 +343,11 @@ export default function CaregiverDashboardScreen({
   const [isAddingSenior, setIsAddingSenior] = useState(false);
   const [addSeniorError, setAddSeniorError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
-  const [appointments, setAppointments] = useState<HealthBuddyAppointment[]>(() => readStoredAppointments(caregiverEmail));
+  const [appointments, setAppointments] = useState<HealthBuddyAppointment[]>([]);
+  const [appointmentsLoadError, setAppointmentsLoadError] = useState('');
   const [showAppointmentForm, setShowAppointmentForm] = useState(false);
+  const [isSavingAppointment, setIsSavingAppointment] = useState(false);
+  const [editingAppointmentId, setEditingAppointmentId] = useState('');
   const [appointmentError, setAppointmentError] = useState('');
   const [appointmentForm, setAppointmentForm] = useState<HealthBuddyAppointmentInput>({
     seniorId: '',
@@ -343,14 +444,57 @@ export default function CaregiverDashboardScreen({
   }, [caregiverEmail]);
 
   useEffect(() => {
-    setAppointments(readStoredAppointments(caregiverEmail));
-  }, [caregiverEmail]);
-
-  useEffect(() => {
-    if (caregiverEmail) {
-      saveStoredAppointments(caregiverEmail, appointments);
+    if (!caregiverEmail && !caregiverId) {
+      setAppointments([]);
+      return;
     }
-  }, [appointments, caregiverEmail]);
+
+    let isMounted = true;
+    let isRefreshing = false;
+
+    async function loadAppointments() {
+      if (isRefreshing) {
+        return;
+      }
+
+      isRefreshing = true;
+      setAppointmentsLoadError('');
+
+      try {
+        const rows = await getCaregiverAppointments(caregiverId, caregiverEmail);
+
+        if (isMounted) {
+          setAppointments(rows);
+        }
+      } catch (error) {
+        console.error('Unable to load appointments from ServiceNow:', error);
+
+        if (isMounted) {
+          setAppointmentsLoadError(error instanceof Error ? error.message : 'Unable to load appointments.');
+          setAppointments([]);
+        }
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    loadAppointments();
+    const refreshTimer = window.setInterval(loadAppointments, CAREGIVER_DASHBOARD_REFRESH_MS);
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        loadAppointments();
+      }
+    };
+
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(refreshTimer);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [caregiverEmail, caregiverId]);
 
   const sortedAppointments = [...appointments].sort((left, right) => {
     const leftTime = getAppointmentDateTime(left)?.getTime() || Number.MAX_SAFE_INTEGER;
@@ -381,7 +525,50 @@ export default function CaregiverDashboardScreen({
     completed: appointments.filter((appointment) => appointment.status === 'completed').length,
   };
 
-  const handleCreateAppointment = (event: React.FormEvent) => {
+  const tomorrowDateKey = getSingaporeDateKey(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  const tomorrowAppointments = appointments.filter(
+    (appointment) => appointment.status === 'scheduled' && appointment.date === tomorrowDateKey,
+  );
+
+  useEffect(() => {
+    if (tomorrowAppointments.length === 0) {
+      return;
+    }
+
+    const caregiverIdentity = caregiverEmail || caregiverId;
+
+    if (!caregiverIdentity) {
+      return;
+    }
+
+    const reminderKey = getAppointmentReminderAckKey(caregiverIdentity, tomorrowDateKey);
+    const reminderSignature = tomorrowAppointments
+      .map((appointment) => appointment.id)
+      .sort()
+      .join('|');
+    const acknowledgedSignature = localStorage.getItem(reminderKey) || '';
+
+    if (acknowledgedSignature === reminderSignature) {
+      return;
+    }
+
+    const reminderNames = Array.from(
+      new Set(
+        tomorrowAppointments
+          .map((appointment) => appointment.seniorName)
+          .filter(Boolean),
+      ),
+    ).slice(0, 3);
+    const reminderMessage = t('appointmentTomorrowAlertBody', {
+      count: tomorrowAppointments.length,
+    });
+    const namesLine = reminderNames.length > 0 ? `\n${reminderNames.join(', ')}` : '';
+
+    alert(`${reminderMessage}${namesLine}`);
+    localStorage.setItem(reminderKey, reminderSignature);
+  }, [tomorrowAppointments, caregiverEmail, caregiverId, tomorrowDateKey, t]);
+
+  const handleCreateAppointment = async (event: React.FormEvent) => {
     event.preventDefault();
 
     if (!appointmentForm.seniorId.trim() || !appointmentForm.title.trim() || !appointmentForm.date.trim() || !appointmentForm.time.trim()) {
@@ -398,35 +585,88 @@ export default function CaregiverDashboardScreen({
       return;
     }
 
-    const nextAppointment: HealthBuddyAppointment = {
-      id: `appt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    const payload: CaregiverAppointmentInput = {
+      caregiverId,
+      caregiverEmail,
       seniorId: appointmentForm.seniorId.trim(),
-      seniorName,
       title: appointmentForm.title.trim(),
       date: appointmentForm.date,
       time: appointmentForm.time,
       location: appointmentForm.location.trim(),
       notes: appointmentForm.notes.trim(),
       status: 'scheduled',
-      createdAt: new Date().toISOString(),
     };
 
-    setAppointments((currentAppointments) => [nextAppointment, ...currentAppointments]);
-    setAppointmentForm({ seniorId: '', seniorName: '', title: '', date: '', time: '', location: '', notes: '' });
-    setShowAppointmentForm(false);
+    setIsSavingAppointment(true);
+
+    try {
+      if (editingAppointmentId) {
+        const updatedAppointment = await updateCaregiverAppointment(editingAppointmentId, payload);
+
+        setAppointments((currentAppointments) =>
+          currentAppointments.map((appointment) =>
+            appointment.id === editingAppointmentId ? updatedAppointment : appointment,
+          ),
+        );
+      } else {
+        const createdAppointment = await createCaregiverAppointment(payload);
+        setAppointments((currentAppointments) => [createdAppointment, ...currentAppointments]);
+      }
+
+      setAppointmentForm({ seniorId: '', seniorName: '', title: '', date: '', time: '', location: '', notes: '' });
+      setEditingAppointmentId('');
+      setShowAppointmentForm(false);
+      setAppointmentError('');
+    } catch (error) {
+      console.error('Unable to save appointment:', error);
+      setAppointmentError(error instanceof Error ? error.message : 'Unable to save appointment.');
+    } finally {
+      setIsSavingAppointment(false);
+    }
+  };
+
+  const handleUpdateAppointmentStatus = async (appointmentId: string, status: HealthBuddyAppointment['status']) => {
+    try {
+      const updatedAppointment = await updateCaregiverAppointment(appointmentId, {
+        caregiverId,
+        caregiverEmail,
+        status,
+      });
+
+      setAppointments((currentAppointments) =>
+        currentAppointments.map((appointment) =>
+          appointment.id === appointmentId ? updatedAppointment : appointment,
+        ),
+      );
+    } catch (error) {
+      console.error('Unable to update appointment status:', error);
+      setAppointmentError(error instanceof Error ? error.message : 'Unable to update appointment status.');
+    }
+  };
+
+  const handleDeleteAppointment = async (appointmentId: string) => {
+    try {
+      await deleteCaregiverAppointment(appointmentId, caregiverId, caregiverEmail);
+      setAppointments((currentAppointments) => currentAppointments.filter((appointment) => appointment.id !== appointmentId));
+    } catch (error) {
+      console.error('Unable to delete appointment:', error);
+      setAppointmentError(error instanceof Error ? error.message : 'Unable to delete appointment.');
+    }
+  };
+
+  const handleEditAppointment = (appointment: HealthBuddyAppointment) => {
+    setEditingAppointmentId(appointment.id);
+    setAppointmentForm({
+      seniorId: appointment.seniorId,
+      seniorName: appointment.seniorName,
+      title: appointment.title,
+      date: appointment.date,
+      time: appointment.time,
+      location: appointment.location,
+      notes: appointment.notes,
+    });
     setAppointmentError('');
-  };
-
-  const handleUpdateAppointmentStatus = (appointmentId: string, status: HealthBuddyAppointment['status']) => {
-    setAppointments((currentAppointments) =>
-      currentAppointments.map((appointment) =>
-        appointment.id === appointmentId ? { ...appointment, status } : appointment,
-      ),
-    );
-  };
-
-  const handleDeleteAppointment = (appointmentId: string) => {
-    setAppointments((currentAppointments) => currentAppointments.filter((appointment) => appointment.id !== appointmentId));
+    setShowAppointmentForm(true);
   };
 
   const handleUpdateSeniorDetails = async (senior: Senior, details: SeniorDetailsInput) => {
@@ -680,10 +920,11 @@ export default function CaregiverDashboardScreen({
     }
   };
 
-  const alertCount = seniors.filter((senior) => isAlertStatus(senior.status, senior)).length;
+  const alertCount = seniors.filter((senior) => isAlertStatus(senior.status, senior)).length + tomorrowAppointments.length;
   const canAddSenior = true;
   const canDeleteSenior = true;
   const isAdminMode = false;
+  const canManageAppointments = /caregiver|admin/i.test(String(currentUser?.role || ''));
   const dashboardSurfaceClass = 'bg-[#f4f6f8]';
   const dashboardTabLabel = dashboardLabel === 'Dashboard' ? t('dashboard') : dashboardLabel;
   const alertsTabLabel = alertsLabel === 'Alerts' ? t('alerts') : alertsLabel;
@@ -722,19 +963,30 @@ export default function CaregiverDashboardScreen({
         {!selectedSenior && activeTab === 'live' && <LiveMonitorTab />}
         {!selectedSenior && activeTab === 'healthBuddy' && (
           <HealthBuddyScreen
+            canManageAppointments={canManageAppointments}
             appointmentError={appointmentError}
+            appointmentLoadError={appointmentsLoadError}
             appointmentForm={appointmentForm}
             appointmentStats={appointmentStats}
             appointments={sortedAppointments}
+            editingAppointmentId={editingAppointmentId}
+            isSavingAppointment={isSavingAppointment}
+            tomorrowAppointmentCount={tomorrowAppointments.length}
             caregiverName={caregiverName}
             onChangeAppointmentForm={setAppointmentForm}
+            onEditAppointment={handleEditAppointment}
             onCloseForm={() => {
               setShowAppointmentForm(false);
+              setEditingAppointmentId('');
               setAppointmentError('');
             }}
             onCreateAppointment={handleCreateAppointment}
             onDeleteAppointment={handleDeleteAppointment}
-            onOpenForm={() => setShowAppointmentForm(true)}
+            onOpenForm={() => {
+              setEditingAppointmentId('');
+              setAppointmentForm({ seniorId: '', seniorName: '', title: '', date: '', time: '', location: '', notes: '' });
+              setShowAppointmentForm(true);
+            }}
             onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
             seniors={seniors}
             showAppointmentForm={showAppointmentForm}
@@ -3935,12 +4187,18 @@ function DashboardMetricCard({
 }
 
 function HealthBuddyScreen({
+  canManageAppointments,
   appointmentError,
+  appointmentLoadError,
   appointmentForm,
   appointmentStats,
   appointments,
+  editingAppointmentId,
+  isSavingAppointment,
+  tomorrowAppointmentCount,
   caregiverName,
   onChangeAppointmentForm,
+  onEditAppointment,
   onCloseForm,
   onCreateAppointment,
   onDeleteAppointment,
@@ -3949,12 +4207,18 @@ function HealthBuddyScreen({
   seniors,
   showAppointmentForm,
 }: {
+  canManageAppointments: boolean;
   appointmentError: string;
+  appointmentLoadError: string;
   appointmentForm: HealthBuddyAppointmentInput;
   appointmentStats: { today: number; upcoming: number; completed: number };
   appointments: HealthBuddyAppointment[];
+  editingAppointmentId: string;
+  isSavingAppointment: boolean;
+  tomorrowAppointmentCount: number;
   caregiverName: string;
   onChangeAppointmentForm: React.Dispatch<React.SetStateAction<HealthBuddyAppointmentInput>>;
+  onEditAppointment: (appointment: HealthBuddyAppointment) => void;
   onCloseForm: () => void;
   onCreateAppointment: (event: React.FormEvent) => void;
   onDeleteAppointment: (appointmentId: string) => void;
@@ -3964,6 +4228,19 @@ function HealthBuddyScreen({
   showAppointmentForm: boolean;
 }) {
   const { t } = useTranslation();
+  const categoryCounts = appointments.reduce(
+    (summary, appointment) => {
+      const category = getAppointmentCategory(appointment);
+      summary[category] += 1;
+      return summary;
+    },
+    {
+      medical: 0,
+      therapy: 0,
+      vaccination: 0,
+      community: 0,
+    },
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -3973,14 +4250,16 @@ function HealthBuddyScreen({
             <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{t('healthBuddy')}</p>
             <h2 className="mt-1 text-[30px] font-bold leading-9 text-black">{t('appointmentManager')}</h2>
           </div>
-          <button
-            type="button"
-            onClick={onOpenForm}
-            className="flex h-14 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-[#416642] px-5 text-lg font-black text-white shadow-sm active:scale-95 min-[520px]:w-auto"
-          >
-            <Plus className="h-6 w-6" />
-            {t('newAppointment')}
-          </button>
+          {canManageAppointments && (
+            <button
+              type="button"
+              onClick={onOpenForm}
+              className="flex h-14 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-[#416642] px-5 text-lg font-black text-white shadow-sm active:scale-95 min-[520px]:w-auto"
+            >
+              <Plus className="h-6 w-6" />
+              {t('newAppointment')}
+            </button>
+          )}
         </div>
 
         <div className="mt-5 grid gap-3 min-[390px]:grid-cols-3">
@@ -3988,12 +4267,39 @@ function HealthBuddyScreen({
           <HealthBuddyStatCard label={t('upcoming')} value={appointmentStats.upcoming} />
           <HealthBuddyStatCard label={t('completed')} value={appointmentStats.completed} />
         </div>
+
+        <div className="mt-4 rounded-2xl bg-[#f4f6f8] p-4">
+          <p className="text-xs font-black uppercase tracking-wide text-[#71717a]">{t('appointmentCalendar')}</p>
+          <div className="mt-2 grid gap-2 min-[390px]:grid-cols-2">
+            <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#30343a]">
+              {t('appointmentCategoryMedical')}: {categoryCounts.medical}
+            </p>
+            <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#30343a]">
+              {t('appointmentCategoryTherapy')}: {categoryCounts.therapy}
+            </p>
+            <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#30343a]">
+              {t('appointmentCategoryVaccination')}: {categoryCounts.vaccination}
+            </p>
+            <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#30343a]">
+              {t('appointmentCategoryCommunity')}: {categoryCounts.community}
+            </p>
+          </div>
+        </div>
+
+        {tomorrowAppointmentCount > 0 && (
+          <div className="mt-4 flex items-start gap-3 rounded-2xl border border-[#ffe39a] bg-[#fff7df] px-4 py-3 text-[#8c5a00]">
+            <Bell className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <p className="text-sm font-black">
+              {t('appointmentTomorrowBanner', { count: tomorrowAppointmentCount })}
+            </p>
+          </div>
+        )}
       </section>
 
-      {showAppointmentForm && (
+      {canManageAppointments && showAppointmentForm && (
         <form onSubmit={onCreateAppointment} className="rounded-[22px] bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="text-xl font-black text-black">{t('createAppointment')}</h3>
+            <h3 className="text-xl font-black text-black">{editingAppointmentId ? t('saveChanges') : t('createAppointment')}</h3>
             <button
               type="button"
               onClick={onCloseForm}
@@ -4090,18 +4396,29 @@ function HealthBuddyScreen({
 
           <button
             type="submit"
+            disabled={isSavingAppointment}
             className="mt-5 flex h-14 w-full items-center justify-center gap-2 rounded-full bg-[#416642] text-lg font-black text-white active:scale-95"
           >
             <Calendar className="h-5 w-5" />
-            {t('saveAppointment')}
+            {isSavingAppointment ? t('saving') : t('saveAppointment')}
           </button>
         </form>
       )}
 
       <section className="flex flex-col gap-3">
+        {appointmentLoadError && (
+          <div className="rounded-[18px] bg-red-50 p-4 text-sm font-bold text-red-700">
+            {appointmentLoadError}
+          </div>
+        )}
         {appointments.length > 0 ? (
           appointments.map((appointment) => {
             const appointmentDate = getAppointmentDateTime(appointment);
+            const appointmentSeniorName = resolveAppointmentSeniorName(appointment, seniors);
+            const appointmentCategory = getAppointmentCategory(appointment);
+            const directionsHref = getDirectionsHref(appointment.location || '');
+            const teleconsultHref = extractFirstUrl(appointment.notes || '');
+            const transportReminderLabel = getTransportReminderLabel(appointmentDate, t);
             const isCompleted = appointment.status === 'completed';
             const isCancelled = appointment.status === 'cancelled';
 
@@ -4109,9 +4426,12 @@ function HealthBuddyScreen({
               <div key={appointment.id} className="rounded-[22px] bg-white p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{appointment.seniorName}</p>
+                    <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{appointmentSeniorName}</p>
                     <h3 className="mt-1 text-2xl font-black text-black">{appointment.title}</h3>
                     <p className="mt-2 text-base font-bold text-[#416642]">{formatAppointmentDateTime(appointmentDate)}</p>
+                    <p className="mt-2 inline-flex rounded-full bg-[#edf3ff] px-3 py-1 text-xs font-black uppercase tracking-wide text-[#2c4f8f]">
+                      {getAppointmentCategoryLabel(appointmentCategory, t)}
+                    </p>
                   </div>
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
@@ -4127,37 +4447,77 @@ function HealthBuddyScreen({
                 </div>
 
                 <div className="mt-3 grid gap-2 text-sm font-semibold text-[#5f6368]">
+                  <p>Date: {formatAppointmentDateOnly(appointment.date)}</p>
+                  <p>Time: {formatAppointmentTimeOnly(appointment.time)}</p>
                   {appointment.location && <p>{t('location')}: {appointment.location}</p>}
                   {appointment.notes && <p>{appointment.notes}</p>}
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-3">
-                  {appointment.status !== 'completed' && (
-                    <button
-                      type="button"
-                      onClick={() => onUpdateAppointmentStatus(appointment.id, 'completed')}
-                      className="rounded-full bg-[#18833b] px-4 py-2 text-sm font-black text-white active:scale-95"
-                    >
-                      {t('markCompleted')}
-                    </button>
-                  )}
-                  {appointment.status !== 'cancelled' && (
-                    <button
-                      type="button"
-                      onClick={() => onUpdateAppointmentStatus(appointment.id, 'cancelled')}
-                      className="rounded-full bg-[#954a00] px-4 py-2 text-sm font-black text-white active:scale-95"
-                    >
-                      {t('cancel')}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onDeleteAppointment(appointment.id)}
-                    className="rounded-full border border-[#c7cbd1] bg-white px-4 py-2 text-sm font-black text-[#30343a] active:scale-95"
-                  >
-                    {t('remove')}
-                  </button>
+                <div className="mt-3 rounded-xl border border-[#d9e4ff] bg-[#f4f8ff] px-3 py-2 text-sm font-bold text-[#26426f]">
+                  {t('transportReminder')}: {transportReminderLabel}
                 </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {directionsHref && (
+                    <a
+                      href={directionsHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-[#9ab5df] bg-white px-3 py-2 text-xs font-black uppercase tracking-wide text-[#2c4f8f]"
+                    >
+                      <MapPin className="h-4 w-4" />
+                      {t('openDirections')}
+                    </a>
+                  )}
+                  {teleconsultHref && (
+                    <a
+                      href={teleconsultHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-full border border-[#92d6a5] bg-white px-3 py-2 text-xs font-black uppercase tracking-wide text-[#1d6b34]"
+                    >
+                      <Video className="h-4 w-4" />
+                      {t('joinTeleconsultation')}
+                    </a>
+                  )}
+                </div>
+
+                {canManageAppointments && (
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => onEditAppointment(appointment)}
+                      className="rounded-full border border-[#2c4f8f] bg-white px-4 py-2 text-sm font-black text-[#2c4f8f] active:scale-95"
+                    >
+                      Edit
+                    </button>
+                    {appointment.status !== 'completed' && (
+                      <button
+                        type="button"
+                        onClick={() => onUpdateAppointmentStatus(appointment.id, 'completed')}
+                        className="rounded-full bg-[#18833b] px-4 py-2 text-sm font-black text-white active:scale-95"
+                      >
+                        {t('markCompleted')}
+                      </button>
+                    )}
+                    {appointment.status !== 'cancelled' && (
+                      <button
+                        type="button"
+                        onClick={() => onUpdateAppointmentStatus(appointment.id, 'cancelled')}
+                        className="rounded-full bg-[#954a00] px-4 py-2 text-sm font-black text-white active:scale-95"
+                      >
+                        {t('cancel')}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onDeleteAppointment(appointment.id)}
+                      className="rounded-full border border-[#c7cbd1] bg-white px-4 py-2 text-sm font-black text-[#30343a] active:scale-95"
+                    >
+                      {t('remove')}
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })

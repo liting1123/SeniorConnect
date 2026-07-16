@@ -6,8 +6,11 @@ import {
   addCheckInPoints,
   addGamePoint,
   createCaregiverConnection,
+  createAppointmentForCaregiver,
   deleteCaregiverConnection,
+  deleteAppointmentForCaregiver,
   createFamilyVerification,
+  getAppointmentsForCaregiver,
   createSosAlert,
   deleteMedicineForUser,
   getCaregiverSeniorConnections,
@@ -26,6 +29,7 @@ import {
   saveMedicineForUser,
   searchSeniorProfiles,
   updateSosAlertStatus,
+  updateAppointmentForCaregiver,
   upsertUserProfile,
   verifyFamilyVerification,
 } from './servicenow.mjs';
@@ -520,6 +524,66 @@ export async function handleRequest(request, response) {
     });
 
     sendJson(response, 200, { seniors });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/appointments' && request.method === 'GET') {
+    const appointments = await getAppointmentsForCaregiver({
+      caregiverId: url.searchParams.get('caregiverId'),
+      caregiverEmail: url.searchParams.get('caregiverEmail'),
+      limit: url.searchParams.get('limit'),
+    });
+
+    sendJson(response, 200, { appointments });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/appointments' && request.method === 'POST') {
+    const body = await readJson(request);
+    const appointment = await createAppointmentForCaregiver({
+      caregiverId: body.caregiverId,
+      caregiverEmail: body.caregiverEmail,
+      seniorId: body.seniorId,
+      title: body.title,
+      date: body.date,
+      time: body.time,
+      location: body.location,
+      notes: body.notes,
+      status: body.status,
+    });
+
+    sendJson(response, 200, { appointment });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/appointments' && request.method === 'PATCH') {
+    const body = await readJson(request);
+    const appointment = await updateAppointmentForCaregiver({
+      appointmentId: body.appointmentId,
+      caregiverId: body.caregiverId,
+      caregiverEmail: body.caregiverEmail,
+      seniorId: body.seniorId,
+      title: body.title,
+      date: body.date,
+      time: body.time,
+      location: body.location,
+      notes: body.notes,
+      status: body.status,
+    });
+
+    sendJson(response, 200, { appointment });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/appointments' && request.method === 'DELETE') {
+    const body = await readJson(request);
+    const appointment = await deleteAppointmentForCaregiver({
+      appointmentId: body.appointmentId,
+      caregiverId: body.caregiverId,
+      caregiverEmail: body.caregiverEmail,
+    });
+
+    sendJson(response, 200, { appointment });
     return;
   }
 

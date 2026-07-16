@@ -29,7 +29,9 @@ import {
   setCachedUserPoints,
   updateSeniorProfile,
 } from './services/backend';
-import { createSosAlert } from './services/serviceNow';
+import {
+  createSosAlert,
+} from './services/serviceNow';
 
 type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
 type LanguageReturnScreen = 'home' | 'caregiverDashboard';

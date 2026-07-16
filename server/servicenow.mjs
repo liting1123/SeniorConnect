@@ -1370,6 +1370,95 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
   return records.map((record) => toCaregiverAppointmentRecord(record, seniorNamesByProfileId));
 }
 
+export async function getAppointmentsForSenior({ seniorUserId, seniorEmail, limit = 100 } = {}) {
+  const normalizedSeniorUserId = String(seniorUserId || '').trim();
+  const normalizedSeniorEmail = normalizeLoginValue(seniorEmail);
+
+  if (!normalizedSeniorUserId && !normalizedSeniorEmail) {
+    throw Object.assign(new Error('Senior user ID or email is required.'), { status: 400 });
+  }
+
+  const candidateSeniorIds = new Set(
+    [normalizedSeniorUserId]
+      .filter(Boolean)
+      .map((value) => normalizeLoginValue(value)),
+  );
+  const candidateSeniorNames = new Set(
+    [normalizedSeniorEmail]
+      .filter(Boolean)
+      .map((value) => normalizeLoginValue(value)),
+  );
+
+  const seniorProfile = normalizedSeniorUserId ? await findSeniorProfileByUserId(normalizedSeniorUserId) : null;
+
+  if (seniorProfile?.sys_id) {
+    candidateSeniorIds.add(normalizeLoginValue(seniorProfile.sys_id));
+    candidateSeniorNames.add(normalizeLoginValue(getDisplayValue(seniorProfile[FIELD_MAP.email])));
+    candidateSeniorNames.add(normalizeLoginValue(getDisplayValue(seniorProfile[FIELD_MAP.name])));
+  }
+
+  const seniorLoginRecord = normalizedSeniorUserId ? await getLoginRecordById(normalizedSeniorUserId) : null;
+  const lookupValues = [
+    normalizedSeniorEmail,
+    normalizeLoginValue(getDisplayValue(seniorLoginRecord?.[LOGIN_FIELD_MAP.email])),
+    normalizeLoginValue(getDisplayValue(seniorLoginRecord?.[LOGIN_FIELD_MAP.name])),
+  ].filter(Boolean);
+
+  if (lookupValues.length > 0) {
+    const queryParts = [];
+
+    for (const value of lookupValues) {
+      queryParts.push(`${FIELD_MAP.email}=${value}`);
+      queryParts.push(`${FIELD_MAP.name}=${value}`);
+      if (FIELD_MAP.userId !== 'sys_id') {
+        queryParts.push(`${FIELD_MAP.userId}=${value}`);
+      }
+    }
+
+    const profileParams = new URLSearchParams({
+      sysparm_query: queryParts.join('^OR'),
+      sysparm_fields: `sys_id,${FIELD_MAP.name},${FIELD_MAP.email}`,
+      sysparm_limit: '50',
+    });
+    const profileData = await serviceNowFetch(getTablePath(`?${profileParams.toString()}`));
+
+    for (const profileRecord of profileData?.result || []) {
+      candidateSeniorIds.add(normalizeLoginValue(profileRecord?.sys_id));
+      candidateSeniorNames.add(normalizeLoginValue(getDisplayValue(profileRecord?.[FIELD_MAP.email])));
+      candidateSeniorNames.add(normalizeLoginValue(getDisplayValue(profileRecord?.[FIELD_MAP.name])));
+    }
+  }
+
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
+  const params = new URLSearchParams({
+    sysparm_query: 'ORDERBYDESCsys_created_on',
+    sysparm_limit: String(Math.min(normalizedLimit * 3, 500)),
+  });
+  const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `?${params.toString()}`));
+  const records = data?.result || [];
+
+  if (records.length === 0) {
+    return [];
+  }
+
+  const seniorNamesByProfileId = await getSeniorNamesByProfileIds(
+    records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
+  );
+
+  return records
+    .map((record) => toCaregiverAppointmentRecord(record, seniorNamesByProfileId))
+    .filter((appointment) => {
+      const normalizedAppointmentSeniorId = normalizeLoginValue(appointment.seniorId);
+      const normalizedAppointmentSeniorName = normalizeLoginValue(appointment.seniorName);
+
+      return (
+        (normalizedAppointmentSeniorId && candidateSeniorIds.has(normalizedAppointmentSeniorId)) ||
+        (normalizedAppointmentSeniorName && candidateSeniorNames.has(normalizedAppointmentSeniorName))
+      );
+    })
+    .slice(0, normalizedLimit);
+}
+
 export async function createAppointmentForCaregiver({ caregiverId, caregiverEmail, seniorId, title, date, time, location, notes, status = 'scheduled' } = {}) {
   const normalizedCaregiverId = String(caregiverId || '').trim();
   const normalizedCaregiverEmail = normalizeLoginValue(caregiverEmail);

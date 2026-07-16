@@ -67,6 +67,27 @@ export async function getCaregiverAppointments(caregiverId: string, caregiverEma
   return data?.appointments || [];
 }
 
+export async function getSeniorAppointments(seniorUserId: string, seniorEmail?: string): Promise<CaregiverAppointment[]> {
+  const params = new URLSearchParams();
+
+  if (seniorUserId) {
+    params.set('seniorUserId', seniorUserId);
+  }
+
+  if (seniorEmail) {
+    params.set('seniorEmail', seniorEmail);
+  }
+
+  const response = await fetch(`/api/servicenow/appointments?${params.toString()}`);
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointments || [];
+}
+
 export async function createCaregiverAppointment(input: CaregiverAppointmentInput): Promise<CaregiverAppointment> {
   const response = await fetch('/api/servicenow/appointments', {
     method: 'POST',

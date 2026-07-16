@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, Clock, Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
+import { Bell, Calendar, Clock, Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { LANGUAGE_STORAGE_KEY } from '../i18n';
@@ -13,6 +13,7 @@ import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel } from './
 import CarePortalScreen from './components/CarePortalScreen';
 import CaregiverDashboardScreen from './components/CaregiverDashboardScreen';
 import GameScreen from './components/GameScreen';
+import SeniorAppointmentsScreen from './components/SeniorAppointmentsScreen';
 import {
   type AppUser,
   type CheckInReminder,
@@ -31,9 +32,11 @@ import {
 } from './services/backend';
 import {
   createSosAlert,
+  getSeniorAppointments,
+  type CaregiverAppointment,
 } from './services/serviceNow';
 
-type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
+type Screen = 'welcome' | 'language' | 'home' | 'appointments' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
 type LanguageReturnScreen = 'home' | 'caregiverDashboard';
 type CheckInWindowId = 'morning' | 'evening';
 const HIGH_CONTRAST_STORAGE_KEY = 'careconnect.highContrast';
@@ -339,6 +342,8 @@ export default function App() {
   const [snoozedMedicineUntil, setSnoozedMedicineUntil] = useState<Record<string, number>>({});
   const snoozedMedicineUntilRef = useRef<Record<string, number>>({});
   const [familyRegistrationNotice, setFamilyRegistrationNotice] = useState('');
+  const [seniorAppointments, setSeniorAppointments] = useState<CaregiverAppointment[]>([]);
+  const [isLoadingSeniorAppointments, setIsLoadingSeniorAppointments] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(HIGH_CONTRAST_STORAGE_KEY, String(highContrast));
@@ -518,6 +523,48 @@ export default function App() {
 
     return () => {
       isMounted = false;
+    };
+  }, [currentScreen]);
+
+  useEffect(() => {
+    const user = getStoredUser();
+
+    if (!user || !isSeniorRole(user.role)) {
+      setSeniorAppointments([]);
+      setIsLoadingSeniorAppointments(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadSeniorAppointments = async () => {
+      setIsLoadingSeniorAppointments(true);
+
+      try {
+        const appointments = await getSeniorAppointments(user.uid, user.email);
+
+        if (isMounted) {
+          setSeniorAppointments(appointments);
+        }
+      } catch (error) {
+        console.error('Unable to load senior appointments:', error);
+
+        if (isMounted) {
+          setSeniorAppointments([]);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingSeniorAppointments(false);
+        }
+      }
+    };
+
+    loadSeniorAppointments();
+    const timer = window.setInterval(loadSeniorAppointments, 30000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
     };
   }, [currentScreen]);
 
@@ -792,6 +839,8 @@ export default function App() {
             isCurrentCheckInWindowCompleted={isCurrentCheckInWindowCompleted}
           />
         );
+      case 'appointments':
+        return <SeniorAppointmentsScreen appointments={seniorAppointments} isLoading={isLoadingSeniorAppointments} />;
       case 'profile':
         return (
           <ProfileScreen
@@ -880,6 +929,13 @@ export default function App() {
               onClick={() => setCurrentScreen('home')}
             />
             <NavButton
+              icon={<Calendar className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
+              label={t('healthBuddy')}
+              active={currentScreen === 'appointments'}
+              highContrast={highContrast}
+              onClick={() => setCurrentScreen('appointments')}
+            />
+            <NavButton
               icon={<Pill className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('meds')}
               active={currentScreen === 'medication'}
@@ -953,7 +1009,7 @@ export default function App() {
           </div>
         )}
 
-        {['home', 'profile', 'points', 'medication', 'game'].includes(currentScreen) && activeCheckInReminder && !showSOSConfirmation && (
+        {['home', 'appointments', 'profile', 'points', 'medication', 'game'].includes(currentScreen) && activeCheckInReminder && !showSOSConfirmation && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
             <div className="w-full rounded-[28px] bg-white p-6 text-center shadow-2xl">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
@@ -1004,7 +1060,7 @@ function NavButton({
   return (
     <button
       onClick={onClick}
-      className={`flex min-w-[72px] flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors active:scale-95 min-[390px]:gap-2 min-[390px]:px-2 ${
+      className={`flex flex-1 min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors active:scale-95 min-[390px]:gap-1.5 min-[390px]:px-1.5 ${
         highContrast
           ? active
             ? 'bg-white text-black'
@@ -1015,7 +1071,7 @@ function NavButton({
       }`}
     >
       {icon}
-      <span className="text-sm font-bold min-[390px]:text-base">{label}</span>
+      <span className="w-full truncate text-center text-xs font-bold leading-4 min-[390px]:text-sm">{label}</span>
     </button>
   );
 }

@@ -11,6 +11,7 @@ import {
   deleteAppointmentForCaregiver,
   createFamilyVerification,
   getAppointmentsForCaregiver,
+  getAppointmentsForSenior,
   createSosAlert,
   deleteMedicineForUser,
   getCaregiverSeniorConnections,
@@ -528,11 +529,18 @@ export async function handleRequest(request, response) {
   }
 
   if (url.pathname === '/api/servicenow/appointments' && request.method === 'GET') {
-    const appointments = await getAppointmentsForCaregiver({
-      caregiverId: url.searchParams.get('caregiverId'),
-      caregiverEmail: url.searchParams.get('caregiverEmail'),
-      limit: url.searchParams.get('limit'),
-    });
+    const seniorUserId = url.searchParams.get('seniorUserId');
+    const appointments = seniorUserId
+      ? await getAppointmentsForSenior({
+          seniorUserId,
+          seniorEmail: url.searchParams.get('seniorEmail'),
+          limit: url.searchParams.get('limit'),
+        })
+      : await getAppointmentsForCaregiver({
+          caregiverId: url.searchParams.get('caregiverId'),
+          caregiverEmail: url.searchParams.get('caregiverEmail'),
+          limit: url.searchParams.get('limit'),
+        });
 
     sendJson(response, 200, { appointments });
     return;

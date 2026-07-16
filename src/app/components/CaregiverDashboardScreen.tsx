@@ -68,6 +68,7 @@ const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
 const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
 const CAREGIVER_APPOINTMENT_REMINDER_ACK_KEY = 'careconnect.caregiverAppointmentReminderAck';
 const CAREGIVER_DASHBOARD_REFRESH_MS = 5000;
+const CAREGIVER_APPOINTMENTS_REFRESH_MS = 30000;
 
 type SosAlertHistory = {
   id: string;
@@ -257,7 +258,13 @@ function resolveAppointmentSeniorName(appointment: HealthBuddyAppointment, senio
     return linkedSenior.name.trim();
   }
 
-  return appointment.seniorName || 'Senior';
+  const appointmentSeniorName = String(appointment.seniorName || '').trim();
+
+  if (/^[a-f0-9]{32}$/i.test(appointmentSeniorName)) {
+    return 'Senior';
+  }
+
+  return appointmentSeniorName || 'Senior';
 }
 
 function getAppointmentCategory(appointment: HealthBuddyAppointment) {
@@ -305,6 +312,34 @@ function getTransportReminderLabel(appointmentDate: Date | null, t: (key: string
   }
 
   return t('transportReminderPlanAhead');
+}
+
+function areAppointmentsEqual(left: HealthBuddyAppointment[], right: HealthBuddyAppointment[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+
+    if (
+      leftItem.id !== rightItem.id ||
+      leftItem.seniorId !== rightItem.seniorId ||
+      leftItem.seniorName !== rightItem.seniorName ||
+      leftItem.title !== rightItem.title ||
+      leftItem.date !== rightItem.date ||
+      leftItem.time !== rightItem.time ||
+      leftItem.location !== rightItem.location ||
+      leftItem.notes !== rightItem.notes ||
+      leftItem.status !== rightItem.status ||
+      leftItem.createdAt !== rightItem.createdAt
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export default function CaregiverDashboardScreen({
@@ -464,14 +499,13 @@ export default function CaregiverDashboardScreen({
         const rows = await getCaregiverAppointments(caregiverId, caregiverEmail);
 
         if (isMounted) {
-          setAppointments(rows);
+          setAppointments((currentRows) => (areAppointmentsEqual(currentRows, rows) ? currentRows : rows));
         }
       } catch (error) {
         console.error('Unable to load appointments from ServiceNow:', error);
 
         if (isMounted) {
           setAppointmentsLoadError(error instanceof Error ? error.message : 'Unable to load appointments.');
-          setAppointments([]);
         }
       } finally {
         isRefreshing = false;
@@ -479,7 +513,7 @@ export default function CaregiverDashboardScreen({
     }
 
     loadAppointments();
-    const refreshTimer = window.setInterval(loadAppointments, CAREGIVER_DASHBOARD_REFRESH_MS);
+    const refreshTimer = window.setInterval(loadAppointments, CAREGIVER_APPOINTMENTS_REFRESH_MS);
 
     const refreshWhenVisible = () => {
       if (document.visibilityState === 'visible') {

@@ -1262,10 +1262,34 @@ function getAppointmentReferenceValue(record = {}, primaryField = '', fallbackFi
   return '';
 }
 
+function isLikelyServiceNowSysId(value = '') {
+  return /^[a-f0-9]{32}$/i.test(String(value || '').trim());
+}
+
+function getSafeAppointmentSeniorName({ resolvedSeniorName = '', displaySeniorName = '' } = {}) {
+  const resolved = String(resolvedSeniorName || '').trim();
+
+  if (resolved && !isLikelyServiceNowSysId(resolved)) {
+    return resolved;
+  }
+
+  const display = String(displaySeniorName || '').trim();
+
+  if (display && !isLikelyServiceNowSysId(display)) {
+    return display;
+  }
+
+  return 'Senior';
+}
+
 function toCaregiverAppointmentRecord(record = {}, seniorNamesByProfileId = new Map()) {
   const seniorReferenceId = getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']) || '';
   const resolvedSeniorName = seniorNamesByProfileId.get(seniorReferenceId) || '';
-  const seniorName = resolvedSeniorName || getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']) || 'Senior';
+  const displaySeniorName = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']);
+  const seniorName = getSafeAppointmentSeniorName({
+    resolvedSeniorName,
+    displaySeniorName,
+  });
   const title = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.type, ['appointment_type', 'type']) || 'Appointment';
 
   const date = normalizeAppointmentDate(getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.date, ['appointment_date', 'date']));

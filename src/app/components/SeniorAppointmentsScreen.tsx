@@ -22,6 +22,16 @@ function formatAppointmentDateTime(date: string, time: string) {
   }).format(parsed);
 }
 
+function getSafeSeniorName(name: string, fallback: string) {
+  const normalized = String(name || '').trim();
+
+  if (!normalized || /^[a-f0-9]{32}$/i.test(normalized)) {
+    return fallback;
+  }
+
+  return normalized;
+}
+
 export default function SeniorAppointmentsScreen({ appointments, isLoading }: SeniorAppointmentsScreenProps) {
   const { t } = useTranslation();
 
@@ -49,7 +59,7 @@ export default function SeniorAppointmentsScreen({ appointments, isLoading }: Se
                 <p className="text-base font-black">{formatAppointmentDateTime(appointment.date, appointment.time)}</p>
               </div>
               <h2 className="mt-2 text-2xl font-black text-black">{appointment.title || t('healthBuddy')}</h2>
-              <p className="mt-1 text-sm font-bold uppercase tracking-wide text-[#71717a]">{appointment.seniorName || t('senior')}</p>
+              <p className="mt-1 text-sm font-bold uppercase tracking-wide text-[#71717a]">{getSafeSeniorName(appointment.seniorName, t('senior'))}</p>
 
               {appointment.location && (
                 <p className="mt-3 flex items-start gap-2 text-sm font-semibold text-[#5f6368]">

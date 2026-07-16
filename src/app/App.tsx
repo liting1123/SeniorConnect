@@ -313,6 +313,34 @@ function getCompletedWindowFromError(error: unknown): CheckInWindowId | null {
   return null;
 }
 
+function areSeniorAppointmentsEqual(left: CaregiverAppointment[], right: CaregiverAppointment[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+
+    if (
+      leftItem.id !== rightItem.id ||
+      leftItem.seniorId !== rightItem.seniorId ||
+      leftItem.seniorName !== rightItem.seniorName ||
+      leftItem.title !== rightItem.title ||
+      leftItem.date !== rightItem.date ||
+      leftItem.time !== rightItem.time ||
+      leftItem.location !== rightItem.location ||
+      leftItem.notes !== rightItem.notes ||
+      leftItem.status !== rightItem.status ||
+      leftItem.createdAt !== rightItem.createdAt
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [highContrast, setHighContrast] = useState(() => {
@@ -344,6 +372,7 @@ export default function App() {
   const [familyRegistrationNotice, setFamilyRegistrationNotice] = useState('');
   const [seniorAppointments, setSeniorAppointments] = useState<CaregiverAppointment[]>([]);
   const [isLoadingSeniorAppointments, setIsLoadingSeniorAppointments] = useState(false);
+  const hasLoadedSeniorAppointmentsRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(HIGH_CONTRAST_STORAGE_KEY, String(highContrast));
@@ -532,26 +561,28 @@ export default function App() {
     if (!user || !isSeniorRole(user.role)) {
       setSeniorAppointments([]);
       setIsLoadingSeniorAppointments(false);
+      hasLoadedSeniorAppointmentsRef.current = false;
       return;
     }
 
     let isMounted = true;
 
     const loadSeniorAppointments = async () => {
-      setIsLoadingSeniorAppointments(true);
+      if (!hasLoadedSeniorAppointmentsRef.current) {
+        setIsLoadingSeniorAppointments(true);
+      }
 
       try {
         const appointments = await getSeniorAppointments(user.uid, user.email);
 
         if (isMounted) {
-          setSeniorAppointments(appointments);
+          setSeniorAppointments((currentAppointments) => (
+            areSeniorAppointmentsEqual(currentAppointments, appointments) ? currentAppointments : appointments
+          ));
+          hasLoadedSeniorAppointmentsRef.current = true;
         }
       } catch (error) {
         console.error('Unable to load senior appointments:', error);
-
-        if (isMounted) {
-          setSeniorAppointments([]);
-        }
       } finally {
         if (isMounted) {
           setIsLoadingSeniorAppointments(false);

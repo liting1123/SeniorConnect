@@ -1304,48 +1304,36 @@ function toCaregiverAppointmentRecord(record = {}, seniorNamesByProfileId = new 
   const rawTitle = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.name, ['appointment_name', 'name']);
   const title = rawTitle || 'Appointment';
 
-  // Parse date and time from combined dateAndTime field: "YYYY-MM-DD HH:MM:SS"
-  const rawDateAndTime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.dateAndTime, ['appointment_date_and_time', 'date_and_time']) || '';
-  
+  // Always prefer notes backup for date/time — avoids ServiceNow timezone conversion issues
+  // Notes backup stores the exact string the user entered: [DATETIME:YYYY-MM-DD HH:MM:SS]
   let date = '';
   let rawTime = '';
-  
-  if (rawDateAndTime) {
-    // Extract date part (YYYY-MM-DD)
-    const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(rawDateAndTime);
-    if (dateMatch) {
-      date = dateMatch[1];
-    }
-    // Extract time part (HH:MM)
-    const timeMatch = /(\d{2}):(\d{2})/.exec(rawDateAndTime);
-    if (timeMatch) {
-      rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
-    }
+
+  const notesForDatetime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.notes, ['notes', 'description']) || '';
+  const backupMatch = /\[DATETIME:([\d\-]+ \d{2}:\d{2})/.exec(notesForDatetime);
+  if (backupMatch) {
+    const backupDateTime = backupMatch[1];
+    console.log('[toCaregiverAppointmentRecord] Recovered from notes backup:', backupDateTime);
+    const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(backupDateTime);
+    if (dateMatch) date = dateMatch[1];
+    const timeMatch = /(\d{2}):(\d{2})/.exec(backupDateTime);
+    if (timeMatch) rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
   }
-  
-  // If dateAndTime field is empty (read-restricted), try to extract from notes backup
-  if (!rawDateAndTime) {
-    const notes = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.notes, ['notes', 'description']) || '';
-    const backupMatch = /\[DATETIME:([\d\-]+ \d{2}:\d{2})/.exec(notes);
-    if (backupMatch) {
-      const backupDateTime = backupMatch[1];
-      console.log('[toCaregiverAppointmentRecord] Recovered from notes backup:', backupDateTime);
-      // Extract date and time from backup
-      const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(backupDateTime);
-      if (dateMatch) {
-        date = dateMatch[1];
-      }
-      const timeMatch = /(\d{2}):(\d{2})/.exec(backupDateTime);
-      if (timeMatch) {
-        rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
-      }
+
+  // Fallback: try the dateAndTime field (may have timezone offset applied by ServiceNow)
+  if (!date || !rawTime) {
+    const rawDateAndTime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.dateAndTime, ['appointment_date_and_time', 'date_and_time']) || '';
+    if (rawDateAndTime) {
+      console.log('[toCaregiverAppointmentRecord] Falling back to dateAndTime field:', rawDateAndTime);
+      const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(rawDateAndTime);
+      if (dateMatch) date = dateMatch[1];
+      const timeMatch = /(\d{2}):(\d{2})/.exec(rawDateAndTime);
+      if (timeMatch) rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
     }
   }
   
   const time = normalizeAppointmentTime(rawTime);
   
-  console.log('[toCaregiverAppointmentRecord] Field name:', APPOINTMENT_FIELD_MAP.dateAndTime);
-  console.log('[toCaregiverAppointmentRecord] Raw dateAndTime:', rawDateAndTime);
   console.log('[toCaregiverAppointmentRecord] Extracted date:', date);
   console.log('[toCaregiverAppointmentRecord] Extracted time:', rawTime);
   console.log('[toCaregiverAppointmentRecord] Normalized time:', time);

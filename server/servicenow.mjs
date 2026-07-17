@@ -105,6 +105,7 @@ const SOS_ALERT_FIELD_MAP = {
 const APPOINTMENT_FIELD_MAP = {
   caregiver: process.env.SERVICE_NOW_APPOINTMENT_FIELD_CAREGIVER || 'u_caregiver',
   senior: process.env.SERVICE_NOW_APPOINTMENT_FIELD_SENIOR || 'u_senior_name',
+  name: process.env.SERVICE_NOW_APPOINTMENT_FIELD_NAME || 'u_appointment_name',
   date: process.env.SERVICE_NOW_APPOINTMENT_FIELD_DATE || 'u_appointment_date',
   time: process.env.SERVICE_NOW_APPOINTMENT_FIELD_TIME || 'u_appointment_time',
   type: process.env.SERVICE_NOW_APPOINTMENT_FIELD_TYPE || 'u_appointment_type',
@@ -1194,12 +1195,21 @@ function normalizeAppointmentTime(value = '') {
     return '';
   }
 
-  const dateTimeMatch = /^\d{4}-\d{2}-\d{2}[ T](\d{2}:\d{2}(?::\d{2})?)/.exec(text);
+  // Try to extract time from combined "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM" format first
+  const dateTimeMatch = /^\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}(?::\d{2})?)/.exec(text);
 
   if (dateTimeMatch) {
     return dateTimeMatch[1];
   }
 
+  // Try to extract time from ISO datetime "YYYY-MM-DDTHH:MM:SS" format
+  const isoDtMatch = /^\d{4}-\d{2}-\d{2}[T ](\d{2}:\d{2}(?::\d{2})?)/.exec(text);
+
+  if (isoDtMatch) {
+    return isoDtMatch[1];
+  }
+
+  // Try direct HH:MM:SS or HH:MM format
   const match = /^(\d{2}:\d{2}(?::\d{2})?)/.exec(text);
   return match ? match[1] : text;
 }
@@ -1290,10 +1300,32 @@ function toCaregiverAppointmentRecord(record = {}, seniorNamesByProfileId = new 
     resolvedSeniorName,
     displaySeniorName,
   });
-  const title = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.type, ['appointment_type', 'type']) || 'Appointment';
+  
+  // Extract title from dedicated name field
+  const rawTitle = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.name, ['appointment_name', 'name']);
+  const title = rawTitle || 'Appointment';
 
   const date = normalizeAppointmentDate(getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.date, ['appointment_date', 'date']));
-  const time = normalizeAppointmentTime(getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.time, ['appointment_time', 'time']));
+  
+  // Try to get time from the time field first
+  let rawTime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.time, ['appointment_time', 'time']);
+  
+  // If time field is empty, try to extract it from notes
+  if (!rawTime) {
+    const notes = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.notes, ['notes', 'description']) || '';
+    const timeMatch = /\[TIME:(\d{2}:\d{2}(?::\d{2})?)\]/.exec(notes);
+    if (timeMatch) {
+      rawTime = timeMatch[1];
+      console.log('[toCaregiverAppointmentRecord] Extracted time from notes:', rawTime);
+    }
+  }
+  
+  const time = normalizeAppointmentTime(rawTime);
+  
+  console.log('[toCaregiverAppointmentRecord] Field name:', APPOINTMENT_FIELD_MAP.time);
+  console.log('[toCaregiverAppointmentRecord] Raw time:', rawTime);
+  console.log('[toCaregiverAppointmentRecord] Normalized time:', time);
+  
   const rawStatus = normalizeAppointmentStatus(getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.status, ['status']));
 
   return {
@@ -1381,12 +1413,29 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
   }
 
   const normalizedLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
+  
+  // Specify which fields we want back from ServiceNow
+  const fieldsToReturn = [
+    'sys_id',
+    APPOINTMENT_FIELD_MAP.caregiver,
+    APPOINTMENT_FIELD_MAP.senior,
+    APPOINTMENT_FIELD_MAP.type,
+    APPOINTMENT_FIELD_MAP.date,
+    APPOINTMENT_FIELD_MAP.time,
+    APPOINTMENT_FIELD_MAP.location,
+    APPOINTMENT_FIELD_MAP.notes,
+    APPOINTMENT_FIELD_MAP.status,
+    'sys_created_on',
+  ].filter(Boolean);
+
   const params = new URLSearchParams({
     sysparm_query: `${queryParts.join('^OR')}^ORDERBYDESCsys_created_on`,
     sysparm_limit: String(normalizedLimit),
+    sysparm_fields: fieldsToReturn.join(','),
   });
   const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `?${params.toString()}`));
   const records = data?.result || [];
+  console.log('[getAppointmentsForCaregiver] Fetched records:', JSON.stringify(records.slice(0, 2), null, 2));
   const seniorNamesByProfileId = await getSeniorNamesByProfileIds(
     records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
   );
@@ -1454,9 +1503,25 @@ export async function getAppointmentsForSenior({ seniorUserId, seniorEmail, limi
   }
 
   const normalizedLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
+  
+  // Specify which fields we want back from ServiceNow
+  const fieldsToReturn = [
+    'sys_id',
+    APPOINTMENT_FIELD_MAP.caregiver,
+    APPOINTMENT_FIELD_MAP.senior,
+    APPOINTMENT_FIELD_MAP.type,
+    APPOINTMENT_FIELD_MAP.date,
+    APPOINTMENT_FIELD_MAP.time,
+    APPOINTMENT_FIELD_MAP.location,
+    APPOINTMENT_FIELD_MAP.notes,
+    APPOINTMENT_FIELD_MAP.status,
+    'sys_created_on',
+  ].filter(Boolean);
+  
   const params = new URLSearchParams({
     sysparm_query: 'ORDERBYDESCsys_created_on',
     sysparm_limit: String(Math.min(normalizedLimit * 3, 500)),
+    sysparm_fields: fieldsToReturn.join(','),
   });
   const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `?${params.toString()}`));
   const records = data?.result || [];
@@ -1491,6 +1556,12 @@ export async function createAppointmentForCaregiver({ caregiverId, caregiverEmai
   const normalizedDate = normalizeAppointmentDate(String(date || '').trim());
   const normalizedTime = normalizeAppointmentTime(String(time || '').trim());
 
+  console.log('[Appointment Create] Input time:', time);
+  console.log('[Appointment Create] Input date:', date);
+  console.log('[Appointment Create] Normalized time:', normalizedTime);
+  console.log('[Appointment Create] Normalized date:', normalizedDate);
+  console.log('[Appointment Create] Field APPOINTMENT_FIELD_MAP.time:', APPOINTMENT_FIELD_MAP.time);
+
   if (!normalizedCaregiverId && !normalizedCaregiverEmail) {
     throw Object.assign(new Error('Caregiver ID or email is required.'), { status: 400 });
   }
@@ -1505,15 +1576,18 @@ export async function createAppointmentForCaregiver({ caregiverId, caregiverEmai
     throw Object.assign(new Error('Senior profile was not found.'), { status: 404 });
   }
 
+  // Send appointment data to ServiceNow
   const payload = withOptionalStatus({
     [APPOINTMENT_FIELD_MAP.caregiver]: normalizedCaregiverId || normalizedCaregiverEmail,
     [APPOINTMENT_FIELD_MAP.senior]: seniorProfile.sys_id,
-    [APPOINTMENT_FIELD_MAP.type]: normalizedTitle,
+    [APPOINTMENT_FIELD_MAP.name]: normalizedTitle,
     [APPOINTMENT_FIELD_MAP.date]: normalizedDate,
-    [APPOINTMENT_FIELD_MAP.time]: normalizedTime,
+    [APPOINTMENT_FIELD_MAP.time]: `${normalizedDate} ${normalizedTime}:00`,
     [APPOINTMENT_FIELD_MAP.location]: String(location || '').trim(),
     [APPOINTMENT_FIELD_MAP.notes]: String(notes || '').trim(),
   }, status);
+
+  console.log('[Appointment Create] Payload being sent:', JSON.stringify(payload, null, 2));
 
   const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE), {
     method: 'POST',
@@ -1521,6 +1595,12 @@ export async function createAppointmentForCaregiver({ caregiverId, caregiverEmai
   });
 
   const record = data?.result || {};
+  console.log('[Appointment Create] Full response record:', JSON.stringify(record, null, 2));
+  console.log('[Appointment Create] Response time field (' + APPOINTMENT_FIELD_MAP.time + '):', record[APPOINTMENT_FIELD_MAP.time]);
+  console.log('[Appointment Create] Response date field (' + APPOINTMENT_FIELD_MAP.date + '):', record[APPOINTMENT_FIELD_MAP.date]);
+  console.log('[Appointment Create] Response type field (' + APPOINTMENT_FIELD_MAP.type + '):', record[APPOINTMENT_FIELD_MAP.type]);
+  console.log('[Appointment Create] All response data:', JSON.stringify(data, null, 2));
+  
   const seniorNamesByProfileId = await getSeniorNamesByProfileIds([
     getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']),
   ]);
@@ -1547,16 +1627,30 @@ export async function updateAppointmentForCaregiver({ appointmentId, seniorId, t
     payload[APPOINTMENT_FIELD_MAP.senior] = seniorProfile.sys_id;
   }
 
-  if (title !== undefined) payload[APPOINTMENT_FIELD_MAP.type] = String(title || '').trim();
+  if (title !== undefined) {
+    payload[APPOINTMENT_FIELD_MAP.name] = String(title || '').trim();
+  }
   if (date !== undefined) payload[APPOINTMENT_FIELD_MAP.date] = normalizeAppointmentDate(String(date || '').trim());
-  if (time !== undefined) payload[APPOINTMENT_FIELD_MAP.time] = normalizeAppointmentTime(String(time || '').trim());
+  if (time !== undefined) {
+    const normalizedTime = normalizeAppointmentTime(String(time || '').trim());
+    const normalizedDate = date !== undefined ? normalizeAppointmentDate(String(date || '').trim()) : null;
+    console.log('[Appointment Update] Input time:', time);
+    console.log('[Appointment Update] Normalized time:', normalizedTime);
+    // Send as datetime format: YYYY-MM-DD HH:MM:SS
+    payload[APPOINTMENT_FIELD_MAP.time] = normalizedDate ? `${normalizedDate} ${normalizedTime}:00` : normalizedTime;
+    // Also append time to notes as backup
+    const currentNotes = String(notes !== undefined ? notes : '').trim();
+    payload[APPOINTMENT_FIELD_MAP.notes] = `${currentNotes}\n[TIME:${normalizedTime}]`.trim();
+  }
   if (location !== undefined) payload[APPOINTMENT_FIELD_MAP.location] = String(location || '').trim();
-  if (notes !== undefined) payload[APPOINTMENT_FIELD_MAP.notes] = String(notes || '').trim();
+  if (notes !== undefined && time === undefined) payload[APPOINTMENT_FIELD_MAP.notes] = String(notes || '').trim();
   if (status !== undefined && APPOINTMENT_FIELD_MAP.status) payload[APPOINTMENT_FIELD_MAP.status] = status;
 
   if (Object.keys(payload).length === 0) {
     throw Object.assign(new Error('No appointment changes were provided.'), { status: 400 });
   }
+
+  console.log('[Appointment Update] Payload being sent:', JSON.stringify(payload, null, 2));
 
   const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `/${encodeURIComponent(normalizedAppointmentId)}`), {
     method: 'PATCH',

@@ -8,18 +8,40 @@ type SeniorAppointmentsScreenProps = {
 };
 
 function formatAppointmentDateTime(date: string, time: string) {
-  const normalizedTime = time && time.length === 5 ? `${time}:00` : (time || '00:00:00');
-  const parsed = new Date(`${date}T${normalizedTime}`);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return `${date} ${time}`.trim() || 'Not scheduled';
+  // Format date as YYYY-MM-DD -> "Jul 18, 2026"
+  if (!date) return 'Not scheduled';
+  
+  const dateObj = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(dateObj.getTime())) {
+    return `${date}`.trim() || 'Not scheduled';
   }
-
-  return new Intl.DateTimeFormat('en-SG', {
+  
+  const formattedDate = new Intl.DateTimeFormat('en-SG', {
     dateStyle: 'medium',
-    timeStyle: 'short',
     timeZone: 'Asia/Singapore',
-  }).format(parsed);
+  }).format(dateObj);
+  
+  // Format time as HH:MM -> "12:50 PM"
+  if (!time) return `${formattedDate}`;
+  
+  const timeMatch = /^(\d{2}):(\d{2})/.exec(time);
+  if (!timeMatch) return `${formattedDate} ${time}`;
+  
+  const hours = parseInt(timeMatch[1], 10);
+  const minutes = timeMatch[2];
+  
+  let formattedTime: string;
+  if (hours === 0) {
+    formattedTime = `12:${minutes} AM`;
+  } else if (hours < 12) {
+    formattedTime = `${hours}:${minutes} AM`;
+  } else if (hours === 12) {
+    formattedTime = `12:${minutes} PM`;
+  } else {
+    formattedTime = `${hours - 12}:${minutes} PM`;
+  }
+  
+  return `${formattedDate} at ${formattedTime}`;
 }
 
 function getSafeSeniorName(name: string, fallback: string) {

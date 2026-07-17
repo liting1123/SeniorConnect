@@ -175,6 +175,56 @@ async function sendLoginMfaCodeEmail(email, code) {
   });
 }
 
+function formatTimeWith12Hour(timeStr = '') {
+  const text = String(timeStr || '').trim();
+  if (!text) return '';
+  
+  // Handle "HH:MM" format
+  const timeMatch = /^(\d{2}):(\d{2})/.exec(text);
+  if (!timeMatch) return text;
+  
+  let hours = parseInt(timeMatch[1], 10);
+  const minutes = timeMatch[2];
+  const period = hours >= 12 ? 'PM' : 'AM';
+  
+  if (hours === 0) {
+    hours = 12; // 00:xx becomes 12:xx AM
+  } else if (hours > 12) {
+    hours -= 12; // 13:xx becomes 1:xx PM
+  }
+  
+  return `${hours}:${minutes} ${period}`;
+}
+
+async function sendAppointmentNotificationEmail(caregiverEmail, appointmentData) {
+  const transporter = getMfaTransporter();
+  const normalizedEmail = normalizeEmail(caregiverEmail);
+
+  if (!normalizedEmail) {
+    throw Object.assign(new Error('A valid caregiver email is required to send appointment notification.'), { status: 400 });
+  }
+
+  const { seniorName, title, date, time, location, action } = appointmentData;
+  const actionText = action === 'created' ? 'created' : action === 'updated' ? 'updated' : 'modified';
+  const formattedTime = formatTimeWith12Hour(time);
+
+  await transporter.sendMail({
+    from: MFA_EMAIL_FROM,
+    to: normalizedEmail,
+    subject: `Appointment ${actionText} - ${seniorName}`,
+    text: [
+      `An appointment has been ${actionText} for ${seniorName}.`,
+      '',
+      `Appointment Title: ${title}`,
+      `Date: ${date}`,
+      `Time: ${formattedTime}`,
+      location ? `Location: ${location}` : '',
+      '',
+      'Please log in to CareConnect to view more details.',
+    ].filter(line => line !== '').join('\n'),
+  });
+}
+
 function getUidFromPath(pathname) {
   const match = pathname.match(/^\/api\/users\/([^/]+)(?:\/(points|check-in|check-in-reminders|game|profile|medicines|family-verification-codes|reward-history))?$/);
   return match ? { uid: decodeURIComponent(match[1]), action: match[2] || null } : null;
@@ -592,6 +642,28 @@ export async function handleRequest(request, response) {
     });
 
     sendJson(response, 200, { appointment });
+    return;
+  }
+
+  if (url.pathname === '/api/servicenow/appointments/notify' && request.method === 'POST') {
+    try {
+      const body = await readJson(request);
+      await sendAppointmentNotificationEmail(body.caregiverEmail, {
+        seniorName: body.seniorName,
+        title: body.title,
+        date: body.date,
+        time: body.time,
+        location: body.location,
+        action: body.action,
+      });
+      sendJson(response, 200, { success: true, message: 'Appointment notification email sent.' });
+    } catch (error) {
+      console.error('Failed to send appointment notification:', error);
+      sendJson(response, error.status || 500, {
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to send appointment notification.',
+      });
+    }
     return;
   }
 

@@ -33,7 +33,7 @@ import {
   Wind,
   X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Line,
@@ -177,6 +177,8 @@ function getAppointmentDateTime(appointment: Pick<HealthBuddyAppointment, 'date'
   }
 
   const normalizedTime = appointment.time.length === 5 ? `${appointment.time}:00` : appointment.time;
+  // Parse time without timezone (treat as Singapore time)
+  // Then when formatted with timeZone: 'Asia/Singapore', it will display correctly
   const parsedDate = new Date(`${appointment.date}T${normalizedTime}`);
 
   if (Number.isNaN(parsedDate.getTime())) {
@@ -230,17 +232,22 @@ function formatAppointmentTimeOnly(value = '') {
     return text;
   }
 
-  const date = new Date(`1970-01-01T${timeMatch[1]}`);
-
-  if (Number.isNaN(date.getTime())) {
-    return text;
+  // Parse time string directly without creating a Date object
+  // Just extract hours and minutes and format them
+  const parts = timeMatch[1].split(':');
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  
+  // Format as HH:MM with proper AM/PM
+  if (hours === 0) {
+    return `12:${String(minutes).padStart(2, '0')} AM`;
+  } else if (hours < 12) {
+    return `${hours}:${String(minutes).padStart(2, '0')} AM`;
+  } else if (hours === 12) {
+    return `12:${String(minutes).padStart(2, '0')} PM`;
+  } else {
+    return `${hours - 12}:${String(minutes).padStart(2, '0')} PM`;
   }
-
-  return new Intl.DateTimeFormat('en-SG', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'Asia/Singapore',
-  }).format(date);
 }
 
 function resolveAppointmentSeniorName(appointment: HealthBuddyAppointment, seniors: Senior[]) {
@@ -384,6 +391,7 @@ export default function CaregiverDashboardScreen({
   const [isSavingAppointment, setIsSavingAppointment] = useState(false);
   const [editingAppointmentId, setEditingAppointmentId] = useState('');
   const [appointmentError, setAppointmentError] = useState('');
+  const [appointmentStatusFilter, setAppointmentStatusFilter] = useState<'all' | 'today' | 'upcoming' | 'completed'>('all');
   const [appointmentForm, setAppointmentForm] = useState<HealthBuddyAppointmentInput>({
     seniorId: '',
     seniorName: '',
@@ -619,6 +627,12 @@ export default function CaregiverDashboardScreen({
       return;
     }
 
+    // Validate time format (HH:MM)
+    if (!/^\d{2}:\d{2}/.test(appointmentForm.time)) {
+      setAppointmentError('Invalid time format. Please select a time using the time picker.');
+      return;
+    }
+
     const payload: CaregiverAppointmentInput = {
       caregiverId,
       caregiverEmail,
@@ -631,20 +645,62 @@ export default function CaregiverDashboardScreen({
       status: 'scheduled',
     };
 
+    console.log('Creating/updating appointment with payload:', payload);
+
     setIsSavingAppointment(true);
 
     try {
       if (editingAppointmentId) {
         const updatedAppointment = await updateCaregiverAppointment(editingAppointmentId, payload);
+        console.log('Updated appointment:', updatedAppointment);
 
         setAppointments((currentAppointments) =>
           currentAppointments.map((appointment) =>
             appointment.id === editingAppointmentId ? updatedAppointment : appointment,
           ),
         );
+
+        // Send email notification for updated appointment
+        try {
+          await fetch('/api/servicenow/appointments/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              caregiverEmail,
+              seniorName,
+              title: appointmentForm.title.trim(),
+              date: appointmentForm.date,
+              time: appointmentForm.time,
+              location: appointmentForm.location.trim(),
+              action: 'updated',
+            }),
+          });
+        } catch (emailError) {
+          console.warn('Failed to send email notification:', emailError);
+        }
       } else {
         const createdAppointment = await createCaregiverAppointment(payload);
+        console.log('Created appointment:', createdAppointment);
         setAppointments((currentAppointments) => [createdAppointment, ...currentAppointments]);
+
+        // Send email notification for new appointment
+        try {
+          await fetch('/api/servicenow/appointments/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              caregiverEmail,
+              seniorName,
+              title: appointmentForm.title.trim(),
+              date: appointmentForm.date,
+              time: appointmentForm.time,
+              location: appointmentForm.location.trim(),
+              action: 'created',
+            }),
+          });
+        } catch (emailError) {
+          console.warn('Failed to send email notification:', emailError);
+        }
       }
 
       setAppointmentForm({ seniorId: '', seniorName: '', title: '', date: '', time: '', location: '', notes: '' });
@@ -1024,6 +1080,8 @@ export default function CaregiverDashboardScreen({
             onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
             seniors={seniors}
             showAppointmentForm={showAppointmentForm}
+            appointmentStatusFilter={appointmentStatusFilter}
+            onChangeStatusFilter={setAppointmentStatusFilter}
           />
         )}
         {!selectedSenior && activeTab === 'alerts' && (
@@ -4240,6 +4298,8 @@ function HealthBuddyScreen({
   onUpdateAppointmentStatus,
   seniors,
   showAppointmentForm,
+  appointmentStatusFilter,
+  onChangeStatusFilter,
 }: {
   canManageAppointments: boolean;
   appointmentError: string;
@@ -4260,8 +4320,18 @@ function HealthBuddyScreen({
   onUpdateAppointmentStatus: (appointmentId: string, status: HealthBuddyAppointment['status']) => void;
   seniors: Senior[];
   showAppointmentForm: boolean;
+  appointmentStatusFilter: 'all' | 'today' | 'upcoming' | 'completed';
+  onChangeStatusFilter: (filter: 'all' | 'today' | 'upcoming' | 'completed') => void;
 }) {
   const { t } = useTranslation();
+  const formRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (showAppointmentForm && formRef.current) {
+      formRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [showAppointmentForm]);
+
   const categoryCounts = appointments.reduce(
     (summary, appointment) => {
       const category = getAppointmentCategory(appointment);
@@ -4276,49 +4346,104 @@ function HealthBuddyScreen({
     },
   );
 
+  // Filter appointments based on selected status
+  const getFilteredAppointments = () => {
+    if (appointmentStatusFilter === 'all') return appointments;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTime = today.getTime();
+    
+    return appointments.filter((apt) => {
+      // Parse appointment date - handle YYYY-MM-DD format
+      const parts = (apt.date || '').split('-');
+      const aptDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      aptDate.setHours(0, 0, 0, 0);
+      const aptDateTime = aptDate.getTime();
+      
+      if (appointmentStatusFilter === 'today') {
+        return aptDateTime === todayTime;
+      } else if (appointmentStatusFilter === 'upcoming') {
+        return aptDateTime > todayTime;
+      } else if (appointmentStatusFilter === 'completed') {
+        return apt.status === 'completed';
+      }
+      return true;
+    });
+  };
+
+  const filteredAppointments = getFilteredAppointments();
+
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-[22px] bg-white p-5 shadow-sm">
-        <div className="flex flex-col items-stretch gap-4 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between">
-          <div className="min-w-0">
-            <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{t('healthBuddy')}</p>
-            <h2 className="mt-1 text-[30px] font-bold leading-9 text-black">{t('appointmentManager')}</h2>
-          </div>
+        <div className="flex flex-col gap-4">
           {canManageAppointments && (
             <button
               type="button"
               onClick={onOpenForm}
-              className="flex h-14 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-[#416642] px-5 text-lg font-black text-white shadow-sm active:scale-95 min-[520px]:w-auto"
+              className="flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-[#416642] px-3 text-sm font-black text-white shadow-sm active:scale-95"
             >
-              <Plus className="h-6 w-6" />
+              <Plus className="h-4 w-4" />
               {t('newAppointment')}
             </button>
           )}
-        </div>
 
-        <div className="mt-5 grid gap-3 min-[390px]:grid-cols-3">
-          <HealthBuddyStatCard label={t('today')} value={appointmentStats.today} />
-          <HealthBuddyStatCard label={t('upcoming')} value={appointmentStats.upcoming} />
-          <HealthBuddyStatCard label={t('completed')} value={appointmentStats.completed} />
-        </div>
-
-        <div className="mt-4 rounded-2xl bg-[#f4f6f8] p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-[#71717a]">{t('appointmentCalendar')}</p>
-          <div className="mt-2 grid gap-2 min-[390px]:grid-cols-2">
-            <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#30343a]">
-              {t('appointmentCategoryMedical')}: {categoryCounts.medical}
-            </p>
-            <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#30343a]">
-              {t('appointmentCategoryTherapy')}: {categoryCounts.therapy}
-            </p>
-            <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#30343a]">
-              {t('appointmentCategoryVaccination')}: {categoryCounts.vaccination}
-            </p>
-            <p className="rounded-xl bg-white px-3 py-2 text-sm font-bold text-[#30343a]">
-              {t('appointmentCategoryCommunity')}: {categoryCounts.community}
-            </p>
+          <div className="flex flex-col items-start gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{t('healthBuddy')}</p>
+              <h2 className="mt-1 text-[30px] font-bold leading-9 text-black">{t('appointmentManager')}</h2>
+            </div>
           </div>
+
+        <div className="grid gap-3 min-[390px]:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => onChangeStatusFilter('today')}
+            className={`rounded-[18px] p-4 text-center transition-all cursor-pointer ${
+              appointmentStatusFilter === 'today'
+                ? 'bg-[#416642] text-white'
+                : 'bg-[#f4f6f8] text-black hover:bg-[#e8f0eb]'
+            }`}
+          >
+            <p className={`text-sm font-black uppercase tracking-wide ${appointmentStatusFilter === 'today' ? 'text-white' : 'text-[#71717a]'}`}>{t('today')}</p>
+            <p className="mt-2 text-3xl font-black">{appointmentStats.today}</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => onChangeStatusFilter('upcoming')}
+            className={`rounded-[18px] p-4 text-center transition-all cursor-pointer ${
+              appointmentStatusFilter === 'upcoming'
+                ? 'bg-[#416642] text-white'
+                : 'bg-[#f4f6f8] text-black hover:bg-[#e8f0eb]'
+            }`}
+          >
+            <p className={`text-sm font-black uppercase tracking-wide ${appointmentStatusFilter === 'upcoming' ? 'text-white' : 'text-[#71717a]'}`}>{t('upcoming')}</p>
+            <p className="mt-2 text-3xl font-black">{appointmentStats.upcoming}</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => onChangeStatusFilter('completed')}
+            className={`rounded-[18px] p-4 text-center transition-all cursor-pointer ${
+              appointmentStatusFilter === 'completed'
+                ? 'bg-[#416642] text-white'
+                : 'bg-[#f4f6f8] text-black hover:bg-[#e8f0eb]'
+            }`}
+          >
+            <p className={`text-sm font-black uppercase tracking-wide ${appointmentStatusFilter === 'completed' ? 'text-white' : 'text-[#71717a]'}`}>{t('completed')}</p>
+            <p className="mt-2 text-3xl font-black">{appointmentStats.completed}</p>
+          </button>
         </div>
+
+        {appointmentStatusFilter !== 'all' && (
+          <button
+            type="button"
+            onClick={() => onChangeStatusFilter('all')}
+            className="flex h-9 w-full items-center justify-center gap-2 rounded-full border border-[#416642] bg-white px-3 text-sm font-black text-[#416642] active:scale-95"
+          >
+            {t('viewAll') || 'View All'}
+          </button>
+        )}
 
         {tomorrowAppointmentCount > 0 && (
           <div className="mt-4 flex items-start gap-3 rounded-2xl border border-[#ffe39a] bg-[#fff7df] px-4 py-3 text-[#8c5a00]">
@@ -4328,10 +4453,12 @@ function HealthBuddyScreen({
             </p>
           </div>
         )}
+        </div>
       </section>
 
-      {canManageAppointments && showAppointmentForm && (
-        <form onSubmit={onCreateAppointment} className="rounded-[22px] bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-6">
+        {canManageAppointments && showAppointmentForm && (
+          <form ref={formRef} onSubmit={onCreateAppointment} className="rounded-[22px] bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xl font-black text-black">{editingAppointmentId ? t('saveChanges') : t('createAppointment')}</h3>
             <button
@@ -4393,10 +4520,16 @@ function HealthBuddyScreen({
                 <span className="mb-2 block text-sm font-bold text-[#71717a]">{t('appointmentTime')}</span>
                 <input
                   type="time"
+                  required
                   value={appointmentForm.time}
                   onChange={(event) => onChangeAppointmentForm((currentValue) => ({ ...currentValue, time: event.target.value }))}
                   className="h-14 w-full rounded-2xl bg-[#f4f6f8] px-4 text-base font-bold text-black outline-none focus:ring-2 focus:ring-[#416642]"
                 />
+                {appointmentForm.time && (
+                  <p className="mt-1 text-sm font-bold text-[#416642]">
+                    Selected: {formatAppointmentTimeOnly(appointmentForm.time)}
+                  </p>
+                )}
               </label>
             </div>
 
@@ -4436,17 +4569,17 @@ function HealthBuddyScreen({
             <Calendar className="h-5 w-5" />
             {isSavingAppointment ? t('saving') : t('saveAppointment')}
           </button>
-        </form>
-      )}
-
-      <section className="flex flex-col gap-3">
-        {appointmentLoadError && (
-          <div className="rounded-[18px] bg-red-50 p-4 text-sm font-bold text-red-700">
-            {appointmentLoadError}
-          </div>
+          </form>
         )}
-        {appointments.length > 0 ? (
-          appointments.map((appointment) => {
+
+        <section className="flex flex-col gap-3">
+          {appointmentLoadError && (
+            <div className="rounded-[18px] bg-red-50 p-4 text-sm font-bold text-red-700">
+              {appointmentLoadError}
+            </div>
+          )}
+          {filteredAppointments.length > 0 ? (
+            filteredAppointments.map((appointment) => {
             const appointmentDate = getAppointmentDateTime(appointment);
             const appointmentSeniorName = resolveAppointmentSeniorName(appointment, seniors);
             const appointmentCategory = getAppointmentCategory(appointment);
@@ -4455,6 +4588,7 @@ function HealthBuddyScreen({
             const transportReminderLabel = getTransportReminderLabel(appointmentDate, t);
             const isCompleted = appointment.status === 'completed';
             const isCancelled = appointment.status === 'cancelled';
+            const displayTime = appointment.time && /^\d{2}:\d{2}/.test(appointment.time) ? formatAppointmentTimeOnly(appointment.time) : 'Time not set';
 
             return (
               <div key={appointment.id} className="rounded-[22px] bg-white p-5 shadow-sm">
@@ -4462,7 +4596,7 @@ function HealthBuddyScreen({
                   <div className="min-w-0">
                     <p className="text-sm font-black uppercase tracking-wide text-[#71717a]">{appointmentSeniorName}</p>
                     <h3 className="mt-1 text-2xl font-black text-black">{appointment.title}</h3>
-                    <p className="mt-2 text-base font-bold text-[#416642]">{formatAppointmentDateTime(appointmentDate)}</p>
+                    <p className="mt-2 text-base font-bold text-[#416642]">{formatAppointmentDateOnly(appointment.date)} at {displayTime}</p>
                     <p className="mt-2 inline-flex rounded-full bg-[#edf3ff] px-3 py-1 text-xs font-black uppercase tracking-wide text-[#2c4f8f]">
                       {getAppointmentCategoryLabel(appointmentCategory, t)}
                     </p>
@@ -4482,7 +4616,7 @@ function HealthBuddyScreen({
 
                 <div className="mt-3 grid gap-2 text-sm font-semibold text-[#5f6368]">
                   <p>Date: {formatAppointmentDateOnly(appointment.date)}</p>
-                  <p>Time: {formatAppointmentTimeOnly(appointment.time)}</p>
+                  <p>Time: {displayTime}</p>
                   {appointment.location && <p>{t('location')}: {appointment.location}</p>}
                   {appointment.notes && <p>{appointment.notes}</p>}
                 </div>
@@ -4561,7 +4695,8 @@ function HealthBuddyScreen({
             <p className="mt-2 text-base font-semibold text-[#71717a]">{t('healthBuddyEmptyState')}</p>
           </div>
         )}
-      </section>
+        </section>
+      </div>
     </div>
   );
 }

@@ -7,51 +7,39 @@ type SeniorAppointmentsScreenProps = {
   isLoading: boolean;
 };
 
-function formatAppointmentDateTime(date: string, time: string) {
-  // Format date as YYYY-MM-DD -> "Jul 18, 2026"
-  if (!date) return 'Not scheduled';
-  
+function formatDate(date: string) {
+  if (!date) return null;
   const dateObj = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(dateObj.getTime())) {
-    return `${date}`.trim() || 'Not scheduled';
-  }
-  
-  const formattedDate = new Intl.DateTimeFormat('en-SG', {
+  if (Number.isNaN(dateObj.getTime())) return date.trim() || null;
+  return new Intl.DateTimeFormat('en-SG', {
     dateStyle: 'medium',
     timeZone: 'Asia/Singapore',
   }).format(dateObj);
-  
-  // Format time as HH:MM -> "12:50 PM"
-  if (!time) return `${formattedDate}`;
-  
+}
+
+function formatTime12h(time: string) {
+  if (!time) return null;
   const timeMatch = /^(\d{2}):(\d{2})/.exec(time);
-  if (!timeMatch) return `${formattedDate} ${time}`;
-  
+  if (!timeMatch) return time;
   const hours = parseInt(timeMatch[1], 10);
   const minutes = timeMatch[2];
-  
-  let formattedTime: string;
-  if (hours === 0) {
-    formattedTime = `12:${minutes} AM`;
-  } else if (hours < 12) {
-    formattedTime = `${hours}:${minutes} AM`;
-  } else if (hours === 12) {
-    formattedTime = `12:${minutes} PM`;
-  } else {
-    formattedTime = `${hours - 12}:${minutes} PM`;
-  }
-  
-  return `${formattedDate} at ${formattedTime}`;
+  if (hours === 0) return `12:${minutes} AM`;
+  if (hours < 12) return `${hours}:${minutes} AM`;
+  if (hours === 12) return `12:${minutes} PM`;
+  return `${hours - 12}:${minutes} PM`;
 }
 
 function getSafeSeniorName(name: string, fallback: string) {
   const normalized = String(name || '').trim();
-
-  if (!normalized || /^[a-f0-9]{32}$/i.test(normalized)) {
-    return fallback;
-  }
-
+  if (!normalized || /^[a-f0-9]{32}$/i.test(normalized)) return fallback;
   return normalized;
+}
+
+function translateStatus(status: string, t: (key: string) => string) {
+  const s = status.toLowerCase();
+  if (s === 'completed') return t('statusCompleted');
+  if (s === 'cancelled' || s === 'canceled') return t('statusCancelled');
+  return t('statusScheduled');
 }
 
 export default function SeniorAppointmentsScreen({ appointments, isLoading }: SeniorAppointmentsScreenProps) {
@@ -74,28 +62,38 @@ export default function SeniorAppointmentsScreen({ appointments, isLoading }: Se
             {t('noAppointmentsYet')}
           </div>
         ) : (
-          appointments.map((appointment) => (
-            <div key={appointment.id} className="rounded-[20px] border border-[#e4e8ec] bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-2 text-[#416642]">
-                <Calendar className="h-5 w-5" />
-                <p className="text-base font-black">{formatAppointmentDateTime(appointment.date, appointment.time)}</p>
-              </div>
-              <h2 className="mt-2 text-2xl font-black text-black">{appointment.title || t('healthBuddy')}</h2>
-              <p className="mt-1 text-sm font-bold uppercase tracking-wide text-[#71717a]">{getSafeSeniorName(appointment.seniorName, t('senior'))}</p>
+          appointments.map((appointment) => {
+            const formattedDate = formatDate(appointment.date);
+            const formattedTime = formatTime12h(appointment.time);
+            const dateTimeDisplay = formattedDate
+              ? formattedTime
+                ? t('appointmentAtTime', { date: formattedDate, time: formattedTime })
+                : formattedDate
+              : t('notScheduled');
 
-              {appointment.location && (
-                <p className="mt-3 flex items-start gap-2 text-sm font-semibold text-[#5f6368]">
-                  <MapPin className="mt-0.5 h-4 w-4" />
-                  <span>{appointment.location}</span>
+            return (
+              <div key={appointment.id} className="rounded-[20px] border border-[#e4e8ec] bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-2 text-[#416642]">
+                  <Calendar className="h-5 w-5" />
+                  <p className="text-base font-black">{dateTimeDisplay}</p>
+                </div>
+                <h2 className="mt-2 text-2xl font-black text-black">{appointment.title || t('healthBuddy')}</h2>
+                <p className="mt-1 text-sm font-bold uppercase tracking-wide text-[#71717a]">{getSafeSeniorName(appointment.seniorName, t('senior'))}</p>
+
+                {appointment.location && (
+                  <p className="mt-3 flex items-start gap-2 text-sm font-semibold text-[#5f6368]">
+                    <MapPin className="mt-0.5 h-4 w-4" />
+                    <span>{appointment.location}</span>
+                  </p>
+                )}
+
+                <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#eef3ff] px-3 py-1 text-xs font-black uppercase tracking-wide text-[#2c4f8f]">
+                  <Clock className="h-4 w-4" />
+                  {translateStatus(appointment.status, t)}
                 </p>
-              )}
-
-              <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#eef3ff] px-3 py-1 text-xs font-black uppercase tracking-wide text-[#2c4f8f]">
-                <Clock className="h-4 w-4" />
-                {appointment.status}
-              </p>
-            </div>
-          ))
+              </div>
+            );
+          })
         )}
       </div>
     </div>

@@ -106,8 +106,7 @@ const APPOINTMENT_FIELD_MAP = {
   caregiver: process.env.SERVICE_NOW_APPOINTMENT_FIELD_CAREGIVER || 'u_caregiver',
   senior: process.env.SERVICE_NOW_APPOINTMENT_FIELD_SENIOR || 'u_senior_name',
   name: process.env.SERVICE_NOW_APPOINTMENT_FIELD_NAME || 'u_appointment_name',
-  date: process.env.SERVICE_NOW_APPOINTMENT_FIELD_DATE || 'u_appointment_date',
-  time: process.env.SERVICE_NOW_APPOINTMENT_FIELD_TIME || 'u_appointment_time',
+  dateAndTime: process.env.SERVICE_NOW_APPOINTMENT_FIELD_DATE_AND_TIME || 'u_appointment_date_and_time',
   type: process.env.SERVICE_NOW_APPOINTMENT_FIELD_TYPE || 'u_appointment_type',
   location: process.env.SERVICE_NOW_APPOINTMENT_FIELD_LOCATION || 'u_location',
   notes: process.env.SERVICE_NOW_APPOINTMENT_FIELD_NOTES || 'u_notes',
@@ -1305,25 +1304,50 @@ function toCaregiverAppointmentRecord(record = {}, seniorNamesByProfileId = new 
   const rawTitle = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.name, ['appointment_name', 'name']);
   const title = rawTitle || 'Appointment';
 
-  const date = normalizeAppointmentDate(getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.date, ['appointment_date', 'date']));
+  // Parse date and time from combined dateAndTime field: "YYYY-MM-DD HH:MM:SS"
+  const rawDateAndTime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.dateAndTime, ['appointment_date_and_time', 'date_and_time']) || '';
   
-  // Try to get time from the time field first
-  let rawTime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.time, ['appointment_time', 'time']);
+  let date = '';
+  let rawTime = '';
   
-  // If time field is empty, try to extract it from notes
-  if (!rawTime) {
-    const notes = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.notes, ['notes', 'description']) || '';
-    const timeMatch = /\[TIME:(\d{2}:\d{2}(?::\d{2})?)\]/.exec(notes);
+  if (rawDateAndTime) {
+    // Extract date part (YYYY-MM-DD)
+    const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(rawDateAndTime);
+    if (dateMatch) {
+      date = dateMatch[1];
+    }
+    // Extract time part (HH:MM)
+    const timeMatch = /(\d{2}):(\d{2})/.exec(rawDateAndTime);
     if (timeMatch) {
-      rawTime = timeMatch[1];
-      console.log('[toCaregiverAppointmentRecord] Extracted time from notes:', rawTime);
+      rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
+    }
+  }
+  
+  // If dateAndTime field is empty (read-restricted), try to extract from notes backup
+  if (!rawDateAndTime) {
+    const notes = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.notes, ['notes', 'description']) || '';
+    const backupMatch = /\[DATETIME:([\d\-]+ \d{2}:\d{2})/.exec(notes);
+    if (backupMatch) {
+      const backupDateTime = backupMatch[1];
+      console.log('[toCaregiverAppointmentRecord] Recovered from notes backup:', backupDateTime);
+      // Extract date and time from backup
+      const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(backupDateTime);
+      if (dateMatch) {
+        date = dateMatch[1];
+      }
+      const timeMatch = /(\d{2}):(\d{2})/.exec(backupDateTime);
+      if (timeMatch) {
+        rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
+      }
     }
   }
   
   const time = normalizeAppointmentTime(rawTime);
   
-  console.log('[toCaregiverAppointmentRecord] Field name:', APPOINTMENT_FIELD_MAP.time);
-  console.log('[toCaregiverAppointmentRecord] Raw time:', rawTime);
+  console.log('[toCaregiverAppointmentRecord] Field name:', APPOINTMENT_FIELD_MAP.dateAndTime);
+  console.log('[toCaregiverAppointmentRecord] Raw dateAndTime:', rawDateAndTime);
+  console.log('[toCaregiverAppointmentRecord] Extracted date:', date);
+  console.log('[toCaregiverAppointmentRecord] Extracted time:', rawTime);
   console.log('[toCaregiverAppointmentRecord] Normalized time:', time);
   
   const rawStatus = normalizeAppointmentStatus(getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.status, ['status']));
@@ -1421,8 +1445,7 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
     APPOINTMENT_FIELD_MAP.senior,
     APPOINTMENT_FIELD_MAP.name,
     APPOINTMENT_FIELD_MAP.type,
-    APPOINTMENT_FIELD_MAP.date,
-    APPOINTMENT_FIELD_MAP.time,
+    APPOINTMENT_FIELD_MAP.dateAndTime,
     APPOINTMENT_FIELD_MAP.location,
     APPOINTMENT_FIELD_MAP.notes,
     APPOINTMENT_FIELD_MAP.status,
@@ -1512,8 +1535,7 @@ export async function getAppointmentsForSenior({ seniorUserId, seniorEmail, limi
     APPOINTMENT_FIELD_MAP.senior,
     APPOINTMENT_FIELD_MAP.name,
     APPOINTMENT_FIELD_MAP.type,
-    APPOINTMENT_FIELD_MAP.date,
-    APPOINTMENT_FIELD_MAP.time,
+    APPOINTMENT_FIELD_MAP.dateAndTime,
     APPOINTMENT_FIELD_MAP.location,
     APPOINTMENT_FIELD_MAP.notes,
     APPOINTMENT_FIELD_MAP.status,
@@ -1579,14 +1601,16 @@ export async function createAppointmentForCaregiver({ caregiverId, caregiverEmai
   }
 
   // Send appointment data to ServiceNow
+  const dateTimeStr = `${normalizedDate} ${normalizedTime}:00`;
+  const backupNotes = notes ? `${String(notes).trim()}\n[DATETIME:${dateTimeStr}]` : `[DATETIME:${dateTimeStr}]`;
+  
   const payload = withOptionalStatus({
     [APPOINTMENT_FIELD_MAP.caregiver]: normalizedCaregiverId || normalizedCaregiverEmail,
     [APPOINTMENT_FIELD_MAP.senior]: seniorProfile.sys_id,
     [APPOINTMENT_FIELD_MAP.name]: normalizedTitle,
-    [APPOINTMENT_FIELD_MAP.date]: normalizedDate,
-    [APPOINTMENT_FIELD_MAP.time]: `${normalizedDate} ${normalizedTime}:00`,
+    [APPOINTMENT_FIELD_MAP.dateAndTime]: dateTimeStr,
     [APPOINTMENT_FIELD_MAP.location]: String(location || '').trim(),
-    [APPOINTMENT_FIELD_MAP.notes]: String(notes || '').trim(),
+    [APPOINTMENT_FIELD_MAP.notes]: backupNotes,
   }, status);
 
   console.log('[Appointment Create] Payload being sent:', JSON.stringify(payload, null, 2));
@@ -1598,8 +1622,7 @@ export async function createAppointmentForCaregiver({ caregiverId, caregiverEmai
 
   const record = data?.result || {};
   console.log('[Appointment Create] Full response record:', JSON.stringify(record, null, 2));
-  console.log('[Appointment Create] Response time field (' + APPOINTMENT_FIELD_MAP.time + '):', record[APPOINTMENT_FIELD_MAP.time]);
-  console.log('[Appointment Create] Response date field (' + APPOINTMENT_FIELD_MAP.date + '):', record[APPOINTMENT_FIELD_MAP.date]);
+  console.log('[Appointment Create] Response dateAndTime field (' + APPOINTMENT_FIELD_MAP.dateAndTime + '):', record[APPOINTMENT_FIELD_MAP.dateAndTime]);
   console.log('[Appointment Create] Response type field (' + APPOINTMENT_FIELD_MAP.type + '):', record[APPOINTMENT_FIELD_MAP.type]);
   console.log('[Appointment Create] All response data:', JSON.stringify(data, null, 2));
   
@@ -1632,17 +1655,19 @@ export async function updateAppointmentForCaregiver({ appointmentId, seniorId, t
   if (title !== undefined) {
     payload[APPOINTMENT_FIELD_MAP.name] = String(title || '').trim();
   }
-  if (date !== undefined) payload[APPOINTMENT_FIELD_MAP.date] = normalizeAppointmentDate(String(date || '').trim());
-  if (time !== undefined) {
-    const normalizedTime = normalizeAppointmentTime(String(time || '').trim());
+  if (date !== undefined || time !== undefined) {
+    const normalizedTime = time !== undefined ? normalizeAppointmentTime(String(time || '').trim()) : null;
     const normalizedDate = date !== undefined ? normalizeAppointmentDate(String(date || '').trim()) : null;
     console.log('[Appointment Update] Input time:', time);
     console.log('[Appointment Update] Normalized time:', normalizedTime);
-    // Send as datetime format: YYYY-MM-DD HH:MM:SS
-    payload[APPOINTMENT_FIELD_MAP.time] = normalizedDate ? `${normalizedDate} ${normalizedTime}:00` : normalizedTime;
-    // Also append time to notes as backup
-    const currentNotes = String(notes !== undefined ? notes : '').trim();
-    payload[APPOINTMENT_FIELD_MAP.notes] = `${currentNotes}\n[TIME:${normalizedTime}]`.trim();
+    if (normalizedDate && normalizedTime) {
+      // Send as datetime format: YYYY-MM-DD HH:MM:SS
+      const dateTimeStr = `${normalizedDate} ${normalizedTime}:00`;
+      payload[APPOINTMENT_FIELD_MAP.dateAndTime] = dateTimeStr;
+      // Also backup in notes (read-restricted field workaround)
+      const currentNotes = String(payload[APPOINTMENT_FIELD_MAP.notes] || '').trim();
+      payload[APPOINTMENT_FIELD_MAP.notes] = currentNotes ? `${currentNotes}\n[DATETIME:${dateTimeStr}]` : `[DATETIME:${dateTimeStr}]`;
+    }
   }
   if (location !== undefined) payload[APPOINTMENT_FIELD_MAP.location] = String(location || '').trim();
   if (notes !== undefined && time === undefined) payload[APPOINTMENT_FIELD_MAP.notes] = String(notes || '').trim();

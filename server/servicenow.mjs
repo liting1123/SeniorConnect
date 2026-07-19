@@ -1560,6 +1560,107 @@ export async function getAppointmentsForSenior({ seniorUserId, seniorEmail, limi
     .slice(0, normalizedLimit);
 }
 
+export async function getUpcomingAppointmentsForReminder({ status = 'scheduled', limit = 200 } = {}) {
+  try {
+    const normalizedLimit = Math.max(1, Math.min(Number(limit) || 200, 500));
+    
+    const fieldsToReturn = [
+      'sys_id',
+      APPOINTMENT_FIELD_MAP.caregiver,
+      APPOINTMENT_FIELD_MAP.senior,
+      APPOINTMENT_FIELD_MAP.name,
+      APPOINTMENT_FIELD_MAP.dateAndTime,
+      APPOINTMENT_FIELD_MAP.location,
+      APPOINTMENT_FIELD_MAP.notes,
+      APPOINTMENT_FIELD_MAP.status,
+    ].filter(Boolean);
+
+    // Fetch all scheduled appointments
+    const params = new URLSearchParams({
+      sysparm_query: `${APPOINTMENT_FIELD_MAP.status}=${status}^ORDERBYASCsys_created_on`,
+      sysparm_limit: String(normalizedLimit),
+      sysparm_fields: fieldsToReturn.join(','),
+    });
+    
+    const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `?${params.toString()}`));
+    const records = data?.result || [];
+
+    if (records.length === 0) {
+      return [];
+    }
+
+    // Get caregiver info for email
+    const caregiverIds = new Set(
+      records
+        .map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.caregiver, ['sys_id']))
+        .filter(Boolean)
+    );
+
+    const caregiverEmails = new Map();
+    for (const caregiverId of caregiverIds) {
+      const caregiverRecord = await getLoginRecordById(caregiverId).catch(() => null);
+      if (caregiverRecord) {
+        caregiverEmails.set(
+          normalizeLoginValue(caregiverId),
+          normalizeLoginValue(getDisplayValue(caregiverRecord[LOGIN_FIELD_MAP.email]))
+        );
+      }
+    }
+
+    const seniorNamesByProfileId = await getSeniorNamesByProfileIds(
+      records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
+    );
+
+    return records.map((record) => {
+      // Parse date and time using the same logic as toCaregiverAppointmentRecord
+      let date = '';
+      let rawTime = '';
+
+      const notesForDatetime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.notes, ['notes', 'description']) || '';
+      const backupMatch = /\[DATETIME:([\d\-]+ \d{2}:\d{2})/.exec(notesForDatetime);
+      if (backupMatch) {
+        const backupDateTime = backupMatch[1];
+        const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(backupDateTime);
+        if (dateMatch) date = dateMatch[1];
+        const timeMatch = /(\d{2}):(\d{2})/.exec(backupDateTime);
+        if (timeMatch) rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
+      }
+
+      // Fallback: try the dateAndTime field
+      if (!date || !rawTime) {
+        const rawDateAndTime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.dateAndTime, ['appointment_date_and_time', 'date_and_time']) || '';
+        if (rawDateAndTime) {
+          const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(rawDateAndTime);
+          if (dateMatch) date = dateMatch[1];
+          const timeMatch = /(\d{2}):(\d{2})/.exec(rawDateAndTime);
+          if (timeMatch) rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
+        }
+      }
+
+      const time = normalizeAppointmentTime(rawTime);
+      const caregiverId = getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.caregiver, ['sys_id']);
+      const seniorReferenceId = getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']) || '';
+      
+      return {
+        id: record.sys_id,
+        caregiverId,
+        caregiverEmail: caregiverEmails.get(normalizeLoginValue(caregiverId)) || '',
+        seniorId: seniorReferenceId,
+        seniorName: seniorNamesByProfileId.get(seniorReferenceId) || '',
+        title: String(record[APPOINTMENT_FIELD_MAP.name] || '').trim() || 'Appointment',
+        date: date,
+        time: time,
+        location: String(record[APPOINTMENT_FIELD_MAP.location] || '').trim(),
+        notes: String(record[APPOINTMENT_FIELD_MAP.notes] || '').trim(),
+        status: String(record[APPOINTMENT_FIELD_MAP.status] || '').trim(),
+      };
+    });
+  } catch (error) {
+    console.error('[getUpcomingAppointmentsForReminder] Error:', error);
+    return [];
+  }
+}
+
 export async function createAppointmentForCaregiver({ caregiverId, caregiverEmail, seniorId, title, date, time, location, notes, status = 'scheduled' } = {}) {
   const normalizedCaregiverId = String(caregiverId || '').trim();
   const normalizedCaregiverEmail = normalizeLoginValue(caregiverEmail);

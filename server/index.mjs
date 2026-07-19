@@ -12,6 +12,7 @@ import {
   createFamilyVerification,
   getAppointmentsForCaregiver,
   getAppointmentsForSenior,
+  getUpcomingAppointmentsForReminder,
   createSosAlert,
   deleteMedicineForUser,
   getCaregiverSeniorConnections,
@@ -41,6 +42,7 @@ loadEnv();
 const PORT = Number(process.env.API_PORT) || 3001;
 const checkInReminders = [];
 const loginMfaCodes = new Map();
+const appointmentReminders = new Set(); // Track appointment IDs that have sent 24-hour reminders
 
 const MFA_EMAIL_HOST = String(process.env.MFA_EMAIL_HOST || '').trim();
 const MFA_EMAIL_PORT = Number(process.env.MFA_EMAIL_PORT) || 587;
@@ -223,6 +225,107 @@ async function sendAppointmentNotificationEmail(caregiverEmail, appointmentData)
       'Please log in to CareConnect to view more details.',
     ].filter(line => line !== '').join('\n'),
   });
+}
+
+async function sendAppointmentReminderEmail(caregiverEmail, appointmentData) {
+  const transporter = getMfaTransporter();
+  const normalizedEmail = normalizeEmail(caregiverEmail);
+
+  if (!normalizedEmail) {
+    throw Object.assign(new Error('A valid caregiver email is required to send appointment reminder.'), { status: 400 });
+  }
+
+  const { seniorName, title, date, time, location } = appointmentData;
+  const formattedTime = formatTimeWith12Hour(time);
+
+  await transporter.sendMail({
+    from: MFA_EMAIL_FROM,
+    to: normalizedEmail,
+    subject: `Reminder: Appointment tomorrow - ${seniorName}`,
+    text: [
+      `Reminder: An appointment is scheduled for tomorrow.`,
+      '',
+      `Senior: ${seniorName}`,
+      `Appointment Title: ${title}`,
+      `Date: ${date}`,
+      `Time: ${formattedTime}`,
+      location ? `Location: ${location}` : '',
+      '',
+      'Please log in to CareConnect for more details.',
+    ].filter(line => line !== '').join('\n'),
+  });
+}
+
+async function checkAndSend24HourAppointmentReminders() {
+  try {
+    const now = new Date();
+    // Calculate 24-hour window: appointments from now+23h to now+25h
+    // FOR TESTING: You can adjust this window. For production use 23-25 hours.
+    const window24hFrom = new Date(now.getTime() + 23 * 60 * 60 * 1000);
+    const window24hTo = new Date(now.getTime() + 25 * 60 * 60 * 1000);
+    
+    const formatDateOnly = (d) => d.toISOString().split('T')[0];
+    const formatTimeOnly = (d) => d.toISOString().split('T')[1].substring(0, 5); // HH:MM
+    
+    const startDate = formatDateOnly(window24hFrom);
+    const endDate = formatDateOnly(window24hTo);
+    const startTime = formatTimeOnly(window24hFrom);
+    const endTime = formatTimeOnly(window24hTo);
+    
+    console.log('[Appointment Reminder] Checking for appointments between', startDate, startTime, 'and', endDate, endTime);
+    
+    // Fetch all upcoming appointments
+    const appointments = await getUpcomingAppointmentsForReminder({ status: 'scheduled', limit: 500 });
+    
+    if (!appointments || appointments.length === 0) {
+      console.log('[Appointment Reminder] No upcoming appointments found');
+      return;
+    }
+    
+    console.log(`[Appointment Reminder] Found ${appointments.length} upcoming appointments`);
+    
+    // Check each appointment to see if it falls in the 24-hour window
+    for (const appointment of appointments) {
+      try {
+        const appointmentId = appointment.id;
+        
+        // Skip if already reminded
+        if (appointmentReminders.has(appointmentId)) {
+          console.log(`[Appointment Reminder] Skipping ${appointmentId} - already sent reminder`);
+          continue;
+        }
+        
+        const appointmentDateTime = new Date(`${appointment.date}T${appointment.time}:00`);
+        const timeDiffMs = appointmentDateTime.getTime() - now.getTime();
+        const timeDiffHours = timeDiffMs / (60 * 60 * 1000);
+        
+        console.log(`[Appointment Reminder] Appointment ${appointmentId} (${appointment.title}) is in ${timeDiffHours.toFixed(1)} hours`);
+        
+        // Check if appointment is in the 23-25 hour window
+        if (timeDiffHours >= 23 && timeDiffHours <= 25) {
+          console.log(`[Appointment Reminder] SENDING reminder for appointment ${appointmentId} (${appointment.title}) - ${timeDiffHours.toFixed(1)} hours away`);
+          
+          await sendAppointmentReminderEmail(appointment.caregiverEmail, {
+            seniorName: appointment.seniorName || 'Senior',
+            title: appointment.title,
+            date: appointment.date,
+            time: appointment.time,
+            location: appointment.location,
+          });
+          
+          // Mark as reminded
+          appointmentReminders.add(appointmentId);
+          console.log(`[Appointment Reminder] ✓ Successfully sent reminder for appointment ${appointmentId}`);
+        }
+      } catch (appointmentError) {
+        console.error('[Appointment Reminder] Error processing appointment:', appointmentError);
+      }
+    }
+    
+    console.log('[Appointment Reminder] Check complete');
+  } catch (error) {
+    console.error('[Appointment Reminder] Error checking appointments:', error);
+  }
 }
 
 function getUidFromPath(pathname) {
@@ -610,6 +713,22 @@ export async function handleRequest(request, response) {
       status: body.status,
     });
 
+    // Send appointment creation notification email to caregiver
+    try {
+      await sendAppointmentNotificationEmail(body.caregiverEmail, {
+        seniorName: body.seniorName || 'Senior',
+        title: body.title,
+        date: body.date,
+        time: body.time,
+        location: body.location,
+        action: 'created',
+      });
+      console.log('[Appointment] Notification email sent for new appointment:', appointment.id);
+    } catch (emailError) {
+      console.error('[Appointment] Failed to send notification email:', emailError);
+      // Don't fail the appointment creation if email fails
+    }
+
     sendJson(response, 200, { appointment });
     return;
   }
@@ -823,4 +942,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   server.listen(PORT, () => {
     console.log(`ServiceNow API server running at http://localhost:${PORT}`);
   });
+
+  // Start appointment reminder scheduler - runs every 30 minutes
+  setInterval(checkAndSend24HourAppointmentReminders, 30 * 60 * 1000);
+  // Run immediately on startup
+  checkAndSend24HourAppointmentReminders();
 }

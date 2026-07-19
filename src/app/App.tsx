@@ -899,8 +899,7 @@ export default function App() {
           <GameScreen
             highContrast={highContrast}
             onToggleHighContrast={() => setHighContrast((value) => !value)}
-            onGamePlayCheckIn={() => handleCheckIn({ redirectToPoints: false, suppressWindowCompletedAlert: true })}
-            shouldPromptCheckIn={Boolean(activeUser && isSeniorRole(activeUser.role) && !isCurrentCheckInWindowCompleted)}
+            onGamePlayCheckIn={() => handleCheckIn({ redirectToPoints: true, suppressWindowCompletedAlert: true })}
           />
         );
       case 'carePortal':

@@ -667,6 +667,7 @@ export default function CaregiverDashboardScreen({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               caregiverEmail,
+              seniorEmail: matchingSenior?.email || '',
               seniorName,
               title: appointmentForm.title.trim(),
               date: appointmentForm.date,
@@ -690,6 +691,7 @@ export default function CaregiverDashboardScreen({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               caregiverEmail,
+              seniorEmail: matchingSenior?.email || '',
               seniorName,
               title: appointmentForm.title.trim(),
               date: appointmentForm.date,

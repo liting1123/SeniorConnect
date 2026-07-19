@@ -1611,6 +1611,23 @@ export async function getUpcomingAppointmentsForReminder({ status = 'scheduled',
       records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
     );
 
+    // Fetch senior emails from their profiles
+    const seniorProfileIds = Array.from(new Set(
+      records
+        .map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']))
+        .filter(Boolean)
+    ));
+    const seniorEmailsByProfileId = new Map();
+    for (const profileId of seniorProfileIds) {
+      try {
+        const profileData = await serviceNowFetch(getTablePath(`/${encodeURIComponent(profileId)}`));
+        const email = normalizeLoginValue(getDisplayValue(profileData?.result?.[FIELD_MAP.email]));
+        if (email) seniorEmailsByProfileId.set(profileId, email);
+      } catch {
+        // ignore missing profiles
+      }
+    }
+
     return records.map((record) => {
       // Parse date and time using the same logic as toCaregiverAppointmentRecord
       let date = '';
@@ -1647,6 +1664,7 @@ export async function getUpcomingAppointmentsForReminder({ status = 'scheduled',
         caregiverEmail: caregiverEmails.get(normalizeLoginValue(caregiverId)) || '',
         seniorId: seniorReferenceId,
         seniorName: seniorNamesByProfileId.get(seniorReferenceId) || '',
+        seniorEmail: seniorEmailsByProfileId.get(seniorReferenceId) || '',
         title: String(record[APPOINTMENT_FIELD_MAP.name] || '').trim() || 'Appointment',
         date: date,
         time: time,

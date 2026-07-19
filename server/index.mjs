@@ -50,6 +50,8 @@ const MFA_EMAIL_SECURE = String(process.env.MFA_EMAIL_SECURE || '').trim().toLow
 const MFA_EMAIL_USER = String(process.env.MFA_EMAIL_USER || '').trim();
 const MFA_EMAIL_PASS = String(process.env.MFA_EMAIL_PASS || '').trim();
 const MFA_EMAIL_FROM = String(process.env.MFA_EMAIL_FROM || '').trim();
+const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
+const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 
 let mfaMailer = null;
 
@@ -198,62 +200,134 @@ function formatTimeWith12Hour(timeStr = '') {
   return `${hours}:${minutes} ${period}`;
 }
 
+async function sendTelegramMessage(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.warn('[Telegram] Bot token or chat ID not configured, skipping.');
+    return;
+  }
+
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const body = JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'HTML' });
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Telegram API error: ${err}`);
+  }
+}
+
 async function sendAppointmentNotificationEmail(caregiverEmail, appointmentData) {
   const transporter = getMfaTransporter();
-  const normalizedEmail = normalizeEmail(caregiverEmail);
+  const normalizedCaregiverEmail = normalizeEmail(caregiverEmail);
+  const normalizedSeniorEmail = normalizeEmail(appointmentData.seniorEmail);
 
-  if (!normalizedEmail) {
-    throw Object.assign(new Error('A valid caregiver email is required to send appointment notification.'), { status: 400 });
+  if (!normalizedCaregiverEmail && !normalizedSeniorEmail) {
+    throw Object.assign(new Error('A valid email is required to send appointment notification.'), { status: 400 });
   }
 
   const { seniorName, title, date, time, location, action } = appointmentData;
   const actionText = action === 'created' ? 'created' : action === 'updated' ? 'updated' : 'modified';
   const formattedTime = formatTimeWith12Hour(time);
 
-  await transporter.sendMail({
-    from: MFA_EMAIL_FROM,
-    to: normalizedEmail,
-    subject: `Appointment ${actionText} - ${seniorName}`,
-    text: [
-      `An appointment has been ${actionText} for ${seniorName}.`,
-      '',
-      `Appointment Title: ${title}`,
-      `Date: ${date}`,
-      `Time: ${formattedTime}`,
-      location ? `Location: ${location}` : '',
-      '',
-      'Please log in to CareConnect to view more details.',
-    ].filter(line => line !== '').join('\n'),
-  });
+  const caregiverBody = [
+    `An appointment has been ${actionText} for ${seniorName}.`,
+    '',
+    `Appointment Title: ${title}`,
+    `Date: ${date}`,
+    `Time: ${formattedTime}`,
+    location ? `Location: ${location}` : '',
+    '',
+    'Please log in to CareConnect to view more details.',
+  ].filter(line => line !== '').join('\n');
+
+  const seniorBody = [
+    `Your appointment has been ${actionText}.`,
+    '',
+    `Appointment Title: ${title}`,
+    `Date: ${date}`,
+    `Time: ${formattedTime}`,
+    location ? `Location: ${location}` : '',
+    '',
+    'Please log in to CareConnect to view more details.',
+  ].filter(line => line !== '').join('\n');
+
+  const sends = [];
+  if (normalizedCaregiverEmail) {
+    sends.push(transporter.sendMail({
+      from: MFA_EMAIL_FROM,
+      to: normalizedCaregiverEmail,
+      subject: `Appointment ${actionText} - ${seniorName}`,
+      text: caregiverBody,
+    }));
+  }
+  if (normalizedSeniorEmail) {
+    sends.push(transporter.sendMail({
+      from: MFA_EMAIL_FROM,
+      to: normalizedSeniorEmail,
+      subject: `Your appointment has been ${actionText}`,
+      text: seniorBody,
+    }));
+  }
+  await Promise.all(sends);
 }
 
-async function sendAppointmentReminderEmail(caregiverEmail, appointmentData) {
+async function sendAppointmentReminderEmail(caregiverEmail, seniorEmail, appointmentData) {
   const transporter = getMfaTransporter();
-  const normalizedEmail = normalizeEmail(caregiverEmail);
-
-  if (!normalizedEmail) {
-    throw Object.assign(new Error('A valid caregiver email is required to send appointment reminder.'), { status: 400 });
-  }
+  const normalizedCaregiverEmail = normalizeEmail(caregiverEmail);
+  const normalizedSeniorEmail = normalizeEmail(seniorEmail);
 
   const { seniorName, title, date, time, location } = appointmentData;
   const formattedTime = formatTimeWith12Hour(time);
 
-  await transporter.sendMail({
-    from: MFA_EMAIL_FROM,
-    to: normalizedEmail,
-    subject: `Reminder: Appointment tomorrow - ${seniorName}`,
-    text: [
-      `Reminder: An appointment is scheduled for tomorrow.`,
-      '',
-      `Senior: ${seniorName}`,
-      `Appointment Title: ${title}`,
-      `Date: ${date}`,
-      `Time: ${formattedTime}`,
-      location ? `Location: ${location}` : '',
-      '',
-      'Please log in to CareConnect for more details.',
-    ].filter(line => line !== '').join('\n'),
-  });
+  const caregiverBody = [
+    `Reminder: An appointment is scheduled for tomorrow.`,
+    '',
+    `Senior: ${seniorName}`,
+    `Appointment Title: ${title}`,
+    `Date: ${date}`,
+    `Time: ${formattedTime}`,
+    location ? `Location: ${location}` : '',
+    '',
+    'Please log in to CareConnect for more details.',
+  ].filter(line => line !== '').join('\n');
+
+  const seniorBody = [
+    `Reminder: You have an appointment tomorrow.`,
+    '',
+    `Appointment Title: ${title}`,
+    `Date: ${date}`,
+    `Time: ${formattedTime}`,
+    location ? `Location: ${location}` : '',
+    '',
+    'Please log in to CareConnect for more details.',
+  ].filter(line => line !== '').join('\n');
+
+  const sends = [];
+  if (normalizedCaregiverEmail) {
+    sends.push(transporter.sendMail({
+      from: MFA_EMAIL_FROM,
+      to: normalizedCaregiverEmail,
+      subject: `Reminder: Appointment tomorrow - ${seniorName}`,
+      text: caregiverBody,
+    }));
+  }
+  if (normalizedSeniorEmail) {
+    sends.push(transporter.sendMail({
+      from: MFA_EMAIL_FROM,
+      to: normalizedSeniorEmail,
+      subject: `Reminder: You have an appointment tomorrow`,
+      text: seniorBody,
+    }));
+  }
+  if (sends.length === 0) {
+    throw Object.assign(new Error('No valid email addresses to send reminder to.'), { status: 400 });
+  }
+  await Promise.all(sends);
 }
 
 async function checkAndSend24HourAppointmentReminders() {
@@ -305,14 +379,26 @@ async function checkAndSend24HourAppointmentReminders() {
         if (timeDiffHours >= 23 && timeDiffHours <= 25) {
           console.log(`[Appointment Reminder] SENDING reminder for appointment ${appointmentId} (${appointment.title}) - ${timeDiffHours.toFixed(1)} hours away`);
           
-          await sendAppointmentReminderEmail(appointment.caregiverEmail, {
-            seniorName: appointment.seniorName || 'Senior',
+          const seniorName = appointment.seniorName || 'Senior';
+          const formattedTime = formatTimeWith12Hour(appointment.time);
+
+          await sendAppointmentReminderEmail(appointment.caregiverEmail, appointment.seniorEmail || '', {
+            seniorName,
             title: appointment.title,
             date: appointment.date,
             time: appointment.time,
             location: appointment.location,
           });
-          
+
+          await sendTelegramMessage(
+            `⏰ <b>Appointment Reminder — Tomorrow</b>\n\n` +
+            `👤 Senior: ${seniorName}\n` +
+            `📋 Title: ${appointment.title}\n` +
+            `🗓 Date: ${appointment.date}\n` +
+            `🕐 Time: ${formattedTime}` +
+            (appointment.location ? `\n📍 Location: ${appointment.location}` : '')
+          );
+
           // Mark as reminded
           appointmentReminders.add(appointmentId);
           console.log(`[Appointment Reminder] ✓ Successfully sent reminder for appointment ${appointmentId}`);
@@ -529,6 +615,15 @@ export async function handleRequest(request, response) {
       return;
     }
 
+    // Also send MFA code via Telegram
+    sendTelegramMessage(
+      `🔐 <b>CareConnect Login Code</b>\n\n` +
+      `Your verification code is:\n\n` +
+      `<b>${code}</b>\n\n` +
+      `Expires in 10 minutes.\n` +
+      `If you did not attempt to log in, ignore this message.`
+    ).catch(err => console.error('[Telegram] Failed to send MFA code:', err));
+
     sendJson(response, 200, { ok: true, delivery: 'email' });
     return;
   }
@@ -713,20 +808,38 @@ export async function handleRequest(request, response) {
       status: body.status,
     });
 
-    // Send appointment creation notification email to caregiver
+    // Send appointment creation notification (email + Telegram) to caregiver and senior
     try {
+      const seniorName = body.seniorName || 'Senior';
+      const formattedTime = formatTimeWith12Hour(body.time);
       await sendAppointmentNotificationEmail(body.caregiverEmail, {
-        seniorName: body.seniorName || 'Senior',
+        seniorName,
+        seniorEmail: body.seniorEmail || '',
         title: body.title,
         date: body.date,
         time: body.time,
         location: body.location,
         action: 'created',
       });
-      console.log('[Appointment] Notification email sent for new appointment:', appointment.id);
+      console.log('[Appointment] Notification emails sent for new appointment:', appointment.id);
     } catch (emailError) {
       console.error('[Appointment] Failed to send notification email:', emailError);
-      // Don't fail the appointment creation if email fails
+    }
+
+    try {
+      const seniorName = body.seniorName || 'Senior';
+      const formattedTime = formatTimeWith12Hour(body.time);
+      await sendTelegramMessage(
+        `📅 <b>New Appointment Created</b>\n\n` +
+        `👤 Senior: ${seniorName}\n` +
+        `📋 Title: ${body.title}\n` +
+        `🗓 Date: ${body.date}\n` +
+        `🕐 Time: ${formattedTime}` +
+        (body.location ? `\n📍 Location: ${body.location}` : '')
+      );
+      console.log('[Appointment] Telegram notification sent for new appointment:', appointment.id);
+    } catch (telegramError) {
+      console.error('[Appointment] Failed to send Telegram notification:', telegramError);
     }
 
     sendJson(response, 200, { appointment });
@@ -767,15 +880,32 @@ export async function handleRequest(request, response) {
   if (url.pathname === '/api/servicenow/appointments/notify' && request.method === 'POST') {
     try {
       const body = await readJson(request);
+      const seniorName = body.seniorName || 'Senior';
+      const formattedTime = formatTimeWith12Hour(body.time);
+
+      // Email to caregiver + senior
       await sendAppointmentNotificationEmail(body.caregiverEmail, {
-        seniorName: body.seniorName,
+        seniorName,
+        seniorEmail: body.seniorEmail || '',
         title: body.title,
         date: body.date,
         time: body.time,
         location: body.location,
         action: body.action,
       });
-      sendJson(response, 200, { success: true, message: 'Appointment notification email sent.' });
+
+      // Telegram notification
+      const actionText = body.action === 'created' ? 'New Appointment Created 📅' : 'Appointment Updated 📝';
+      await sendTelegramMessage(
+        `<b>${actionText}</b>\n\n` +
+        `👤 Senior: ${seniorName}\n` +
+        `📋 Title: ${body.title}\n` +
+        `🗓 Date: ${body.date}\n` +
+        `🕐 Time: ${formattedTime}` +
+        (body.location ? `\n📍 Location: ${body.location}` : '')
+      ).catch(err => console.error('[Telegram] Failed to send:', err));
+
+      sendJson(response, 200, { success: true, message: 'Appointment notification sent.' });
     } catch (error) {
       console.error('Failed to send appointment notification:', error);
       sendJson(response, error.status || 500, {
@@ -942,6 +1072,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   server.listen(PORT, () => {
     console.log(`ServiceNow API server running at http://localhost:${PORT}`);
   });
+
+  // Verify Telegram config on startup
+  if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
+    console.log(`[Telegram] Configured — bot token ends in ...${TELEGRAM_BOT_TOKEN.slice(-6)}, chat ID: ${TELEGRAM_CHAT_ID}`);
+    sendTelegramMessage(`✅ <b>CareConnect Server Started</b>\n\nNotifications are active.`)
+      .then(() => console.log('[Telegram] Startup test message sent successfully.'))
+      .catch(err => console.error('[Telegram] Startup test failed:', err.message));
+  } else {
+    console.warn('[Telegram] NOT configured — TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing in .env');
+  }
 
   // Start appointment reminder scheduler - runs every 30 minutes
   setInterval(checkAndSend24HourAppointmentReminders, 30 * 60 * 1000);

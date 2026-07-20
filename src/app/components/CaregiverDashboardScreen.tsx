@@ -561,7 +561,8 @@ export default function CaregiverDashboardScreen({
           year: 'numeric',
         }).format(value);
 
-      return formatDate(appointmentDate) === formatDate(new Date());
+      // Exclude completed and cancelled appointments from today count
+      return formatDate(appointmentDate) === formatDate(new Date()) && appointment.status !== 'completed' && appointment.status !== 'cancelled';
     }).length,
     upcoming: appointments.filter((appointment) => appointment.status === 'scheduled' && (getAppointmentDateTime(appointment)?.getTime() || Infinity) >= Date.now()).length,
     completed: appointments.filter((appointment) => appointment.status === 'completed').length,
@@ -4350,7 +4351,10 @@ function HealthBuddyScreen({
 
   // Filter appointments based on selected status
   const getFilteredAppointments = () => {
-    if (appointmentStatusFilter === 'all') return appointments;
+    // 'all' shows only scheduled (active) appointments by default
+    if (appointmentStatusFilter === 'all') {
+      return appointments.filter((apt) => apt.status !== 'completed' && apt.status !== 'cancelled');
+    }
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -4364,7 +4368,8 @@ function HealthBuddyScreen({
       const aptDateTime = aptDate.getTime();
       
       if (appointmentStatusFilter === 'today') {
-        return aptDateTime === todayTime;
+        // Hide completed and cancelled appointments from today's view
+        return aptDateTime === todayTime && apt.status !== 'completed' && apt.status !== 'cancelled';
       } else if (appointmentStatusFilter === 'upcoming') {
         return aptDateTime > todayTime;
       } else if (appointmentStatusFilter === 'completed') {
@@ -4623,12 +4628,14 @@ function HealthBuddyScreen({
                   {appointment.notes && <p>{appointment.notes}</p>}
                 </div>
 
-                <div className="mt-3 rounded-xl border border-[#d9e4ff] bg-[#f4f8ff] px-3 py-2 text-sm font-bold text-[#26426f]">
-                  {t('transportReminder')}: {transportReminderLabel}
-                </div>
+                {appointment.status !== 'completed' && (
+                  <div className="mt-3 rounded-xl border border-[#d9e4ff] bg-[#f4f8ff] px-3 py-2 text-sm font-bold text-[#26426f]">
+                    {t('transportReminder')}: {transportReminderLabel}
+                  </div>
+                )}
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {directionsHref && (
+                  {directionsHref && appointment.status !== 'completed' && (
                     <a
                       href={directionsHref}
                       target="_blank"
@@ -4639,7 +4646,7 @@ function HealthBuddyScreen({
                       {t('openDirections')}
                     </a>
                   )}
-                  {teleconsultHref && (
+                  {teleconsultHref && appointment.status !== 'completed' && (
                     <a
                       href={teleconsultHref}
                       target="_blank"
@@ -4652,7 +4659,7 @@ function HealthBuddyScreen({
                   )}
                 </div>
 
-                {canManageAppointments && (
+                {canManageAppointments && appointment.status !== 'completed' && (
                   <div className="mt-4 flex flex-wrap gap-3">
                     <button
                       type="button"
@@ -4661,15 +4668,13 @@ function HealthBuddyScreen({
                     >
                       Edit
                     </button>
-                    {appointment.status !== 'completed' && (
-                      <button
-                        type="button"
-                        onClick={() => onUpdateAppointmentStatus(appointment.id, 'completed')}
-                        className="rounded-full bg-[#18833b] px-4 py-2 text-sm font-black text-white active:scale-95"
-                      >
-                        {t('markCompleted')}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => onUpdateAppointmentStatus(appointment.id, 'completed')}
+                      className="rounded-full bg-[#18833b] px-4 py-2 text-sm font-black text-white active:scale-95"
+                    >
+                      {t('markCompleted')}
+                    </button>
                     {appointment.status !== 'cancelled' && (
                       <button
                         type="button"

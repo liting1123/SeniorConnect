@@ -1,6 +1,7 @@
 import { Calendar, Clock, MapPin } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { CaregiverAppointment } from '../services/serviceNow';
+import AppointmentDirections from './AppointmentDirections';
 
 type SeniorAppointmentsScreenProps = {
   appointments: CaregiverAppointment[];
@@ -45,6 +46,9 @@ function translateStatus(status: string, t: (key: string) => string) {
 export default function SeniorAppointmentsScreen({ appointments, isLoading }: SeniorAppointmentsScreenProps) {
   const { t } = useTranslation();
 
+  // Only show scheduled appointments to the elderly user
+  const scheduledAppointments = appointments.filter((a) => a.status !== 'completed' && a.status !== 'cancelled');
+
   return (
     <div className="h-full overflow-y-auto bg-white px-5 pb-28 pt-5 min-[390px]:px-6">
       <div className="rounded-[24px] bg-[#f4f6f8] p-5">
@@ -57,12 +61,12 @@ export default function SeniorAppointmentsScreen({ appointments, isLoading }: Se
           <div className="rounded-[20px] bg-[#f4f6f8] p-5 text-center text-base font-bold text-[#5f6368]">
             {t('loading')}
           </div>
-        ) : appointments.length === 0 ? (
+        ) : scheduledAppointments.length === 0 ? (
           <div className="rounded-[20px] bg-[#f4f6f8] p-5 text-center text-base font-bold text-[#5f6368]">
             {t('noAppointmentsYet')}
           </div>
         ) : (
-          appointments.map((appointment) => {
+          scheduledAppointments.map((appointment) => {
             const formattedDate = formatDate(appointment.date);
             const formattedTime = formatTime12h(appointment.time);
             const dateTimeDisplay = formattedDate
@@ -80,12 +84,7 @@ export default function SeniorAppointmentsScreen({ appointments, isLoading }: Se
                 <h2 className="mt-2 text-2xl font-black text-black">{appointment.title || t('healthBuddy')}</h2>
                 <p className="mt-1 text-sm font-bold uppercase tracking-wide text-[#71717a]">{getSafeSeniorName(appointment.seniorName, t('senior'))}</p>
 
-                {appointment.location && (
-                  <p className="mt-3 flex items-start gap-2 text-sm font-semibold text-[#5f6368]">
-                    <MapPin className="mt-0.5 h-4 w-4" />
-                    <span>{appointment.location}</span>
-                  </p>
-                )}
+                {appointment.location && <AppointmentDirections location={appointment.location} appointmentTitle={appointment.title || t('healthBuddy')} />}
 
                 <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#eef3ff] px-3 py-1 text-xs font-black uppercase tracking-wide text-[#2c4f8f]">
                   <Clock className="h-4 w-4" />

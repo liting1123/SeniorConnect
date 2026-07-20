@@ -2522,6 +2522,16 @@ function formatMedicineTakenAt(value) {
   return `${time} ${date}`;
 }
 
+function getPersistedMedicineStatus(status = '') {
+  const normalizedStatus = String(status || '').trim();
+
+  if (/^taken$/i.test(normalizedStatus)) {
+    return `Taken at ${formatMedicineTakenAt(new Date())}`;
+  }
+
+  return normalizedStatus;
+}
+
 function getMedicineTakenInfo(record = {}) {
   const status = getDisplayValue(record[MEDICINE_FIELD_MAP.status]);
   const explicitTakenAt = parseMedicineTakenStatus(status);
@@ -2651,7 +2661,7 @@ export async function saveMedicineForUser(userId, medicine = {}) {
     const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `/${encodeURIComponent(existingRecord.sys_id)}`), {
       method: 'PATCH',
       body: JSON.stringify({
-        [MEDICINE_FIELD_MAP.status]: medicine.status || '',
+        [MEDICINE_FIELD_MAP.status]: getPersistedMedicineStatus(medicine.status),
       }),
     });
 
@@ -2664,7 +2674,7 @@ export async function saveMedicineForUser(userId, medicine = {}) {
     [MEDICINE_FIELD_MAP.dose]: medicine.dose || '',
     [MEDICINE_FIELD_MAP.time]: medicine.time || '',
     [MEDICINE_FIELD_MAP.frequency]: medicine.frequency || '',
-    [MEDICINE_FIELD_MAP.status]: medicine.status || '',
+    [MEDICINE_FIELD_MAP.status]: getPersistedMedicineStatus(medicine.status),
     [MEDICINE_FIELD_MAP.notes]: medicine.notes || '',
     [MEDICINE_FIELD_MAP.isExtra]: true,
   };

@@ -1600,7 +1600,7 @@ function CaregiverDashboardHome({
   const filterOptions: Array<{ id: 'all' | 'checked' | 'missing'; label: string }> = [
     { id: 'all', label: t('all') },
     { id: 'checked', label: t('checkedIn') },
-    { id: 'missing', label: t('notCheckedIn') },
+    { id: 'missing', label: t('missed') },
   ];
   const handleSearchSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -1679,7 +1679,9 @@ function CaregiverDashboardHome({
               onClick={() => setCheckInFilter(option.id)}
               className={`flex h-10 min-w-0 items-center justify-center rounded-[12px] px-2 text-xs font-black transition-colors active:scale-95 ${
                 checkInFilter === option.id
-                  ? 'bg-[#416642] text-white'
+                  ? option.id === 'missing'
+                    ? 'bg-[#d94b3d] text-white'
+                    : 'bg-[#416642] text-white'
                   : 'bg-[#f4f6f8] text-[#5f6368]'
               }`}
             >
@@ -4178,15 +4180,26 @@ function SeniorCard({
               <Phone className="h-5 w-5" />
               {t('call')}
             </a>
-            <button
-              type="button"
-              disabled={isSendingReminder}
-              onClick={() => onSendReminder(senior)}
-              className={`flex h-14 items-center justify-center gap-2 rounded-[10px] border text-lg font-bold uppercase transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 ${primaryActionClass}`}
-            >
-              <Bell className="h-5 w-5" />
-              {isSendingReminder ? t('sending') : t('remind')}
-            </button>
+            {isSosAlert ? (
+              <a
+                href="tel:995"
+                aria-label={`${t('emergency')} 995`}
+                className="flex h-14 items-center justify-center gap-2 rounded-[10px] border border-[#c8171d] bg-[#c8171d] text-lg font-bold uppercase text-white transition-transform active:scale-[0.98]"
+              >
+                <Phone className="h-5 w-5" />
+                {t('emergency')}
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled={isSendingReminder}
+                onClick={() => onSendReminder(senior)}
+                className={`flex h-14 items-center justify-center gap-2 rounded-[10px] border text-lg font-bold uppercase transition-transform active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 disabled:active:scale-100 ${primaryActionClass}`}
+              >
+                <Bell className="h-5 w-5" />
+                {isSendingReminder ? t('sending') : t('remind')}
+              </button>
+            )}
           </>
         )}
         <button

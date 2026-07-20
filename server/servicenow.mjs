@@ -120,6 +120,7 @@ const CAREGIVER_CONNECTION_FIELD_MAP = {
   emergencyContactName: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_EMERGENCY_CONTACT_NAME || 'u_emergency_contact_name',
   emergencyContactPhone: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_EMERGENCY_CONTACT_PHONE || 'u_emergency_contact_phone',
   isNok: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_IS_NOK || 'u_is_nok',
+  telegramChatId: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_TELEGRAM_CHAT_ID || 'u_telegram_chat_id',
 };
 
 const MEDICINE_FIELD_MAP = {
@@ -2314,6 +2315,26 @@ export async function deleteCaregiverConnection(data = {}) {
   });
 
   return { id: connectionId };
+}
+
+export async function updateCaregiverConnection(data = {}) {
+  const connectionId = String(data.connectionId || '').trim();
+  const updateData = data.updateData || {};
+
+  if (!connectionId) {
+    throw Object.assign(new Error('Caregiver connection ID is required.'), { status: 400 });
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    throw Object.assign(new Error('No fields to update.'), { status: 400 });
+  }
+
+  const response = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `/${encodeURIComponent(connectionId)}`), {
+    method: 'PATCH',
+    body: JSON.stringify(updateData),
+  });
+
+  return response?.result || response;
 }
 
 export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmail, searchName, phone }) {

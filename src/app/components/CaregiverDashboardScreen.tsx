@@ -23,6 +23,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings,
   ShieldAlert,
   Shield,
   Sofa,
@@ -47,6 +48,7 @@ import {
 } from 'recharts';
 import { getStoredUser } from '../services/backend';
 import { useLiveVitals, type LiveRoomState, type VitalPoint } from '../hooks/useLiveVitals';
+import CaregiverSettingsScreen from './CaregiverSettingsScreen';
 import {
   createCaregiverAppointment,
   deleteCaregiverAppointment,
@@ -365,7 +367,7 @@ export default function CaregiverDashboardScreen({
   alertsLabel?: string;
 }) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'live' | 'healthBuddy' | 'alerts' | 'profile'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'live' | 'healthBuddy' | 'alerts' | 'profile' | 'settings'>('dashboard');
   const currentUser = getStoredUser();
   const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || t('caregiver');
   const caregiverId = currentUser?.uid || '';
@@ -1106,6 +1108,11 @@ export default function CaregiverDashboardScreen({
             onLogout={onLogout}
           />
         )}
+        {!selectedSenior && activeTab === 'settings' && (
+          <CaregiverSettingsScreen
+            onBack={() => setActiveTab('profile')}
+          />
+        )}
       </main>
 
       {showAddSenior && (
@@ -1254,6 +1261,16 @@ export default function CaregiverDashboardScreen({
           onClick={() => {
             setSelectedSenior(null);
             setActiveTab('profile');
+          }}
+        />
+        <DashboardNavItem
+          active={activeTab === 'settings'}
+          icon={<Settings className="h-6 w-6" />}
+          isAdminMode={isAdminMode}
+          label="Settings"
+          onClick={() => {
+            setSelectedSenior(null);
+            setActiveTab('settings');
           }}
         />
       </nav>

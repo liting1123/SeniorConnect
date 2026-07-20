@@ -86,6 +86,13 @@ type LoginResponse = {
 
 const SESSION_KEY = 'careconnect.user';
 
+function getApiBaseUrl() {
+  // Get the current hostname and port from window.location
+  const hostname = window.location.hostname;
+  // Always use port 3001 for the backend API
+  return `http://${hostname}:3001`;
+}
+
 function normalizeRole(role = '') {
   return role.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -139,7 +146,8 @@ export function setCachedUserPoints(user: AppUser, points: number) {
 }
 
 async function request<T>(user: AppUser, path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
+  const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
+  const response = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -192,7 +200,7 @@ export function updateStoredUserRole(role: string) {
 }
 
 export async function login(identifier: string, password: string, loginType: 'senior' | 'family' = 'senior') {
-  const response = await fetch('/api/login', {
+  const response = await fetch(`${getApiBaseUrl()}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identifier, password, loginType }),
@@ -230,7 +238,7 @@ export async function login(identifier: string, password: string, loginType: 'se
 }
 
 export async function registerCaregiver(email: string, password: string) {
-  const response = await fetch('/api/register', {
+  const response = await fetch(`${getApiBaseUrl()}/api/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -256,7 +264,7 @@ export async function registerCaregiver(email: string, password: string) {
 }
 
 export async function registerFamilyMember(email: string, password: string) {
-  const response = await fetch('/api/register-family', {
+  const response = await fetch(`${getApiBaseUrl()}/api/register-family`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -283,7 +291,7 @@ export async function registerFamilyMember(email: string, password: string) {
 
 //Forgot password endpoint
 export async function resetPassword(identifier: string, password: string, loginType: 'senior' | 'family' = 'senior') {
-  const response = await fetch('/api/forgot-password', {
+  const response = await fetch(`${getApiBaseUrl()}/api/forgot-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identifier, password, loginType }),

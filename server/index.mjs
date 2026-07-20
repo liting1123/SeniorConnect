@@ -32,6 +32,7 @@ import {
   searchSeniorProfiles,
   updateSosAlertStatus,
   updateAppointmentForCaregiver,
+  updateCaregiverConnection,
   upsertUserProfile,
   verifyFamilyVerification,
 } from './servicenow.mjs';
@@ -918,6 +919,66 @@ export async function handleRequest(request, response) {
 
     sendJson(response, 200, { success: true, message: 'Acknowledgment recorded' });
     return;
+  }
+
+  if (url.pathname === '/api/caregiver/telegram-id' && request.method === 'GET') {
+    const caregiverId = url.searchParams.get('caregiverId');
+
+    if (!caregiverId) {
+      sendJson(response, 400, { error: 'Missing caregiverId' });
+      return;
+    }
+
+    try {
+      const connections = await getCaregiverSeniorConnections({ caregiverId });
+      const telegramId = connections && connections.length > 0 ? connections[0].telegramChatId : null;
+
+      sendJson(response, 200, { telegramId });
+      return;
+    } catch (err) {
+      console.error('[Caregiver] Error fetching Telegram ID:', err.message);
+      sendJson(response, 500, { error: 'Failed to fetch Telegram ID' });
+      return;
+    }
+  }
+
+  if (url.pathname === '/api/caregiver/telegram-id' && request.method === 'POST') {
+    const body = await readJson(request);
+    const caregiverId = String(body.caregiverId || '').trim();
+    const telegramId = String(body.telegramId || '').trim();
+
+    if (!caregiverId || !telegramId) {
+      sendJson(response, 400, { error: 'Missing caregiverId or telegramId' });
+      return;
+    }
+
+    try {
+      // Get the caregiver's connection records and update all of them
+      const connections = await getCaregiverSeniorConnections({ caregiverId });
+      
+      if (!connections || connections.length === 0) {
+        sendJson(response, 404, { error: 'No caregiver connections found' });
+        return;
+      }
+
+      // Update all connections for this caregiver with the new Telegram ID
+      for (const connection of connections) {
+        await updateCaregiverConnection({
+          connectionId: connection.id,
+          updateData: {
+            u_telegram_chat_id: telegramId,
+          },
+        });
+      }
+
+      console.log(`[Caregiver] ✓ Telegram ID updated for caregiver ${caregiverId}: ${telegramId}`);
+      sendJson(response, 200, { success: true, message: 'Telegram ID saved', telegramId });
+      return;
+    } catch (err) {
+      console.error('[Caregiver] Error updating Telegram ID:', err.message);
+      sendJson(response, 500, { error: 'Failed to save Telegram ID' });
+      return;
+    }
   }
 
   if (url.pathname === '/api/check-in-reminders' && request.method === 'POST') {

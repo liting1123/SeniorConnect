@@ -15,6 +15,7 @@ import {
   getUpcomingAppointmentsForReminder,
   createSosAlert,
   deleteMedicineForUser,
+  getCaregiverContactsForSenior,
   getCaregiverSeniorConnections,
   getPendingFamilyVerificationCodesForSenior,
   getMedicinesForUser,
@@ -22,6 +23,7 @@ import {
   getSensorActivitySnapshot,
   getServiceNowLoginConfig,
   getSosAlertHistory,
+  getLatestActiveSosAlertForSenior,
   getVitalsHistory,
   getUserById,
   loginWithServiceNow,
@@ -44,6 +46,7 @@ const PORT = Number(process.env.API_PORT) || 3001;
 const checkInReminders = [];
 const loginMfaCodes = new Map();
 const appointmentReminders = new Set(); // Track appointment IDs that have sent 24-hour reminders
+const escalatedSosAlerts = new Map(); // Track SOS alerts that have already escalated to AIC
 
 const MFA_EMAIL_HOST = String(process.env.MFA_EMAIL_HOST || '').trim();
 const MFA_EMAIL_PORT = Number(process.env.MFA_EMAIL_PORT) || 587;
@@ -56,6 +59,7 @@ const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const AIC_TELEGRAM_BOT_TOKEN = String(process.env.AIC_TELEGRAM_BOT_TOKEN || '').trim();
 const AIC_TELEGRAM_CHAT_ID = String(process.env.AIC_TELEGRAM_CHAT_ID || '').trim();
 const CHECK_IN_ALERT_THRESHOLD_MS = (Number(process.env.CHECK_IN_ALERT_THRESHOLD_MINUTES || '5')) * 60 * 1000;
+const SOS_ALERT_ESCALATION_THRESHOLD_MS = (Number(process.env.SOS_ALERT_ESCALATION_THRESHOLD_MINUTES || '5')) * 60 * 1000;
 
 // Check-in window configuration
 const CHECK_IN_TIME_ZONE = String(process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore').trim();
@@ -190,6 +194,75 @@ async function sendLoginMfaCodeEmail(email, code) {
       '',
       'If you did not attempt to log in, you can ignore this email.',
     ].join('\n'),
+  });
+}
+
+async function sendCaregiverMissedCheckInEmail({ caregiverEmail, caregiverName, seniorName, windowLabel }) {
+  const transporter = getMfaTransporter();
+  const normalizedEmail = normalizeEmail(caregiverEmail);
+
+  if (!normalizedEmail) {
+    throw Object.assign(new Error('A valid caregiver email is required.'), { status: 400 });
+  }
+
+  await transporter.sendMail({
+    from: MFA_EMAIL_FROM,
+    to: normalizedEmail,
+    subject: `CareConnect missed ${windowLabel} check-in alert`,
+    text: [
+      `Hello ${caregiverName || 'Caregiver'},`,
+      '',
+      `${seniorName || 'Your senior'} missed the ${windowLabel} check-in window.`,
+      'Please check on them and acknowledge the alert in CareConnect.',
+      '',
+      `If there is no acknowledgment within ${Math.round(CAREGIVER_RESPONSIVENESS_THRESHOLD_MS / (60 * 1000))} minutes, AIC will be notified.`,
+    ].join('\n'),
+  });
+}
+
+async function sendCheckInReminderEmail({ seniorEmail, seniorName, message }) {
+  const transporter = getMfaTransporter();
+  const normalizedEmail = normalizeEmail(seniorEmail);
+
+  if (!normalizedEmail) {
+    return;
+  }
+
+  await transporter.sendMail({
+    from: MFA_EMAIL_FROM,
+    to: normalizedEmail,
+    subject: 'CareConnect check-in reminder',
+    text: [
+      `Hello ${seniorName || 'Senior'},`,
+      '',
+      message || 'Please complete your check-in for today.',
+      '',
+      'Please open CareConnect and check in when you are able.',
+    ].join('\n'),
+  });
+}
+
+async function sendSosAlertEmail({ caregiverEmail, caregiverName, seniorName, location, message }) {
+  const transporter = getMfaTransporter();
+  const normalizedEmail = normalizeEmail(caregiverEmail);
+
+  if (!normalizedEmail) {
+    return;
+  }
+
+  await transporter.sendMail({
+    from: MFA_EMAIL_FROM,
+    to: normalizedEmail,
+    subject: `CareConnect SOS alert for ${seniorName || 'Senior'}`,
+    text: [
+      `Hello ${caregiverName || 'Caregiver'},`,
+      '',
+      `An SOS alert was triggered for ${seniorName || 'a senior'}.`,
+      message ? `Message: ${message}` : '',
+      location ? `Location: ${location}` : '',
+      '',
+      'Please respond immediately and open CareConnect for details.',
+    ].filter(Boolean).join('\n'),
   });
 }
 
@@ -459,20 +532,45 @@ async function checkForMissedCheckIns() {
           
           // Check if this is a new missed check-in for this window
           if (!alertRecord || alertRecord.lastCheckInWindow !== currentWindow) {
-            // Get caregiver connection
-            const connections = await getCaregiverSeniorConnections({ seniorProfileId: seniorId });
-            const caregiver = connections && connections.length > 0 ? connections[0] : null;
-            const caregiverId = caregiver ? caregiver.caregiverId : 'unknown';
+            const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: seniorId });
+            const caregiver = caregiverContacts && caregiverContacts.length > 0 ? caregiverContacts[0] : null;
+            const caregiverId = caregiver?.caregiverId || 'unknown';
+            const caregiverName = caregiver?.caregiverName || 'Caregiver';
             
             const seniorName = senior.name || 'Senior';
-            
-            // Notify caregiver (send to Telegram or in-app notification)
+
             const notificationMessage = 
               `📲 <b>Check-In Reminder</b>\n\n` +
               `Senior <b>${seniorName}</b> has not checked in during the ${currentWindow} window.\n\n` +
               `Please check on them or confirm they are safe.`;
             
             console.log(`[Check-In Monitor] Senior ${seniorId} (${seniorName}) missed ${currentWindow} check-in window - notifying caregiver ${caregiverId}`);
+
+            const caregiverEmails = Array.from(
+              new Map(
+                caregiverContacts
+                  .map((contact) => [normalizeEmail(contact.caregiverEmail), contact])
+                  .filter(([email]) => Boolean(email)),
+              ).values(),
+            );
+
+            if (caregiverEmails.length > 0) {
+              await Promise.all(
+                caregiverEmails.map((contact) =>
+                  sendCaregiverMissedCheckInEmail({
+                    caregiverEmail: contact.caregiverEmail,
+                    caregiverName: contact.caregiverName || 'Caregiver',
+                    seniorName,
+                    windowLabel: currentWindow,
+                  }),
+                ),
+              );
+              console.log(
+                `[Check-In Monitor] ✓ Caregiver email sent to ${caregiverEmails.map((contact) => contact.caregiverEmail).join(', ')} for senior ${seniorId}`,
+              );
+            } else {
+              console.warn(`[Check-In Monitor] No caregiver email found for senior ${seniorId}; skipping caregiver email notification.`);
+            }
             
             // Record the missed check-in alert and track caregiver notification
             missedCheckInAlerts.set(seniorId, {
@@ -480,8 +578,10 @@ async function checkForMissedCheckIns() {
               seniorName,
               seniorId,
               caregiverId,
+              caregiverEmail: caregiverEmails[0]?.caregiverEmail || '',
               lastCheckInWindow: currentWindow,
               message: notificationMessage,
+              aicAlertSent: false,
             });
             
             // Clear any previous view tracking for this window
@@ -492,7 +592,7 @@ async function checkForMissedCheckIns() {
             const timeSinceNotification = now - alertRecord.notifiedAt;
             
             // If caregiver hasn't viewed AND threshold passed, alert AIC
-            if (!viewed && timeSinceNotification > CAREGIVER_RESPONSIVENESS_THRESHOLD_MS) {
+            if (!viewed && !alertRecord.aicAlertSent && timeSinceNotification > CAREGIVER_RESPONSIVENESS_THRESHOLD_MS) {
               const seniorName = alertRecord.seniorName;
               const caregiverId = alertRecord.caregiverId;
               const minutesUnresponsive = Math.round(timeSinceNotification / (60 * 1000));
@@ -615,6 +715,79 @@ async function checkAndSend24HourAppointmentReminders() {
     console.log('[Appointment Reminder] Check complete');
   } catch (error) {
     console.error('[Appointment Reminder] Error checking appointments:', error);
+  }
+}
+
+async function checkForUnresponsiveSosAlerts() {
+  try {
+    const seniors = await searchSeniorProfiles({});
+
+    if (!seniors || seniors.length === 0) {
+      return;
+    }
+
+    for (const senior of seniors) {
+      try {
+        const activeAlert = await getLatestActiveSosAlertForSenior(senior);
+
+        if (!activeAlert?.id) {
+          escalatedSosAlerts.delete(senior.id);
+          continue;
+        }
+
+        const createdAtMs = new Date(activeAlert.createdAt).getTime();
+
+        if (Number.isNaN(createdAtMs)) {
+          continue;
+        }
+
+        const ageMs = Date.now() - createdAtMs;
+
+        if (ageMs < SOS_ALERT_ESCALATION_THRESHOLD_MS) {
+          continue;
+        }
+
+        if (escalatedSosAlerts.has(activeAlert.id)) {
+          continue;
+        }
+
+        const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: senior.id }).catch(() => []);
+        const caregiverName = caregiverContacts[0]?.caregiverName || 'Caregiver';
+        const caregiverEmail = caregiverContacts[0]?.caregiverEmail || '';
+        const minutesUnresolved = Math.round(ageMs / (60 * 1000));
+        const seniorName = senior.name || 'Senior';
+
+        const aicAlertMessage = [
+          '⚠️ <b>UNRESPONSIVE SOS ALERT</b>',
+          '',
+          `👤 Senior: ${seniorName}`,
+          senior.id ? `🆔 Senior ID: ${senior.id}` : '',
+          `📣 SOS message: ${activeAlert.message || 'SOS alert triggered'}`,
+          activeAlert.location ? `📍 Location: ${activeAlert.location}` : '',
+          caregiverName ? `👨‍⚕️ Primary caregiver: ${caregiverName}` : '',
+          caregiverEmail ? `📧 Caregiver email: ${caregiverEmail}` : '',
+          `⏱ Unresolved for: ${minutesUnresolved} minutes`,
+          '',
+          '<i>The SOS alert is still active and the caregiver has not responded. Please take immediate action.</i>',
+        ].filter(Boolean).join('\n');
+
+        await sendAICAlert(aicAlertMessage)
+          .then(() => {
+            escalatedSosAlerts.set(activeAlert.id, {
+              seniorId: senior.id,
+              escalatedAt: Date.now(),
+            });
+            console.log(`[SOS Monitor] ✓ AIC alert sent for unresolved SOS ${activeAlert.id} (senior ${senior.id})`);
+          })
+          .catch((err) => {
+            console.error('[SOS Monitor] Failed to send AIC alert:', err.message);
+          });
+      } catch (err) {
+        console.error('[SOS Monitor] Error checking senior SOS status:', err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[SOS Monitor] Error in checkForUnresponsiveSosAlerts:', err.message);
   }
 }
 
@@ -875,6 +1048,33 @@ export async function handleRequest(request, response) {
       status: body.status,
     });
 
+    if (body.seniorProfileId) {
+      try {
+        const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: body.seniorProfileId });
+        const uniqueContacts = Array.from(
+          new Map(
+            caregiverContacts
+              .map((contact) => [normalizeEmail(contact.caregiverEmail), contact])
+              .filter(([email]) => Boolean(email)),
+          ).values(),
+        );
+
+        await Promise.all(
+          uniqueContacts.map((contact) =>
+            sendSosAlertEmail({
+              caregiverEmail: contact.caregiverEmail,
+              caregiverName: contact.caregiverName || 'Caregiver',
+              seniorName: body.seniorName,
+              location: body.location,
+              message: body.message,
+            }),
+          ),
+        );
+      } catch (error) {
+        console.error('[SOS Alert] Failed to send email notification:', error.message);
+      }
+    }
+
     sendJson(response, 200, { alert });
     return;
   }
@@ -885,6 +1085,10 @@ export async function handleRequest(request, response) {
       alertId: body.alertId,
       status: body.status,
     });
+
+    if (alert?.id) {
+      escalatedSosAlerts.delete(alert.id);
+    }
 
     sendJson(response, 200, { alert });
     return;
@@ -984,6 +1188,16 @@ export async function handleRequest(request, response) {
   if (url.pathname === '/api/check-in-reminders' && request.method === 'POST') {
     const body = await readJson(request);
     const reminder = createCheckInReminder(body);
+
+    try {
+      await sendCheckInReminderEmail({
+        seniorEmail: body.seniorEmail,
+        seniorName: body.seniorName,
+        message: body.message,
+      });
+    } catch (error) {
+      console.error('[Check-In Reminder] Failed to send reminder email:', error.message);
+    }
 
     sendJson(response, 200, { reminder });
     return;
@@ -1388,4 +1602,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   setInterval(checkAndSend24HourAppointmentReminders, 30 * 60 * 1000);
   // Run immediately on startup
   checkAndSend24HourAppointmentReminders();
+
+  // Start SOS escalation scheduler - runs every 2 minutes
+  setInterval(checkForUnresponsiveSosAlerts, 2 * 60 * 1000);
+  // Run immediately on startup
+  checkForUnresponsiveSosAlerts();
 }

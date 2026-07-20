@@ -1,6 +1,7 @@
 type SosAlertInput = {
   location: string;
   message: string;
+  seniorProfileId?: string;
   seniorName: string;
   seniorPhone: string;
   status: string;

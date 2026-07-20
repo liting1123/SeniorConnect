@@ -2180,7 +2180,7 @@ function toActiveSosAlert(record = {}) {
   };
 }
 
-async function getLatestActiveSosAlertForSenior(senior = {}) {
+export async function getLatestActiveSosAlertForSenior(senior = {}) {
   const queryParts = [];
   const seniorName = String(senior.name || '').trim();
   const seniorPhone = String(senior.phone || '').trim();
@@ -2335,6 +2335,38 @@ export async function updateCaregiverConnection(data = {}) {
   });
 
   return response?.result || response;
+}
+
+export async function getCaregiverContactsForSenior({ seniorProfileId } = {}) {
+  const normalizedSeniorProfileId = String(seniorProfileId || '').trim();
+
+  if (!normalizedSeniorProfileId) {
+    throw Object.assign(new Error('Senior profile ID is required.'), { status: 400 });
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.senior}=${normalizedSeniorProfileId}`,
+    sysparm_limit: '20',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${params.toString()}`));
+
+  return Promise.all((data?.result || []).map(async (connection) => {
+    const caregiverUserId = getReferenceValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.user]);
+    const caregiverUser = caregiverUserId ? await getLoginRecordById(caregiverUserId) : null;
+
+    return {
+      connectionId: connection.sys_id || '',
+      caregiverId: caregiverUserId || '',
+      caregiverName:
+        getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.name]) ||
+        getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.username]) ||
+        getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.email])?.split('@')[0] ||
+        '',
+      caregiverEmail: getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.email]) || '',
+      telegramChatId: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.telegramChatId]) || '',
+      relationship: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.relationship]) || '',
+    };
+  }));
 }
 
 export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmail, searchName, phone }) {

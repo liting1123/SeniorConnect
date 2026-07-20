@@ -897,6 +897,7 @@ export default function CaregiverDashboardScreen({
           seniorUserId: senior.userId,
           seniorProfileId: senior.id,
           seniorName: senior.name,
+          seniorEmail: senior.email,
           seniorPhone: senior.phone,
           message: 'Please complete your check-in for today.',
         }),

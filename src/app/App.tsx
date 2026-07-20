@@ -735,6 +735,7 @@ export default function App() {
       await createSosAlert({
         location,
         message: 'SOS alert triggered',
+        seniorProfileId: seniorProfile?.sysId || '',
         seniorName,
         seniorPhone,
         status: 'New',

@@ -17,8 +17,8 @@ const CaregiverSettingsScreen: React.FC<{
     setUserData(user);
     
     // Load existing Telegram ID
-    if (user?.id) {
-      loadTelegramId(user.id);
+    if (user?.uid) {
+      loadTelegramId(user.uid);
     }
   }, []);
 
@@ -46,7 +46,7 @@ const CaregiverSettingsScreen: React.FC<{
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          caregiverId: userData?.id,
+          caregiverId: userData?.uid,
           telegramId: telegramId.trim(),
         }),
       });

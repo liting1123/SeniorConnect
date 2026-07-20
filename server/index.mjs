@@ -52,8 +52,21 @@ const MFA_EMAIL_PASS = String(process.env.MFA_EMAIL_PASS || '').trim();
 const MFA_EMAIL_FROM = String(process.env.MFA_EMAIL_FROM || '').trim();
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
+const AIC_TELEGRAM_BOT_TOKEN = String(process.env.AIC_TELEGRAM_BOT_TOKEN || '').trim();
+const AIC_TELEGRAM_CHAT_ID = String(process.env.AIC_TELEGRAM_CHAT_ID || '').trim();
+const CHECK_IN_ALERT_THRESHOLD_MS = (Number(process.env.CHECK_IN_ALERT_THRESHOLD_MINUTES || '5')) * 60 * 1000;
+
+// Check-in window configuration
+const CHECK_IN_TIME_ZONE = String(process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore').trim();
+const CHECK_IN_MORNING_START = String(process.env.CHECK_IN_MORNING_START || '05:00').trim();
+const CHECK_IN_MORNING_END = String(process.env.CHECK_IN_MORNING_END || '09:00').trim();
+const CHECK_IN_EVENING_START = String(process.env.CHECK_IN_EVENING_START || '17:00').trim();
+const CHECK_IN_EVENING_END = String(process.env.CHECK_IN_EVENING_END || '23:59').trim();
+const CAREGIVER_RESPONSIVENESS_THRESHOLD_MS = (Number(process.env.CAREGIVER_RESPONSIVENESS_THRESHOLD_MINUTES || '5')) * 60 * 1000;
 
 let mfaMailer = null;
+const missedCheckInAlerts = new Map(); // Track missed check-ins: seniorId -> { notifiedAt, seniorName, caregiverId, lastCheckInWindow }
+const caregiverNotificationViews = new Map(); // Track caregiver views: seniorId -> { viewedAt, caregiverId }
 
 function normalizeReminderValue(value = '') {
   return String(value || '').trim().toLowerCase();
@@ -221,6 +234,28 @@ async function sendTelegramMessage(text) {
   }
 }
 
+async function sendAICAlert(text) {
+  if (!AIC_TELEGRAM_BOT_TOKEN || !AIC_TELEGRAM_CHAT_ID) {
+    console.warn('[AIC Alert] Bot token or chat ID not configured, skipping.');
+    return;
+  }
+
+  const url = `https://api.telegram.org/bot${AIC_TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const body = JSON.stringify({ chat_id: AIC_TELEGRAM_CHAT_ID, text, parse_mode: 'HTML' });
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    console.error('[AIC Alert] Failed to send alert:', err);
+    throw new Error(`AIC Alert API error: ${err}`);
+  }
+}
+
 async function sendAppointmentNotificationEmail(caregiverEmail, appointmentData) {
   const transporter = getMfaTransporter();
   const normalizedCaregiverEmail = normalizeEmail(caregiverEmail);
@@ -328,6 +363,174 @@ async function sendAppointmentReminderEmail(caregiverEmail, seniorEmail, appoint
     throw Object.assign(new Error('No valid email addresses to send reminder to.'), { status: 400 });
   }
   await Promise.all(sends);
+}
+
+function parseTimeHHMM(timeStr) {
+  const [hours, minutes] = String(timeStr || '').split(':').map(Number);
+  return { hours: hours || 0, minutes: minutes || 0 };
+}
+
+function getCurrentCheckInWindow() {
+  const now = new Date();
+  // Convert to Singapore time
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: CHECK_IN_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const timeStr = formatter.format(now);
+  const [hours, minutes] = timeStr.split(':').map(Number);
+  const currentTimeInMinutes = hours * 60 + minutes;
+  
+  const morning = parseTimeHHMM(CHECK_IN_MORNING_START);
+  const morningEnd = parseTimeHHMM(CHECK_IN_MORNING_END);
+  const evening = parseTimeHHMM(CHECK_IN_EVENING_START);
+  const eveningEnd = parseTimeHHMM(CHECK_IN_EVENING_END);
+  
+  const morningStartMins = morning.hours * 60 + morning.minutes;
+  const morningEndMins = morningEnd.hours * 60 + morningEnd.minutes;
+  const eveningStartMins = evening.hours * 60 + evening.minutes;
+  const eveningEndMins = eveningEnd.hours * 60 + eveningEnd.minutes;
+  
+  if (currentTimeInMinutes >= morningStartMins && currentTimeInMinutes < morningEndMins) {
+    return 'morning';
+  } else if (currentTimeInMinutes >= eveningStartMins && currentTimeInMinutes <= eveningEndMins) {
+    return 'evening';
+  }
+  return null;
+}
+
+function getCheckInWindowStatus(lastCheckInStr) {
+  if (!lastCheckInStr) return null;
+  
+  const lastCheckIn = new Date(lastCheckInStr);
+  const now = new Date();
+  
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: CHECK_IN_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  
+  const lastCheckInDate = formatter.format(lastCheckIn);
+  const todayDate = formatter.format(now);
+  
+  if (lastCheckInDate === todayDate) {
+    return 'checked-in-today';
+  }
+  return 'missed-today';
+}
+
+async function checkForMissedCheckIns() {
+  try {
+    const now = Date.now();
+    const seniors = await searchSeniorProfiles({});
+    
+    if (!seniors || seniors.length === 0) {
+      return;
+    }
+    
+    console.log(`[Check-In Monitor] Checking ${seniors.length} seniors for missed check-ins`);
+    
+    const currentWindow = getCurrentCheckInWindow();
+    if (!currentWindow) {
+      console.log(`[Check-In Monitor] Outside check-in windows - skipping`);
+      return;
+    }
+    
+    for (const senior of seniors) {
+      try {
+        const seniorId = senior.id;
+        const lastCheckInStr = senior.lastCheckInAt || '';
+        
+        // Skip if no check-in time available
+        if (!lastCheckInStr) {
+          continue;
+        }
+        
+        const checkInStatus = getCheckInWindowStatus(lastCheckInStr);
+        
+        // If senior missed today's check-in (haven't checked in today during any window)
+        if (checkInStatus === 'missed-today') {
+          const alertRecord = missedCheckInAlerts.get(seniorId);
+          
+          // Check if this is a new missed check-in for this window
+          if (!alertRecord || alertRecord.lastCheckInWindow !== currentWindow) {
+            // Get caregiver connection
+            const connections = await getCaregiverSeniorConnections({ seniorProfileId: seniorId });
+            const caregiver = connections && connections.length > 0 ? connections[0] : null;
+            const caregiverId = caregiver ? caregiver.caregiverId : 'unknown';
+            
+            const seniorName = senior.name || 'Senior';
+            
+            // Notify caregiver (send to Telegram or in-app notification)
+            const notificationMessage = 
+              `📲 <b>Check-In Reminder</b>\n\n` +
+              `Senior <b>${seniorName}</b> has not checked in during the ${currentWindow} window.\n\n` +
+              `Please check on them or confirm they are safe.`;
+            
+            console.log(`[Check-In Monitor] Senior ${seniorId} (${seniorName}) missed ${currentWindow} check-in window - notifying caregiver ${caregiverId}`);
+            
+            // Record the missed check-in alert and track caregiver notification
+            missedCheckInAlerts.set(seniorId, {
+              notifiedAt: now,
+              seniorName,
+              seniorId,
+              caregiverId,
+              lastCheckInWindow: currentWindow,
+              message: notificationMessage,
+            });
+            
+            // Clear any previous view tracking for this window
+            caregiverNotificationViews.delete(seniorId);
+          } else if (alertRecord) {
+            // Check if caregiver has viewed the notification
+            const viewed = caregiverNotificationViews.get(seniorId);
+            const timeSinceNotification = now - alertRecord.notifiedAt;
+            
+            // If caregiver hasn't viewed AND threshold passed, alert AIC
+            if (!viewed && timeSinceNotification > CAREGIVER_RESPONSIVENESS_THRESHOLD_MS) {
+              const seniorName = alertRecord.seniorName;
+              const caregiverId = alertRecord.caregiverId;
+              const minutesUnresponsive = Math.round(timeSinceNotification / (60 * 1000));
+              
+              const aicAlertMessage = 
+                `⚠️ <b>UNRESPONSIVE CAREGIVER ALERT</b>\n\n` +
+                `👤 Senior: ${seniorName}\n` +
+                `🆔 Senior ID: ${seniorId}\n` +
+                `👨‍⚕️ Caregiver ID: ${caregiverId}\n` +
+                `📱 Issue: Senior missed ${alertRecord.lastCheckInWindow} check-in\n` +
+                `⏱ Caregiver unresponsive for: ${minutesUnresponsive} minutes\n\n` +
+                `<i>The caregiver has not acknowledged the missed check-in notification. Please take immediate action.</i>`;
+              
+              await sendAICAlert(aicAlertMessage)
+                .then(() => {
+                  console.log(`[Check-In Monitor] ✓ AIC alert sent for unresponsive caregiver ${caregiverId} (senior ${seniorId})`);
+                  // Mark that we've sent the AIC alert so we don't spam
+                  missedCheckInAlerts.get(seniorId).aicAlertSent = true;
+                })
+                .catch(err => {
+                  console.error(`[Check-In Monitor] Failed to send AIC alert:`, err.message);
+                });
+            }
+          }
+        } else {
+          // Senior checked in - clear any alerts
+          if (missedCheckInAlerts.has(seniorId)) {
+            missedCheckInAlerts.delete(seniorId);
+            caregiverNotificationViews.delete(seniorId);
+            console.log(`[Check-In Monitor] ✓ Senior ${seniorId} checked in - alert cleared`);
+          }
+        }
+      } catch (err) {
+        console.error('[Check-In Monitor] Error checking senior:', err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[Check-In Monitor] Error in checkForMissedCheckIns:', err.message);
+  }
 }
 
 async function checkAndSend24HourAppointmentReminders() {
@@ -692,6 +895,28 @@ export async function handleRequest(request, response) {
     });
 
     sendJson(response, 200, { history });
+    return;
+  }
+
+  if (url.pathname === '/api/caregiver/acknowledge-check-in' && request.method === 'POST') {
+    const body = await readJson(request);
+    const seniorId = String(body.seniorId || '').trim();
+    const caregiverId = String(body.caregiverId || '').trim();
+
+    if (!seniorId || !caregiverId) {
+      sendJson(response, 400, { error: 'Missing seniorId or caregiverId' });
+      return;
+    }
+
+    // Mark the notification as viewed
+    caregiverNotificationViews.set(seniorId, {
+      viewedAt: Date.now(),
+      caregiverId,
+    });
+
+    console.log(`[Check-In Monitor] ✓ Caregiver ${caregiverId} acknowledged missed check-in for senior ${seniorId}`);
+
+    sendJson(response, 200, { success: true, message: 'Acknowledgment recorded' });
     return;
   }
 
@@ -1082,6 +1307,21 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } else {
     console.warn('[Telegram] NOT configured — TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing in .env');
   }
+
+  // Verify AIC Alert Bot config on startup
+  if (AIC_TELEGRAM_BOT_TOKEN && AIC_TELEGRAM_CHAT_ID) {
+    console.log(`[AIC Alert] Configured — bot token ends in ...${AIC_TELEGRAM_BOT_TOKEN.slice(-6)}, chat ID: ${AIC_TELEGRAM_CHAT_ID}`);
+    sendAICAlert(`✅ <b>CareConnect AIC Alert System Started</b>\n\nMonitoring for missed check-ins. Alert threshold: ${Math.round(CHECK_IN_ALERT_THRESHOLD_MS / (60 * 1000))} minutes.`)
+      .then(() => console.log('[AIC Alert] Startup test message sent successfully.'))
+      .catch(err => console.error('[AIC Alert] Startup test failed:', err.message));
+  } else {
+    console.warn('[AIC Alert] NOT configured — AIC_TELEGRAM_BOT_TOKEN or AIC_TELEGRAM_CHAT_ID missing in .env');
+  }
+
+  // Start check-in monitoring scheduler - runs every 2 minutes
+  setInterval(checkForMissedCheckIns, 2 * 60 * 1000);
+  // Run immediately on startup
+  checkForMissedCheckIns();
 
   // Start appointment reminder scheduler - runs every 30 minutes
   setInterval(checkAndSend24HourAppointmentReminders, 30 * 60 * 1000);

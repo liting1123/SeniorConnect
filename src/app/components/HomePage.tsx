@@ -42,7 +42,9 @@ export default function HomePage({
     ? 'goodMorning'
     : singaporeHour < 18
       ? 'goodAfternoon'
-      : 'goodEvening';
+      : singaporeHour < 21
+        ? 'goodEvening'
+        : 'goodNight';
   const completedWindowLabel = completedCheckIn?.windowId === 'morning' ? t('morningCheckIn') : t('eveningCheckIn');
   const completedMessage = completedCheckIn
     ? t('checkInCompletedAt', {

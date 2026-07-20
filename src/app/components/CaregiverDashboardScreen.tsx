@@ -1395,7 +1395,11 @@ function getTimeGreeting() {
     return 'Good Afternoon';
   }
 
-  return 'Good Evening';
+  if (hour < 21) {
+    return 'Good Evening';
+  }
+
+  return 'Good Night';
 }
 
 function parseServiceNowDate(value = '', options: { localServiceNowTime?: boolean } = {}) {

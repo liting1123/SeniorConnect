@@ -514,6 +514,14 @@ async function saveTelegramChatIdForCaregiver(caregiverId, telegramChatId) {
     throw Object.assign(new Error('No caregiver connections found.'), { status: 404 });
   }
 
+  const previousTelegramIds = Array.from(
+    new Set(
+      (connections || [])
+        .map((connection) => String(connection?.telegramChatId || '').trim())
+        .filter(Boolean),
+    ),
+  );
+
   await Promise.all(
     connections.map((connection) =>
       updateCaregiverConnection({
@@ -530,7 +538,11 @@ async function saveTelegramChatIdForCaregiver(caregiverId, telegramChatId) {
     telegramChatId,
   });
 
-  return connections.length;
+  return {
+    updatedConnections: connections.length,
+    hadExistingTelegram: previousTelegramIds.length > 0,
+    previousTelegramIds,
+  };
 }
 
 async function createTelegramSetupLink({ caregiverId, caregiverEmail }) {
@@ -621,13 +633,15 @@ async function processTelegramSetupUpdates() {
         continue;
       }
 
-      await saveTelegramChatIdForCaregiver(entry.caregiverId || entry.caregiverEmail, chatId);
+      const saveResult = await saveTelegramChatIdForCaregiver(entry.caregiverId || entry.caregiverEmail, chatId);
       pendingTelegramSetupLinks.delete(token);
 
-      await sendTelegramMessageToChatId(
-        chatId,
-        '✅ <b>CareConnect connected</b>\n\nYour Telegram chat is now saved. You can return to CareConnect.'
-      ).catch((error) => console.error('[Telegram] Failed to send setup confirmation:', error.message));
+      if (!saveResult.hadExistingTelegram) {
+        await sendTelegramMessageToChatId(
+          chatId,
+          '✅ <b>CareConnect connected</b>\n\nYour Telegram chat is now saved. You can return to CareConnect.'
+        ).catch((error) => console.error('[Telegram] Failed to send setup confirmation:', error.message));
+      }
     }
   } finally {
     telegramSetupPollingInProgress = false;
@@ -1547,10 +1561,23 @@ export async function handleRequest(request, response) {
     }
 
     try {
-      await saveTelegramChatIdForCaregiver(caregiverId, telegramId);
+      const saveResult = await saveTelegramChatIdForCaregiver(caregiverId, telegramId);
       rememberCaregiverTelegramChatId({ caregiverId, caregiverEmail, telegramChatId: telegramId });
       console.log(`[Caregiver] ✓ Telegram ID updated for caregiver ${caregiverId}: ${telegramId}`);
-      sendJson(response, 200, { success: true, message: 'Telegram ID saved', telegramId });
+
+      if (!saveResult.hadExistingTelegram) {
+        await sendTelegramMessageToChatId(
+          telegramId,
+          '✅ <b>CareConnect connected</b>\n\nYour Telegram chat is now saved. You will start receiving caregiver notifications here.'
+        ).catch((error) => console.error('[Caregiver] Failed to send first-time Telegram setup message:', error.message));
+      }
+
+      sendJson(response, 200, {
+        success: true,
+        message: 'Telegram ID saved',
+        telegramId,
+        firstTimeSetup: !saveResult.hadExistingTelegram,
+      });
       return;
     } catch (err) {
       console.error('[Caregiver] Error updating Telegram ID:', err.message);
@@ -2016,14 +2043,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // Verify Telegram config on startup
   if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
     console.log(`[Telegram] Configured — bot token ends in ...${TELEGRAM_BOT_TOKEN.slice(-6)}, chat ID: ${TELEGRAM_CHAT_ID}`);
-
-    if (TELEGRAM_STARTUP_TEST_ENABLED) {
-      sendTelegramMessage(`✅ <b>CareConnect Server Started</b>\n\nNotifications are active.`)
-        .then(() => console.log('[Telegram] Startup test message sent successfully.'))
-        .catch(err => console.error('[Telegram] Startup test failed:', err.message));
-    } else {
-      console.log('[Telegram] Startup test message disabled (TELEGRAM_STARTUP_TEST_ENABLED=false).');
-    }
+    console.log('[Telegram] Startup broadcast disabled. Use the manual test endpoint when needed.');
   } else {
     console.warn('[Telegram] NOT configured — TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing in .env');
   }
@@ -2031,14 +2051,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // Verify AIC Alert Bot config on startup
   if (AIC_TELEGRAM_BOT_TOKEN && AIC_TELEGRAM_CHAT_ID) {
     console.log(`[AIC Alert] Configured — bot token ends in ...${AIC_TELEGRAM_BOT_TOKEN.slice(-6)}, chat ID: ${AIC_TELEGRAM_CHAT_ID}`);
-
-    if (AIC_STARTUP_TEST_ENABLED) {
-      sendAICAlert(`✅ <b>CareConnect AIC Alert System Started</b>\n\nMonitoring for missed check-ins. Alert threshold: ${Math.round(CHECK_IN_ALERT_THRESHOLD_MS / (60 * 1000))} minutes.`)
-        .then(() => console.log('[AIC Alert] Startup test message sent successfully.'))
-        .catch(err => console.error('[AIC Alert] Startup test failed:', err.message));
-    } else {
-      console.log('[AIC Alert] Startup test message disabled (AIC_STARTUP_TEST_ENABLED=false).');
-    }
+    console.log('[AIC Alert] Startup broadcast disabled. Runtime alert monitoring remains active.');
   } else {
     console.warn('[AIC Alert] NOT configured — AIC_TELEGRAM_BOT_TOKEN or AIC_TELEGRAM_CHAT_ID missing in .env');
   }

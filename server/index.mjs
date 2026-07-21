@@ -1973,7 +1973,7 @@ export async function handleRequest(request, response) {
       userId: route.uid,
       email: body.email,
       name: body.name,
-      pointsToAdd: 1,
+      pointsToAdd: 5,
     });
     sendJson(response, 200, { points: user.points, user });
     return;

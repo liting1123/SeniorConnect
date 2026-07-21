@@ -70,7 +70,6 @@ const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
 const CAREGIVER_APPOINTMENT_REMINDER_ACK_KEY = 'careconnect.caregiverAppointmentReminderAck';
 const CAREGIVER_TELEGRAM_ID_KEY = 'careconnect.caregiverTelegramId';
 const CAREGIVER_DASHBOARD_REFRESH_MS = 5000;
-const CAREGIVER_APPOINTMENTS_REFRESH_MS = 30000;
 
 type SosAlertHistory = {
   id: string;
@@ -523,20 +522,9 @@ export default function CaregiverDashboardScreen({
     }
 
     loadAppointments();
-    const refreshTimer = window.setInterval(loadAppointments, CAREGIVER_APPOINTMENTS_REFRESH_MS);
-
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') {
-        loadAppointments();
-      }
-    };
-
-    document.addEventListener('visibilitychange', refreshWhenVisible);
 
     return () => {
       isMounted = false;
-      window.clearInterval(refreshTimer);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
   }, [caregiverEmail, caregiverId]);
 

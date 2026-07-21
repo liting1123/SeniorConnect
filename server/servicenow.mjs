@@ -546,9 +546,16 @@ export async function redeemUserPoints({ userId, email, name, pointsToRedeem = 0
   };
 }
 
-export async function addGamePoint({ userId, email, name, pointsToAdd = 1 }) {
+export async function addGamePoint({ userId, email, name, pointsToAdd = 5 }) {
   const profile = await upsertUserProfile({ userId, email, name });
   const today = getSingaporeDateKey();
+  const lastCheckInDate = profile.lastCheckInAt ? getSingaporeDateKey(profile.lastCheckInAt) : null;
+
+  if (lastCheckInDate && lastCheckInDate === today) {
+    throw Object.assign(new Error('No game points are awarded after daily check-in. Play before check-in to earn 5 points.'), {
+      status: 409,
+    });
+  }
 
   if (profile.gameRewardDate === today) {
     throw Object.assign(new Error('You have already collected your game point today. Please play again tomorrow.'), {
@@ -1314,7 +1321,6 @@ function toCaregiverAppointmentRecord(record = {}, seniorNamesByProfileId = new 
   const backupMatch = /\[DATETIME:([\d\-]+ \d{2}:\d{2})/.exec(notesForDatetime);
   if (backupMatch) {
     const backupDateTime = backupMatch[1];
-    console.log('[toCaregiverAppointmentRecord] Recovered from notes backup:', backupDateTime);
     const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(backupDateTime);
     if (dateMatch) date = dateMatch[1];
     const timeMatch = /(\d{2}):(\d{2})/.exec(backupDateTime);
@@ -1325,7 +1331,6 @@ function toCaregiverAppointmentRecord(record = {}, seniorNamesByProfileId = new 
   if (!date || !rawTime) {
     const rawDateAndTime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.dateAndTime, ['appointment_date_and_time', 'date_and_time']) || '';
     if (rawDateAndTime) {
-      console.log('[toCaregiverAppointmentRecord] Falling back to dateAndTime field:', rawDateAndTime);
       const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(rawDateAndTime);
       if (dateMatch) date = dateMatch[1];
       const timeMatch = /(\d{2}):(\d{2})/.exec(rawDateAndTime);
@@ -1334,10 +1339,6 @@ function toCaregiverAppointmentRecord(record = {}, seniorNamesByProfileId = new 
   }
   
   const time = normalizeAppointmentTime(rawTime);
-  
-  console.log('[toCaregiverAppointmentRecord] Extracted date:', date);
-  console.log('[toCaregiverAppointmentRecord] Extracted time:', rawTime);
-  console.log('[toCaregiverAppointmentRecord] Normalized time:', time);
   
   const rawStatus = normalizeAppointmentStatus(getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.status, ['status']));
 
@@ -1448,7 +1449,6 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
   });
   const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `?${params.toString()}`));
   const records = data?.result || [];
-  console.log('[getAppointmentsForCaregiver] Fetched records:', JSON.stringify(records.slice(0, 2), null, 2));
   const seniorNamesByProfileId = await getSeniorNamesByProfileIds(
     records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
   );

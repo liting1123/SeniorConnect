@@ -1037,9 +1037,25 @@ async function checkAndSend24HourAppointmentReminders() {
           });
 
           const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: appointment.seniorId }).catch(() => []);
+          const ownerCaregiverId = String(appointment.caregiverId || '').trim();
+          const ownerCaregiverEmail = normalizeEmail(appointment.caregiverEmail || '');
+          const ownerOnlyContacts = caregiverContacts.filter((contact) => {
+            const contactCaregiverId = String(contact?.caregiverId || '').trim();
+            const contactCaregiverEmail = normalizeEmail(contact?.caregiverEmail || '');
+
+            if (ownerCaregiverId && contactCaregiverId) {
+              return contactCaregiverId === ownerCaregiverId;
+            }
+
+            if (ownerCaregiverEmail && contactCaregiverEmail) {
+              return contactCaregiverEmail === ownerCaregiverEmail;
+            }
+
+            return false;
+          });
 
           await sendTelegramMessageToCaregivers(
-            caregiverContacts,
+            ownerOnlyContacts,
             `⏰ <b>Appointment Reminder — Tomorrow</b>\n\n` +
               `👤 Senior: ${seniorName}\n` +
               `📋 Title: ${appointment.title}\n` +

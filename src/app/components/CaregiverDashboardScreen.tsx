@@ -1356,6 +1356,45 @@ function getDirectionsHref(location = '') {
   return fallbackUrl || (location.trim() ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location.trim())}` : undefined);
 }
 
+async function openDirectionsFromCurrentLocation(location = '') {
+  const fallbackHref = getDirectionsHref(location);
+  const trimmedLocation = location.trim();
+
+  if (!trimmedLocation && !fallbackHref) {
+    return;
+  }
+
+  if (!navigator.geolocation) {
+    if (fallbackHref) {
+      window.open(fallbackHref, '_blank', 'noopener,noreferrer');
+    }
+    return;
+  }
+
+  try {
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      });
+    });
+
+    const origin = `${position.coords.latitude},${position.coords.longitude}`;
+    const coordinates = extractCoordinates(trimmedLocation);
+    const destination = coordinates
+      ? `${coordinates.lat},${coordinates.lng}`
+      : encodeURIComponent(trimmedLocation);
+
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
+    window.open(mapsUrl, '_blank', 'noopener,noreferrer');
+  } catch {
+    if (fallbackHref) {
+      window.open(fallbackHref, '_blank', 'noopener,noreferrer');
+    }
+  }
+}
+
 function getMapEmbedSrc(location = '') {
   const coordinates = extractCoordinates(location);
 
@@ -4811,15 +4850,16 @@ function HealthBuddyScreen({
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   {directionsHref && appointment.status !== 'completed' && (
-                    <a
-                      href={directionsHref}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void openDirectionsFromCurrentLocation(appointment.location || '');
+                      }}
                       className="inline-flex items-center gap-2 rounded-full border border-[#9ab5df] bg-white px-3 py-2 text-xs font-black uppercase tracking-wide text-[#2c4f8f]"
                     >
                       <MapPin className="h-4 w-4" />
                       {t('openDirections')}
-                    </a>
+                    </button>
                   )}
                   {teleconsultHref && appointment.status !== 'completed' && (
                     <a

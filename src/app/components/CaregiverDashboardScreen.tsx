@@ -1396,7 +1396,11 @@ function getTimeGreeting() {
     return 'Good Afternoon';
   }
 
-  return 'Good Evening';
+  if (hour < 21) {
+    return 'Good Evening';
+  }
+
+  return 'Good Night';
 }
 
 function parseServiceNowDate(value = '', options: { localServiceNowTime?: boolean } = {}) {
@@ -4774,12 +4778,12 @@ function DashboardNavItem({
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[18px] px-1 py-3 transition-transform active:scale-95 sm:px-4 ${
+      className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden rounded-[18px] px-1 py-3 transition-transform active:scale-95 ${
         active ? activeClass : inactiveClass
       }`}
     >
       {icon}
-      <span className="text-sm font-bold">{label}</span>
+      <span className="block w-full truncate text-center text-xs font-bold leading-tight tracking-tight">{label}</span>
       {hasAlert && <span className="absolute right-5 top-3 h-2.5 w-2.5 rounded-full bg-[#c8171d]" />}
     </button>
   );

@@ -87,10 +87,11 @@ type LoginResponse = {
 const SESSION_KEY = 'careconnect.user';
 
 function getApiBaseUrl() {
-  // Get the current hostname and port from window.location
-  const hostname = window.location.hostname;
-  // Always use port 3001 for the backend API
-  return `http://${hostname}:3001`;
+  // Use the WebView's origin by default. During development, Vite proxies
+  // `/api` to the backend on port 3001. Keeping requests same-origin avoids
+  // iOS WebView CORS and mixed-content failures when running through Expo.
+  const configuredBaseUrl = String(import.meta.env.VITE_API_BASE_URL || '').trim();
+  return configuredBaseUrl.replace(/\/$/, '');
 }
 
 function normalizeRole(role = '') {

@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Bath,
   Bed,
+  AlertCircle,
   Bell,
   Calendar,
   CheckCircle,
@@ -23,7 +24,6 @@ import {
   Pencil,
   Plus,
   Search,
-  Settings,
   ShieldAlert,
   Shield,
   Sofa,
@@ -48,7 +48,6 @@ import {
 } from 'recharts';
 import { getStoredUser } from '../services/backend';
 import { useLiveVitals, type LiveRoomState, type VitalPoint } from '../hooks/useLiveVitals';
-import CaregiverSettingsScreen from './CaregiverSettingsScreen';
 import {
   createCaregiverAppointment,
   deleteCaregiverAppointment,
@@ -69,6 +68,7 @@ const SENSOR_STATUS_REFRESH_MS = 30000;
 const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
 const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
 const CAREGIVER_APPOINTMENT_REMINDER_ACK_KEY = 'careconnect.caregiverAppointmentReminderAck';
+const CAREGIVER_TELEGRAM_ID_KEY = 'careconnect.caregiverTelegramId';
 const CAREGIVER_DASHBOARD_REFRESH_MS = 5000;
 const CAREGIVER_APPOINTMENTS_REFRESH_MS = 30000;
 
@@ -367,7 +367,7 @@ export default function CaregiverDashboardScreen({
   alertsLabel?: string;
 }) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'live' | 'healthBuddy' | 'alerts' | 'profile' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'live' | 'healthBuddy' | 'alerts' | 'profile'>('dashboard');
   const currentUser = getStoredUser();
   const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || t('caregiver');
   const caregiverId = currentUser?.uid || '';
@@ -669,6 +669,7 @@ export default function CaregiverDashboardScreen({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              caregiverId,
               caregiverEmail,
               seniorEmail: matchingSenior?.email || '',
               seniorName,
@@ -693,6 +694,7 @@ export default function CaregiverDashboardScreen({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              caregiverId,
               caregiverEmail,
               seniorEmail: matchingSenior?.email || '',
               seniorName,
@@ -1109,11 +1111,6 @@ export default function CaregiverDashboardScreen({
             onLogout={onLogout}
           />
         )}
-        {!selectedSenior && activeTab === 'settings' && (
-          <CaregiverSettingsScreen
-            onBack={() => setActiveTab('profile')}
-          />
-        )}
       </main>
 
       {showAddSenior && (
@@ -1262,16 +1259,6 @@ export default function CaregiverDashboardScreen({
           onClick={() => {
             setSelectedSenior(null);
             setActiveTab('profile');
-          }}
-        />
-        <DashboardNavItem
-          active={activeTab === 'settings'}
-          icon={<Settings className="h-6 w-6" />}
-          isAdminMode={isAdminMode}
-          label="Settings"
-          onClick={() => {
-            setSelectedSenior(null);
-            setActiveTab('settings');
           }}
         />
       </nav>
@@ -3701,10 +3688,15 @@ function CaregiverProfile({
 }) {
   const { t } = useTranslation();
   const [showPersonalInfo, setShowPersonalInfo] = useState(false);
+  const [showTelegramSetup, setShowTelegramSetup] = useState(false);
   const [phone, setPhone] = useState('91234567');
   const [personalEmail, setPersonalEmail] = useState(caregiverEmail);
   const [address, setAddress] = useState('Block 123 Woodlands');
   const [profileImage, setProfileImage] = useState(() => localStorage.getItem(CAREGIVER_PROFILE_IMAGE_KEY) || '');
+  const [telegramId, setTelegramId] = useState(() => localStorage.getItem(CAREGIVER_TELEGRAM_ID_KEY) || '');
+  const [loadingTelegramId, setLoadingTelegramId] = useState(false);
+  const [telegramMessage, setTelegramMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [userData, setUserData] = useState<any>(null);
 
   useEffect(() => {
     const savedInfo = localStorage.getItem(CAREGIVER_PERSONAL_INFO_KEY);
@@ -3728,6 +3720,64 @@ function CaregiverProfile({
 
     setPersonalEmail(caregiverEmail);
   }, [caregiverEmail]);
+
+  useEffect(() => {
+    const user = getStoredUser();
+    setUserData(user);
+
+    if (user?.uid) {
+      loadTelegramId(user.uid);
+    }
+  }, []);
+
+  const loadTelegramId = async (caregiverId: string) => {
+    try {
+      const response = await fetch(`/api/caregiver/telegram-id?caregiverId=${caregiverId}`);
+      const data = await response.json();
+
+      if (data.telegramId) {
+        setTelegramId(data.telegramId);
+        localStorage.setItem(CAREGIVER_TELEGRAM_ID_KEY, data.telegramId);
+      }
+    } catch (error) {
+      console.error('Error loading Telegram ID:', error);
+    }
+  };
+
+  const handleSaveTelegramId = async () => {
+    if (!telegramId.trim()) {
+      setTelegramMessage({ type: 'error', text: 'Please enter a Telegram Chat ID' });
+      return;
+    }
+
+    setLoadingTelegramId(true);
+    try {
+      const response = await fetch('/api/caregiver/telegram-id', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caregiverId: userData?.uid,
+          caregiverEmail: userData?.email,
+          telegramId: telegramId.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save Telegram ID');
+      }
+
+      const savedTelegramId = telegramId.trim();
+      setTelegramId(savedTelegramId);
+      localStorage.setItem(CAREGIVER_TELEGRAM_ID_KEY, savedTelegramId);
+      setTelegramMessage({ type: 'success', text: 'Telegram Chat ID saved successfully!' });
+      window.setTimeout(() => loadTelegramId(String(userData?.uid || '')), 500);
+      window.setTimeout(() => setTelegramMessage(null), 3000);
+    } catch (error: any) {
+      setTelegramMessage({ type: 'error', text: error.message || 'Failed to save Telegram ID' });
+    } finally {
+      setLoadingTelegramId(false);
+    }
+  };
 
   const handleSavePersonalInfo = () => {
     localStorage.setItem(
@@ -3757,6 +3807,87 @@ function CaregiverProfile({
 
     reader.readAsDataURL(file);
   };
+
+  if (showTelegramSetup) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+        <div className="mb-6 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowTelegramSetup(false)}
+            className="rounded-lg p-2 transition hover:bg-white"
+          >
+            <ArrowLeft className="h-6 w-6 text-indigo-600" />
+          </button>
+          <h1 className="text-2xl font-bold text-indigo-900">Telegram Bot Setup</h1>
+        </div>
+
+        <div className="mx-auto max-w-md">
+          <div className="space-y-6 rounded-2xl bg-white p-6 shadow-lg">
+            <div>
+              <h2 className="mb-2 text-lg font-semibold text-gray-800">Telegram Bot Setup</h2>
+              <p className="mb-4 text-sm text-gray-600">
+                Enter your Telegram Chat ID manually. Once saved, it is reused automatically for MFA and notifications.
+              </p>
+
+              <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                <p className="mb-2 text-sm font-medium text-blue-900">How to set up the bot:</p>
+                <ol className="list-inside list-decimal space-y-1 text-sm text-blue-800">
+                  <li>Open Telegram and start a chat with your CareConnect bot.</li>
+                  <li>Get your chat ID using a helper bot such as <strong>@userinfobot</strong>.</li>
+                  <li>Paste the chat ID below and press <strong>Save Chat ID</strong>.</li>
+                </ol>
+              </div>
+
+              <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4">
+                <p className="cursor-default text-sm font-semibold text-gray-800">
+                  Enter Telegram Chat ID
+                </p>
+                <input
+                  type="text"
+                  value={telegramId}
+                  onChange={(event) => setTelegramId(event.target.value)}
+                  placeholder="e.g., 1234567890"
+                  className="mt-3 w-full rounded-lg border-2 border-gray-300 px-4 py-3 focus:border-indigo-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveTelegramId}
+                  disabled={loadingTelegramId}
+                  className={`mt-3 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-semibold transition ${
+                    loadingTelegramId
+                      ? 'cursor-not-allowed bg-gray-300 text-gray-500'
+                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  }`}
+                >
+                  Save Chat ID
+                </button>
+              </div>
+
+              {telegramMessage && (
+                <div
+                  className={`mb-4 flex items-start gap-3 rounded-lg border p-3 ${
+                    telegramMessage.type === 'success'
+                      ? 'border-green-200 bg-green-50'
+                      : 'border-red-200 bg-red-50'
+                  }`}
+                >
+                  {telegramMessage.type === 'success' ? (
+                    <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
+                  ) : (
+                    <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
+                  )}
+                  <p className={telegramMessage.type === 'success' ? 'text-sm text-green-800' : 'text-sm text-red-800'}>
+                    {telegramMessage.text}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (showPersonalInfo) {
     const backButtonClass = isAdminMode ? 'text-[#0b2f57] active:bg-[#dfeaf8]' : 'text-[#075fc7] active:bg-blue-50';
@@ -3871,6 +4002,15 @@ function CaregiverProfile({
             title={t('personalInfo')}
             onClick={() => setShowPersonalInfo(true)}
           />
+          <SettingsItem
+            icon={<Bell className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
+            isAdminMode={isAdminMode}
+            title="Telegram Bot Setup"
+            onClick={() => setShowTelegramSetup(true)}
+          />
+          <div className="px-5 pb-4 pt-1 text-sm text-gray-500 min-[390px]:px-8">
+            {telegramId.trim() ? 'Telegram bot connected' : 'No Telegram bot connected yet'}
+          </div>
           <SettingsItem
             icon={<Languages className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
             isAdminMode={isAdminMode}

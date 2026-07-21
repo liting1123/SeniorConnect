@@ -2385,6 +2385,12 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
     return [];
   }
 
+  const caregiverUser = await getLoginRecordById(caregiverUserId).catch(() => null);
+  const resolvedCaregiverEmail =
+    getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.email]) ||
+    normalizedEmail ||
+    '';
+
   const params = new URLSearchParams({
     sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.user}=${caregiverUserId}`,
     sysparm_limit: '100',
@@ -2410,13 +2416,20 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
       const seniorUserId = getReferenceValue(seniorProfile[FIELD_MAP.userId]);
       const seniorUser = seniorUserId ? await getLoginRecordById(seniorUserId) : null;
       const senior = toCaregiverSeniorRecord(connection, seniorProfile, seniorUser || {});
+      const telegramChatId = getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.telegramChatId]) || '';
+      const baseSenior = {
+        ...senior,
+        caregiverId: caregiverUserId,
+        caregiverEmail: resolvedCaregiverEmail,
+        telegramChatId,
+      };
       const sosAlert = await getLatestActiveSosAlertForSenior(senior);
       const medicationSummary = await getMedicationSummaryForSeniorProfile(seniorProfile.sys_id);
       const medicalInformation = await getMedicalInformationForSeniorProfile(seniorProfile.sys_id);
 
       return sosAlert
         ? {
-            ...senior,
+            ...baseSenior,
             ...medicationSummary,
             ...medicalInformation,
             status: 'SOS Active',
@@ -2426,7 +2439,7 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
             alertStatus: sosAlert.status,
             alertTime: sosAlert.createdAt,
           }
-        : { ...senior, ...medicationSummary, ...medicalInformation };
+        : { ...baseSenior, ...medicationSummary, ...medicalInformation };
     } catch (error) {
       console.error(`Skipping unresolvable caregiver connection ${connection?.sys_id || '?'}:`, error.message);
       return null;

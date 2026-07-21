@@ -1,4 +1,5 @@
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import nodemailer from 'nodemailer';
 import { loadEnv } from './env.mjs';
@@ -47,6 +48,8 @@ const checkInReminders = [];
 const loginMfaCodes = new Map();
 const appointmentReminders = new Set(); // Track appointment IDs that have sent 24-hour reminders
 const escalatedSosAlerts = new Map(); // Track SOS alerts that have already escalated to AIC
+const pendingTelegramSetupLinks = new Map(); // token -> { caregiverId, caregiverEmail, expiresAt }
+const caregiverTelegramChatIdCache = new Map(); // caregiver id/email -> telegram chat id
 
 const MFA_EMAIL_HOST = String(process.env.MFA_EMAIL_HOST || '').trim();
 const MFA_EMAIL_PORT = Number(process.env.MFA_EMAIL_PORT) || 587;
@@ -60,6 +63,7 @@ const AIC_TELEGRAM_BOT_TOKEN = String(process.env.AIC_TELEGRAM_BOT_TOKEN || '').
 const AIC_TELEGRAM_CHAT_ID = String(process.env.AIC_TELEGRAM_CHAT_ID || '').trim();
 const CHECK_IN_ALERT_THRESHOLD_MS = (Number(process.env.CHECK_IN_ALERT_THRESHOLD_MINUTES || '5')) * 60 * 1000;
 const SOS_ALERT_ESCALATION_THRESHOLD_MS = (Number(process.env.SOS_ALERT_ESCALATION_THRESHOLD_MINUTES || '5')) * 60 * 1000;
+const TELEGRAM_SETUP_TOKEN_TTL_MS = (Number(process.env.TELEGRAM_SETUP_TOKEN_TTL_MINUTES || '15')) * 60 * 1000;
 
 // Check-in window configuration
 const CHECK_IN_TIME_ZONE = String(process.env.CHECK_IN_TIME_ZONE || 'Asia/Singapore').trim();
@@ -72,6 +76,95 @@ const CAREGIVER_RESPONSIVENESS_THRESHOLD_MS = (Number(process.env.CAREGIVER_RESP
 let mfaMailer = null;
 const missedCheckInAlerts = new Map(); // Track missed check-ins: seniorId -> { notifiedAt, seniorName, caregiverId, lastCheckInWindow }
 const caregiverNotificationViews = new Map(); // Track caregiver views: seniorId -> { viewedAt, caregiverId }
+let telegramBotUsername = '';
+let telegramUpdatesOffset = 0;
+let telegramSetupPollingInProgress = false;
+
+function cleanupExpiredTelegramSetupLinks() {
+  const now = Date.now();
+
+  for (const [token, entry] of pendingTelegramSetupLinks.entries()) {
+    if (!entry?.expiresAt || entry.expiresAt <= now) {
+      pendingTelegramSetupLinks.delete(token);
+    }
+  }
+}
+
+function normalizeTelegramSetupToken(value = '') {
+  return String(value || '').trim().replace(/^setup[-_]/i, '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+function normalizeTelegramCacheKey(value = '') {
+  return String(value || '').trim().toLowerCase();
+}
+
+function rememberCaregiverTelegramChatId({ caregiverId, caregiverEmail, telegramChatId }) {
+  const normalizedChatId = String(telegramChatId || '').trim();
+
+  if (!normalizedChatId) {
+    return;
+  }
+
+  const keys = [caregiverId, caregiverEmail]
+    .map((value) => normalizeTelegramCacheKey(value))
+    .filter(Boolean);
+
+  for (const key of keys) {
+    caregiverTelegramChatIdCache.set(key, normalizedChatId);
+  }
+}
+
+function getCachedCaregiverTelegramChatId({ caregiverId, caregiverEmail } = {}) {
+  const keys = [caregiverId, caregiverEmail]
+    .map((value) => normalizeTelegramCacheKey(value))
+    .filter(Boolean);
+
+  for (const key of keys) {
+    const cachedTelegramChatId = caregiverTelegramChatIdCache.get(key);
+
+    if (cachedTelegramChatId) {
+      return cachedTelegramChatId;
+    }
+  }
+
+  return '';
+}
+
+async function getCaregiverTelegramContacts({ caregiverId, caregiverEmail } = {}) {
+  const normalizedCaregiverId = String(caregiverId || '').trim();
+  const normalizedCaregiverEmail = String(caregiverEmail || '').trim();
+
+  if (normalizedCaregiverId) {
+    const caregiverContactsById = await getCaregiverSeniorConnections({ caregiverId: normalizedCaregiverId }).catch(() => []);
+
+    if (caregiverContactsById.length > 0) {
+      return caregiverContactsById;
+    }
+  }
+
+  if (normalizedCaregiverEmail) {
+    return await getCaregiverSeniorConnections({ caregiverEmail: normalizedCaregiverEmail }).catch(() => []);
+  }
+
+  return [];
+}
+
+async function resolveCaregiverTelegramChatIds({ caregiverId, caregiverEmail } = {}) {
+  const contacts = await getCaregiverTelegramContacts({ caregiverId, caregiverEmail });
+  const telegramTargets = Array.from(
+    new Map(
+      (contacts || [])
+        .map((contact) => {
+          const cachedTelegramChatId = getCachedCaregiverTelegramChatId(contact);
+          const telegramChatId = String(contact?.telegramChatId || cachedTelegramChatId || '').trim();
+          return [normalizeEmail(contact.caregiverEmail), { ...contact, telegramChatId }];
+        })
+        .filter(([email, contact]) => Boolean(email) && Boolean(String(contact?.telegramChatId || '').trim())),
+    ).values(),
+  );
+
+  return telegramTargets;
+}
 
 function normalizeReminderValue(value = '') {
   return String(value || '').trim().toLowerCase();
@@ -305,6 +398,237 @@ async function sendTelegramMessage(text) {
   if (!response.ok) {
     const err = await response.text();
     throw new Error(`Telegram API error: ${err}`);
+  }
+}
+
+async function sendTelegramMessageToChatId(chatId, text) {
+  const normalizedChatId = String(chatId || '').trim();
+
+  if (!TELEGRAM_BOT_TOKEN || !normalizedChatId) {
+    return false;
+  }
+
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const body = JSON.stringify({ chat_id: normalizedChatId, text, parse_mode: 'HTML' });
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Telegram API error: ${err}`);
+  }
+
+  return true;
+}
+
+async function sendTelegramMessageToCaregivers(caregiverContacts, text, label = 'notification') {
+  const telegramTargets = Array.from(
+    new Map(
+      (caregiverContacts || [])
+        .map((contact) => {
+          const cachedTelegramChatId = getCachedCaregiverTelegramChatId(contact);
+          const telegramChatId = String(contact?.telegramChatId || cachedTelegramChatId || '').trim();
+
+          return [normalizeEmail(contact.caregiverEmail), { ...contact, telegramChatId }];
+        })
+        .filter(([email, contact]) => Boolean(email) && Boolean(String(contact?.telegramChatId || '').trim())),
+    ).values(),
+  );
+
+  if (telegramTargets.length === 0) {
+    console.warn(`[Telegram] No saved chat IDs found for ${label}.`);
+    return;
+  }
+
+  await Promise.all(
+    telegramTargets.map((contact) =>
+      sendTelegramMessageToChatId(contact.telegramChatId, text).catch((error) => {
+        console.error(
+          `[Telegram] Failed to send ${label} to ${contact.caregiverEmail || contact.caregiverId || 'unknown'}:`,
+          error.message,
+        );
+      }),
+    ),
+  );
+}
+
+async function sendTelegramTestNotification({ caregiverId, caregiverEmail, message }) {
+  const telegramTargets = await resolveCaregiverTelegramChatIds({ caregiverId, caregiverEmail });
+
+  if (telegramTargets.length === 0) {
+    return { sent: 0, reason: 'No saved Telegram chat IDs found for this caregiver.' };
+  }
+
+  const results = await Promise.all(
+    telegramTargets.map(async (contact) => {
+      try {
+        await sendTelegramMessageToChatId(contact.telegramChatId, message);
+        return { ok: true, recipient: contact.caregiverEmail || contact.caregiverId || 'unknown' };
+      } catch (error) {
+        return {
+          ok: false,
+          recipient: contact.caregiverEmail || contact.caregiverId || 'unknown',
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+  );
+
+  return {
+    sent: results.filter((item) => item.ok).length,
+    failed: results.filter((item) => !item.ok),
+    total: results.length,
+  };
+}
+
+async function getTelegramBotUsername() {
+  if (telegramBotUsername) {
+    return telegramBotUsername;
+  }
+
+  if (!TELEGRAM_BOT_TOKEN) {
+    return '';
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe`);
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.description || response.statusText || 'Unable to resolve Telegram bot username.');
+  }
+
+  telegramBotUsername = String(data?.result?.username || '').trim();
+  return telegramBotUsername;
+}
+
+async function saveTelegramChatIdForCaregiver(caregiverId, telegramChatId) {
+  const connections = await getCaregiverSeniorConnections({ caregiverId });
+
+  if (!connections || connections.length === 0) {
+    throw Object.assign(new Error('No caregiver connections found.'), { status: 404 });
+  }
+
+  await Promise.all(
+    connections.map((connection) =>
+      updateCaregiverConnection({
+        connectionId: connection.connectionId,
+        updateData: {
+          u_telegram_chat_id: telegramChatId,
+        },
+      }),
+    ),
+  );
+
+  rememberCaregiverTelegramChatId({
+    caregiverId,
+    telegramChatId,
+  });
+
+  return connections.length;
+}
+
+async function createTelegramSetupLink({ caregiverId, caregiverEmail }) {
+  const normalizedCaregiverId = String(caregiverId || '').trim();
+  const normalizedCaregiverEmail = String(caregiverEmail || '').trim();
+
+  if (!normalizedCaregiverId && !normalizedCaregiverEmail) {
+    throw Object.assign(new Error('Caregiver ID or email is required.'), { status: 400 });
+  }
+
+  const botUsername = await getTelegramBotUsername();
+
+  if (!botUsername) {
+    throw Object.assign(new Error('Telegram bot username is not configured. Check TELEGRAM_BOT_TOKEN.'), { status: 503 });
+  }
+
+  cleanupExpiredTelegramSetupLinks();
+
+  const token = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+  pendingTelegramSetupLinks.set(token, {
+    caregiverId: normalizedCaregiverId,
+    caregiverEmail: normalizedCaregiverEmail,
+    expiresAt: Date.now() + TELEGRAM_SETUP_TOKEN_TTL_MS,
+  });
+
+  return {
+    token,
+    botUsername,
+    setupUrl: `https://t.me/${botUsername}?start=setup_${token}`,
+    expiresInMinutes: Math.round(TELEGRAM_SETUP_TOKEN_TTL_MS / (60 * 1000)),
+  };
+}
+
+async function processTelegramSetupUpdates() {
+  if (telegramSetupPollingInProgress) {
+    return;
+  }
+
+  telegramSetupPollingInProgress = true;
+
+  try {
+    if (!TELEGRAM_BOT_TOKEN) {
+      return;
+    }
+
+    cleanupExpiredTelegramSetupLinks();
+
+    const params = new URLSearchParams({
+      offset: String(telegramUpdatesOffset || 0),
+      timeout: '0',
+      allowed_updates: JSON.stringify(['message']),
+    });
+
+    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?${params.toString()}`);
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(data?.description || response.statusText || 'Unable to fetch Telegram updates.');
+    }
+
+    for (const update of data?.result || []) {
+      telegramUpdatesOffset = Math.max(telegramUpdatesOffset, Number(update.update_id || 0) + 1);
+
+      const message = update.message;
+      const text = String(message?.text || '').trim();
+
+      if (!text || !/^\/start\b/i.test(text)) {
+        continue;
+      }
+
+      const tokenMatch = /^\/start(?:\s+setup[_-]?([a-z0-9]+))?/i.exec(text);
+      const token = normalizeTelegramSetupToken(tokenMatch?.[1] || '');
+
+      if (!token || !pendingTelegramSetupLinks.has(token)) {
+        continue;
+      }
+
+      const entry = pendingTelegramSetupLinks.get(token);
+
+      if (!entry || entry.expiresAt <= Date.now()) {
+        pendingTelegramSetupLinks.delete(token);
+        continue;
+      }
+
+      const chatId = String(message?.chat?.id || '').trim();
+
+      if (!chatId) {
+        continue;
+      }
+
+      await saveTelegramChatIdForCaregiver(entry.caregiverId || entry.caregiverEmail, chatId);
+      pendingTelegramSetupLinks.delete(token);
+
+      await sendTelegramMessageToChatId(
+        chatId,
+        '✅ <b>CareConnect connected</b>\n\nYour Telegram chat is now saved. You can return to CareConnect.'
+      ).catch((error) => console.error('[Telegram] Failed to send setup confirmation:', error.message));
+    }
+  } finally {
+    telegramSetupPollingInProgress = false;
   }
 }
 
@@ -571,6 +895,8 @@ async function checkForMissedCheckIns() {
             } else {
               console.warn(`[Check-In Monitor] No caregiver email found for senior ${seniorId}; skipping caregiver email notification.`);
             }
+
+            await sendTelegramMessageToCaregivers(caregiverContacts, notificationMessage, 'missed check-in alert');
             
             // Record the missed check-in alert and track caregiver notification
             missedCheckInAlerts.set(seniorId, {
@@ -694,13 +1020,17 @@ async function checkAndSend24HourAppointmentReminders() {
             location: appointment.location,
           });
 
-          await sendTelegramMessage(
+          const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: appointment.seniorId }).catch(() => []);
+
+          await sendTelegramMessageToCaregivers(
+            caregiverContacts,
             `⏰ <b>Appointment Reminder — Tomorrow</b>\n\n` +
-            `👤 Senior: ${seniorName}\n` +
-            `📋 Title: ${appointment.title}\n` +
-            `🗓 Date: ${appointment.date}\n` +
-            `🕐 Time: ${formattedTime}` +
-            (appointment.location ? `\n📍 Location: ${appointment.location}` : '')
+              `👤 Senior: ${seniorName}\n` +
+              `📋 Title: ${appointment.title}\n` +
+              `🗓 Date: ${appointment.date}\n` +
+              `🕐 Time: ${formattedTime}` +
+              (appointment.location ? `\n📍 Location: ${appointment.location}` : ''),
+            'appointment reminder',
           );
 
           // Mark as reminded
@@ -956,6 +1286,7 @@ export async function handleRequest(request, response) {
   if (url.pathname === '/api/mfa/request' && request.method === 'POST') {
     requireAuth(request);
     const body = await readJson(request);
+    const caregiverId = String(body.caregiverId || '').trim();
     const email = normalizeEmail(body.email);
 
     if (!email) {
@@ -966,6 +1297,32 @@ export async function handleRequest(request, response) {
     const code = createMfaCode();
     const expiresAt = Date.now() + 10 * 60 * 1000;
     loginMfaCodes.set(email, { code, expiresAt });
+
+    let telegramChatId = '';
+
+    try {
+      telegramChatId = getCachedCaregiverTelegramChatId({ caregiverId, caregiverEmail: email });
+
+      if (telegramChatId) {
+        console.log(`[Telegram] Using cached personal chat ID for ${email}`);
+      }
+
+      const connections = await getCaregiverTelegramContacts({ caregiverId, caregiverEmail: email });
+
+      if (!telegramChatId) {
+        telegramChatId = connections.find((connection) => String(connection.telegramChatId || '').trim())?.telegramChatId || '';
+      }
+
+      if (telegramChatId) {
+        rememberCaregiverTelegramChatId({
+          caregiverId,
+          caregiverEmail: email,
+          telegramChatId,
+        });
+      }
+    } catch (error) {
+      console.error('[Telegram] Unable to resolve per-user chat ID for MFA:', error instanceof Error ? error.message : error);
+    }
 
     try {
       await sendLoginMfaCodeEmail(email, code);
@@ -992,14 +1349,18 @@ export async function handleRequest(request, response) {
       return;
     }
 
-    // Also send MFA code via Telegram
-    sendTelegramMessage(
-      `🔐 <b>CareConnect Login Code</b>\n\n` +
-      `Your verification code is:\n\n` +
-      `<b>${code}</b>\n\n` +
-      `Expires in 10 minutes.\n` +
-      `If you did not attempt to log in, ignore this message.`
-    ).catch(err => console.error('[Telegram] Failed to send MFA code:', err));
+    if (telegramChatId) {
+      sendTelegramMessageToChatId(
+        telegramChatId,
+        `🔐 <b>CareConnect Login Code</b>\n\n` +
+        `Your verification code is:\n\n` +
+        `<b>${code}</b>\n\n` +
+        `Expires in 10 minutes.\n` +
+        `If you did not attempt to log in, ignore this message.`
+      ).catch((err) => console.error('[Telegram] Failed to send MFA code:', err));
+    } else {
+      console.warn(`[Telegram] No personal Telegram chat ID found for ${email}; MFA will be delivered by email only.`);
+    }
 
     sendJson(response, 200, { ok: true, delivery: 'email' });
     return;
@@ -1070,6 +1431,16 @@ export async function handleRequest(request, response) {
             }),
           ),
         );
+
+        await sendTelegramMessageToCaregivers(
+          uniqueContacts,
+          `🚨 <b>SOS Alert</b>\n\n` +
+            `Senior <b>${body.seniorName || 'Senior'}</b> triggered an SOS alert.\n\n` +
+            `${body.location ? `📍 Location: ${body.location}\n` : ''}` +
+            `${body.message ? `📝 Message: ${body.message}\n` : ''}` +
+            `Please respond immediately.`,
+          'SOS alert',
+        );
       } catch (error) {
         console.error('[SOS Alert] Failed to send email notification:', error.message);
       }
@@ -1127,15 +1498,31 @@ export async function handleRequest(request, response) {
 
   if (url.pathname === '/api/caregiver/telegram-id' && request.method === 'GET') {
     const caregiverId = url.searchParams.get('caregiverId');
+    const caregiverEmail = url.searchParams.get('caregiverEmail');
 
-    if (!caregiverId) {
+    if (!caregiverId && !caregiverEmail) {
       sendJson(response, 400, { error: 'Missing caregiverId' });
       return;
     }
 
     try {
+      const cachedTelegramId = getCachedCaregiverTelegramChatId({ caregiverId, caregiverEmail });
+
+      if (cachedTelegramId) {
+        sendJson(response, 200, { telegramId: cachedTelegramId });
+        return;
+      }
+
       const connections = await getCaregiverSeniorConnections({ caregiverId });
       const telegramId = connections && connections.length > 0 ? connections[0].telegramChatId : null;
+
+      if (telegramId) {
+        rememberCaregiverTelegramChatId({
+          caregiverId,
+          caregiverEmail,
+          telegramChatId: telegramId,
+        });
+      }
 
       sendJson(response, 200, { telegramId });
       return;
@@ -1149,6 +1536,7 @@ export async function handleRequest(request, response) {
   if (url.pathname === '/api/caregiver/telegram-id' && request.method === 'POST') {
     const body = await readJson(request);
     const caregiverId = String(body.caregiverId || '').trim();
+    const caregiverEmail = String(body.caregiverEmail || '').trim();
     const telegramId = String(body.telegramId || '').trim();
 
     if (!caregiverId || !telegramId) {
@@ -1157,30 +1545,66 @@ export async function handleRequest(request, response) {
     }
 
     try {
-      // Get the caregiver's connection records and update all of them
-      const connections = await getCaregiverSeniorConnections({ caregiverId });
-      
-      if (!connections || connections.length === 0) {
-        sendJson(response, 404, { error: 'No caregiver connections found' });
-        return;
-      }
-
-      // Update all connections for this caregiver with the new Telegram ID
-      for (const connection of connections) {
-        await updateCaregiverConnection({
-          connectionId: connection.id,
-          updateData: {
-            u_telegram_chat_id: telegramId,
-          },
-        });
-      }
-
+      await saveTelegramChatIdForCaregiver(caregiverId, telegramId);
+      rememberCaregiverTelegramChatId({ caregiverId, caregiverEmail, telegramChatId: telegramId });
       console.log(`[Caregiver] ✓ Telegram ID updated for caregiver ${caregiverId}: ${telegramId}`);
       sendJson(response, 200, { success: true, message: 'Telegram ID saved', telegramId });
       return;
     } catch (err) {
       console.error('[Caregiver] Error updating Telegram ID:', err.message);
       sendJson(response, 500, { error: 'Failed to save Telegram ID' });
+      return;
+    }
+  }
+
+  if (url.pathname === '/api/caregiver/telegram-setup' && request.method === 'POST') {
+    const body = await readJson(request);
+    const caregiverId = String(body.caregiverId || '').trim();
+    const caregiverEmail = String(body.caregiverEmail || '').trim();
+
+    try {
+      const setup = await createTelegramSetupLink({ caregiverId, caregiverEmail });
+      sendJson(response, 200, {
+        success: true,
+        ...setup,
+      });
+      return;
+    } catch (err) {
+      console.error('[Caregiver] Error creating Telegram setup link:', err.message);
+      sendJson(response, err.status || 500, { error: err.message || 'Failed to create Telegram setup link' });
+      return;
+    }
+  }
+
+  if (url.pathname === '/api/caregiver/telegram-test' && request.method === 'POST') {
+    const body = await readJson(request);
+    const caregiverId = String(body.caregiverId || '').trim();
+    const caregiverEmail = String(body.caregiverEmail || '').trim();
+
+    if (!caregiverId && !caregiverEmail) {
+      sendJson(response, 400, { error: 'Missing caregiverId or caregiverEmail' });
+      return;
+    }
+
+    const testMessage =
+      String(body.message || '').trim() ||
+      `🧪 <b>CareConnect Telegram Test</b>\n\nIf you can read this, your personal bot notifications are connected.`;
+
+    try {
+      const result = await sendTelegramTestNotification({ caregiverId, caregiverEmail, message: testMessage });
+
+      if (!result.sent) {
+        sendJson(response, 404, { success: false, ...result });
+        return;
+      }
+
+      sendJson(response, 200, { success: true, ...result });
+      return;
+    } catch (error) {
+      sendJson(response, 500, {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to send Telegram test notification',
+      });
       return;
     }
   }
@@ -1329,13 +1753,20 @@ export async function handleRequest(request, response) {
     try {
       const seniorName = body.seniorName || 'Senior';
       const formattedTime = formatTimeWith12Hour(body.time);
-      await sendTelegramMessage(
+      const caregiverContacts = await getCaregiverTelegramContacts({
+        caregiverId: body.caregiverId,
+        caregiverEmail: body.caregiverEmail,
+      });
+
+      await sendTelegramMessageToCaregivers(
+        caregiverContacts,
         `📅 <b>New Appointment Created</b>\n\n` +
-        `👤 Senior: ${seniorName}\n` +
-        `📋 Title: ${body.title}\n` +
-        `🗓 Date: ${body.date}\n` +
-        `🕐 Time: ${formattedTime}` +
-        (body.location ? `\n📍 Location: ${body.location}` : '')
+          `👤 Senior: ${seniorName}\n` +
+          `📋 Title: ${body.title}\n` +
+          `🗓 Date: ${body.date}\n` +
+          `🕐 Time: ${formattedTime}` +
+          (body.location ? `\n📍 Location: ${body.location}` : ''),
+        'appointment created',
       );
       console.log('[Appointment] Telegram notification sent for new appointment:', appointment.id);
     } catch (telegramError) {
@@ -1396,14 +1827,21 @@ export async function handleRequest(request, response) {
 
       // Telegram notification
       const actionText = body.action === 'created' ? 'New Appointment Created 📅' : 'Appointment Updated 📝';
-      await sendTelegramMessage(
+      const caregiverContacts = await getCaregiverTelegramContacts({
+        caregiverId: body.caregiverId,
+        caregiverEmail: body.caregiverEmail,
+      });
+
+      await sendTelegramMessageToCaregivers(
+        caregiverContacts,
         `<b>${actionText}</b>\n\n` +
-        `👤 Senior: ${seniorName}\n` +
-        `📋 Title: ${body.title}\n` +
-        `🗓 Date: ${body.date}\n` +
-        `🕐 Time: ${formattedTime}` +
-        (body.location ? `\n📍 Location: ${body.location}` : '')
-      ).catch(err => console.error('[Telegram] Failed to send:', err));
+          `👤 Senior: ${seniorName}\n` +
+          `📋 Title: ${body.title}\n` +
+          `🗓 Date: ${body.date}\n` +
+          `🕐 Time: ${formattedTime}` +
+          (body.location ? `\n📍 Location: ${body.location}` : ''),
+        'appointment notification',
+      );
 
       sendJson(response, 200, { success: true, message: 'Appointment notification sent.' });
     } catch (error) {
@@ -1602,6 +2040,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   setInterval(checkAndSend24HourAppointmentReminders, 30 * 60 * 1000);
   // Run immediately on startup
   checkAndSend24HourAppointmentReminders();
+
+  // Start Telegram setup polling - captures /start setup_<token> messages from users
+  setInterval(() => {
+    processTelegramSetupUpdates().catch((error) => {
+      console.error('[Telegram Setup] Polling failed:', error.message);
+    });
+  }, 1000);
+  processTelegramSetupUpdates().catch((error) => {
+    console.error('[Telegram Setup] Initial poll failed:', error.message);
+  });
 
   // Start SOS escalation scheduler - runs every 2 minutes
   setInterval(checkForUnresponsiveSosAlerts, 2 * 60 * 1000);

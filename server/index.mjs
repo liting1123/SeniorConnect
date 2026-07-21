@@ -61,6 +61,8 @@ const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
 const AIC_TELEGRAM_BOT_TOKEN = String(process.env.AIC_TELEGRAM_BOT_TOKEN || '').trim();
 const AIC_TELEGRAM_CHAT_ID = String(process.env.AIC_TELEGRAM_CHAT_ID || '').trim();
+const TELEGRAM_STARTUP_TEST_ENABLED = String(process.env.TELEGRAM_STARTUP_TEST_ENABLED || 'false').trim().toLowerCase() === 'true';
+const AIC_STARTUP_TEST_ENABLED = String(process.env.AIC_STARTUP_TEST_ENABLED || 'false').trim().toLowerCase() === 'true';
 const CHECK_IN_ALERT_THRESHOLD_MS = (Number(process.env.CHECK_IN_ALERT_THRESHOLD_MINUTES || '5')) * 60 * 1000;
 const SOS_ALERT_ESCALATION_THRESHOLD_MS = (Number(process.env.SOS_ALERT_ESCALATION_THRESHOLD_MINUTES || '5')) * 60 * 1000;
 const TELEGRAM_SETUP_TOKEN_TTL_MS = (Number(process.env.TELEGRAM_SETUP_TOKEN_TTL_MINUTES || '15')) * 60 * 1000;
@@ -2014,9 +2016,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // Verify Telegram config on startup
   if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
     console.log(`[Telegram] Configured — bot token ends in ...${TELEGRAM_BOT_TOKEN.slice(-6)}, chat ID: ${TELEGRAM_CHAT_ID}`);
-    sendTelegramMessage(`✅ <b>CareConnect Server Started</b>\n\nNotifications are active.`)
-      .then(() => console.log('[Telegram] Startup test message sent successfully.'))
-      .catch(err => console.error('[Telegram] Startup test failed:', err.message));
+
+    if (TELEGRAM_STARTUP_TEST_ENABLED) {
+      sendTelegramMessage(`✅ <b>CareConnect Server Started</b>\n\nNotifications are active.`)
+        .then(() => console.log('[Telegram] Startup test message sent successfully.'))
+        .catch(err => console.error('[Telegram] Startup test failed:', err.message));
+    } else {
+      console.log('[Telegram] Startup test message disabled (TELEGRAM_STARTUP_TEST_ENABLED=false).');
+    }
   } else {
     console.warn('[Telegram] NOT configured — TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing in .env');
   }
@@ -2024,9 +2031,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // Verify AIC Alert Bot config on startup
   if (AIC_TELEGRAM_BOT_TOKEN && AIC_TELEGRAM_CHAT_ID) {
     console.log(`[AIC Alert] Configured — bot token ends in ...${AIC_TELEGRAM_BOT_TOKEN.slice(-6)}, chat ID: ${AIC_TELEGRAM_CHAT_ID}`);
-    sendAICAlert(`✅ <b>CareConnect AIC Alert System Started</b>\n\nMonitoring for missed check-ins. Alert threshold: ${Math.round(CHECK_IN_ALERT_THRESHOLD_MS / (60 * 1000))} minutes.`)
-      .then(() => console.log('[AIC Alert] Startup test message sent successfully.'))
-      .catch(err => console.error('[AIC Alert] Startup test failed:', err.message));
+
+    if (AIC_STARTUP_TEST_ENABLED) {
+      sendAICAlert(`✅ <b>CareConnect AIC Alert System Started</b>\n\nMonitoring for missed check-ins. Alert threshold: ${Math.round(CHECK_IN_ALERT_THRESHOLD_MS / (60 * 1000))} minutes.`)
+        .then(() => console.log('[AIC Alert] Startup test message sent successfully.'))
+        .catch(err => console.error('[AIC Alert] Startup test failed:', err.message));
+    } else {
+      console.log('[AIC Alert] Startup test message disabled (AIC_STARTUP_TEST_ENABLED=false).');
+    }
   } else {
     console.warn('[AIC Alert] NOT configured — AIC_TELEGRAM_BOT_TOKEN or AIC_TELEGRAM_CHAT_ID missing in .env');
   }

@@ -8,9 +8,9 @@ import {
   setCachedUserPoints,
   type AppUser,
 } from '../services/backend';
-import GameLauncher from './GameLauncher';
 import MemoryGame from './MemoryGame';
 import PuzzleGame from './PuzzleGame';
+import PointsScreen from './PointsScreen';
 
 type CardData = {
   id: number;
@@ -176,6 +176,7 @@ export default function GameScreen({
           detail: { uid: user.uid, points: nextPoints },
         }),
       );
+      window.dispatchEvent(new CustomEvent('careconnect-points-earned', { detail: { amount: 1 } }));
       setRewardClaimed(true);
       setConfirmed(true);
       saveGameState(user, cards, true);
@@ -229,11 +230,7 @@ export default function GameScreen({
   };
 
   if (gameMode === 'menu') {
-    return (
-      <div className="relative h-full">
-        <GameLauncher onSelect={handleSelectGame} highContrast={highContrast} />
-      </div>
-    );
+    return <PointsScreen highContrast={highContrast} onSelectGame={handleSelectGame} />;
   }
 
   if (gameMode === 'memory') {

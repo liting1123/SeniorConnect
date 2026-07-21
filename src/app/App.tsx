@@ -35,7 +35,7 @@ import {
   type CaregiverAppointment,
 } from './services/serviceNow';
 
-type Screen = 'welcome' | 'language' | 'home' | 'appointments' | 'profile' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
+type Screen = 'welcome' | 'language' | 'home' | 'appointments' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
 type LanguageReturnScreen = 'home' | 'caregiverDashboard';
 type CheckInWindowId = 'morning' | 'evening';
 const HIGH_CONTRAST_STORAGE_KEY = 'careconnect.highContrast';
@@ -991,7 +991,7 @@ export default function App() {
             />
             <NavButton
               icon={<Gift className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
-              label={t('rewards')}
+              label={t('Rewards')}
               active={currentScreen === 'game'}
               highContrast={highContrast}
               onClick={() => setCurrentScreen('game')}

@@ -179,7 +179,7 @@ export default function PointsScreen({
         <header className="flex items-start gap-4 px-1 pb-1">
           <Gift className={`mt-1 h-10 w-10 stroke-[2.3] ${highContrast ? 'text-white' : 'text-[#34733b]'}`} />
           <div>
-            <h1 className={`text-[30px] font-black leading-9 ${highContrast ? 'text-white' : 'text-[#0b4f24]'}`}>{t('rewards')}</h1>
+            <h1 className={`text-[30px] font-black leading-9 ${highContrast ? 'text-white' : 'text-[#0b4f24]'}`}>{t('Play & Earn')}</h1>
             <p className={`mt-1 text-base leading-6 ${highContrast ? 'text-white/85' : 'text-[#515151]'}`}>{t('rewardsSubtitle')}</p>
           </div>
         </header>
@@ -200,7 +200,7 @@ export default function PointsScreen({
         </section>
 
         <section className={`rounded-[24px] border p-3 shadow-sm ${highContrast ? 'border-white' : 'border-[#eceeeb] bg-white'}`}>
-          <h2 className="flex items-center gap-3 px-2 py-2 text-xl font-black"><Gamepad2 className="h-6 w-6 text-[#34733b]" />{t('earnMorePoints')}</h2>
+          <h2 className="flex items-center gap-3 px-2 py-2 text-xl font-black"><Gamepad2 className="h-6 w-6 text-[#34733b]" />{t("Let's Play Game")}</h2>
           <div className={`mt-1 overflow-hidden rounded-[20px] border ${highContrast ? 'border-white' : 'border-[#e8e8e5]'}`}>
             <GameRow emoji="🧠" title={t('memoryGame')} description={t('memoryGameDescriptionShort')} onPlay={() => onSelectGame?.('memory')} highContrast={highContrast} playLabel={t('play')} />
             <GameRow emoji="🧩" title={t('puzzleGame')} description={t('puzzleGameDescriptionShort')} onPlay={() => onSelectGame?.('puzzle')} highContrast={highContrast} playLabel={t('play')} />

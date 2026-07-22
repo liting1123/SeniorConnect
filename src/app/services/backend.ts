@@ -86,6 +86,14 @@ type LoginResponse = {
 
 const SESSION_KEY = 'careconnect.user';
 
+function getApiBaseUrl() {
+  // Use the WebView's origin by default. During development, Vite proxies
+  // `/api` to the backend on port 3001. Keeping requests same-origin avoids
+  // iOS WebView CORS and mixed-content failures when running through Expo.
+  const configuredBaseUrl = String(import.meta.env.VITE_API_BASE_URL || '').trim();
+  return configuredBaseUrl.replace(/\/$/, '');
+}
+
 function normalizeRole(role = '') {
   return role.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -139,7 +147,8 @@ export function setCachedUserPoints(user: AppUser, points: number) {
 }
 
 async function request<T>(user: AppUser, path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
+  const url = path.startsWith('http') ? path : `${getApiBaseUrl()}${path}`;
+  const response = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -192,7 +201,7 @@ export function updateStoredUserRole(role: string) {
 }
 
 export async function login(identifier: string, password: string, loginType: 'senior' | 'family' = 'senior') {
-  const response = await fetch('/api/login', {
+  const response = await fetch(`${getApiBaseUrl()}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identifier, password, loginType }),
@@ -230,7 +239,7 @@ export async function login(identifier: string, password: string, loginType: 'se
 }
 
 export async function registerCaregiver(email: string, password: string) {
-  const response = await fetch('/api/register', {
+  const response = await fetch(`${getApiBaseUrl()}/api/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -256,7 +265,7 @@ export async function registerCaregiver(email: string, password: string) {
 }
 
 export async function registerFamilyMember(email: string, password: string) {
-  const response = await fetch('/api/register-family', {
+  const response = await fetch(`${getApiBaseUrl()}/api/register-family`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -283,7 +292,7 @@ export async function registerFamilyMember(email: string, password: string) {
 
 //Forgot password endpoint
 export async function resetPassword(identifier: string, password: string, loginType: 'senior' | 'family' = 'senior') {
-  const response = await fetch('/api/forgot-password', {
+  const response = await fetch(`${getApiBaseUrl()}/api/forgot-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identifier, password, loginType }),
@@ -454,9 +463,10 @@ export async function verifyFamilyCode(
 }
 
 export async function requestLoginMfaCode(user: AppUser) {
-  return request<{ ok: boolean; delivery?: 'email' | 'in-app-notification'; code?: string; warning?: string }>(user, '/api/mfa/request', {
+  return request<{ ok: boolean; delivery?: 'email' | 'telegram' | 'in-app-notification'; code?: string; warning?: string }>(user, '/api/mfa/request', {
     method: 'POST',
     body: JSON.stringify({
+      caregiverId: user.uid,
       email: user.email,
     }),
   });

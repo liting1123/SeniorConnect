@@ -71,9 +71,11 @@ const CHECK_IN_WINDOWS = [
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
 const SOS_ALERT_TABLE = process.env.SERVICE_NOW_SOS_ALERT_TABLE || 'u_sos_alert';
+const APPOINTMENT_TABLE = process.env.SERVICE_NOW_APPOINTMENT_TABLE || 'appointments';
 const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregiver_profiles';
 const MEDICINE_TABLE = process.env.SERVICE_NOW_MEDICINE_TABLE || 'u_medicine';
 const FAMILY_VERIFICATION_TABLE = process.env.SERVICE_NOW_FAMILY_VERIFICATION_TABLE || 'u_family_verification_code';
+const CHECK_IN_TABLE = process.env.SERVICE_NOW_CHECK_IN_TABLE || 'u_check_in';
 const SENIOR_DISPLAY_ID_LENGTH = Number(process.env.SENIOR_DISPLAY_ID_LENGTH) || 8;
 
 // Populated by the Senior_stuff Raspberry Pi system's route_engine.queue_activity_log()
@@ -101,6 +103,17 @@ const SOS_ALERT_FIELD_MAP = {
   status: process.env.SERVICE_NOW_SOS_ALERT_FIELD_STATUS || 'u_status',
 };
 
+const APPOINTMENT_FIELD_MAP = {
+  caregiver: process.env.SERVICE_NOW_APPOINTMENT_FIELD_CAREGIVER || 'u_caregiver',
+  senior: process.env.SERVICE_NOW_APPOINTMENT_FIELD_SENIOR || 'u_senior_name',
+  name: process.env.SERVICE_NOW_APPOINTMENT_FIELD_NAME || 'u_appointment_name',
+  dateAndTime: process.env.SERVICE_NOW_APPOINTMENT_FIELD_DATE_AND_TIME || 'u_appointment_date_and_time',
+  type: process.env.SERVICE_NOW_APPOINTMENT_FIELD_TYPE || 'u_appointment_type',
+  location: process.env.SERVICE_NOW_APPOINTMENT_FIELD_LOCATION || 'u_location',
+  notes: process.env.SERVICE_NOW_APPOINTMENT_FIELD_NOTES || 'u_notes',
+  status: process.env.SERVICE_NOW_APPOINTMENT_FIELD_STATUS || '',
+};
+
 const CAREGIVER_CONNECTION_FIELD_MAP = {
   user: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_USER || 'u_user',
   senior: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_SENIOR || 'u_senior',
@@ -108,6 +121,7 @@ const CAREGIVER_CONNECTION_FIELD_MAP = {
   emergencyContactName: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_EMERGENCY_CONTACT_NAME || 'u_emergency_contact_name',
   emergencyContactPhone: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_EMERGENCY_CONTACT_PHONE || 'u_emergency_contact_phone',
   isNok: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_IS_NOK || 'u_is_nok',
+  telegramChatId: process.env.SERVICE_NOW_CAREGIVER_CONNECTION_FIELD_TELEGRAM_CHAT_ID || 'u_telegram_chat_id',
 };
 
 const MEDICINE_FIELD_MAP = {
@@ -129,6 +143,15 @@ const FAMILY_VERIFICATION_FIELD_MAP = {
   status: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_STATUS || 'u_status',
   verifiedAt: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_VERIFIED_AT || 'u_verified_at',
   familyUser: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_FAMILY_USER || 'u_family_user_id',
+};
+
+const CHECK_IN_FIELD_MAP = {
+  senior: process.env.SERVICE_NOW_CHECK_IN_FIELD_SENIOR || 'u_senior',
+  status: process.env.SERVICE_NOW_CHECK_IN_FIELD_STATUS || 'u_status',
+  lastCheckIn: process.env.SERVICE_NOW_CHECK_IN_FIELD_LAST_CHECK_IN || 'u_last_check_in',
+  window: process.env.SERVICE_NOW_CHECK_IN_FIELD_WINDOW || 'u_check_in_window',
+  date: process.env.SERVICE_NOW_CHECK_IN_FIELD_DATE || 'u_check_in_date',
+  notificationSent: process.env.SERVICE_NOW_CHECK_IN_FIELD_NOTIFICATION_SENT || 'u_notification_sent',
 };
 
 const SENSOR_ACTIVITY_FIELD_MAP = {
@@ -533,9 +556,16 @@ export async function redeemUserPoints({ userId, email, name, pointsToRedeem = 0
   };
 }
 
-export async function addGamePoint({ userId, email, name, pointsToAdd = 1 }) {
+export async function addGamePoint({ userId, email, name, pointsToAdd = 5 }) {
   const profile = await upsertUserProfile({ userId, email, name });
   const today = getSingaporeDateKey();
+  const lastCheckInDate = profile.lastCheckInAt ? getSingaporeDateKey(profile.lastCheckInAt) : null;
+
+  if (lastCheckInDate && lastCheckInDate === today) {
+    throw Object.assign(new Error('No game points are awarded after daily check-in. Play before check-in to earn 5 points.'), {
+      status: 409,
+    });
+  }
 
   if (profile.gameRewardDate === today) {
     throw Object.assign(new Error('You have already collected your game point today. Please play again tomorrow.'), {
@@ -589,6 +619,41 @@ export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 })
     }),
   });
 
+  const checkInQuery = new URLSearchParams({
+    sysparm_query: [
+      `${CHECK_IN_FIELD_MAP.senior}=${profile.sysId}`,
+      `${CHECK_IN_FIELD_MAP.date}=${currentWindow.dateKey}`,
+      `${CHECK_IN_FIELD_MAP.window}=${currentWindow.id}`,
+    ].join('^'),
+    sysparm_limit: '1',
+  });
+  const existingCheckInData = await serviceNowFetch(
+    getNamedTablePath(CHECK_IN_TABLE, `?${checkInQuery.toString()}`),
+  );
+  const existingCheckIn = Array.isArray(existingCheckInData?.result)
+    ? existingCheckInData.result[0]
+    : null;
+  const checkInPayload = {
+    [CHECK_IN_FIELD_MAP.senior]: profile.sysId,
+    [CHECK_IN_FIELD_MAP.status]: 1,
+    [CHECK_IN_FIELD_MAP.lastCheckIn]: checkInAt,
+    [CHECK_IN_FIELD_MAP.window]: currentWindow.id,
+    [CHECK_IN_FIELD_MAP.date]: currentWindow.dateKey,
+    [CHECK_IN_FIELD_MAP.notificationSent]: false,
+  };
+
+  if (existingCheckIn?.sys_id) {
+    await serviceNowFetch(
+      getNamedTablePath(CHECK_IN_TABLE, `/${encodeURIComponent(existingCheckIn.sys_id)}`),
+      { method: 'PATCH', body: JSON.stringify(checkInPayload) },
+    );
+  } else {
+    await serviceNowFetch(getNamedTablePath(CHECK_IN_TABLE), {
+      method: 'POST',
+      body: JSON.stringify(checkInPayload),
+    });
+  }
+
   try {
     await updateLoginCheckInTimestamp({ userId, email, name, checkInAt });
   } catch (error) {
@@ -596,6 +661,89 @@ export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 })
   }
 
   return toUserRecord(data.result);
+}
+
+export async function createMissedCheckInRecord({ seniorProfileId, dateKey, windowId, lastCheckInAt = '' }) {
+  const normalizedSeniorId = String(seniorProfileId || '').trim();
+  const normalizedDateKey = String(dateKey || '').trim();
+  const normalizedWindowId = String(windowId || '').trim().toLowerCase();
+
+  if (!normalizedSeniorId || !normalizedDateKey || !['morning', 'evening'].includes(normalizedWindowId)) {
+    throw Object.assign(new Error('Senior, date, and check-in window are required for a missed check-in record.'), {
+      status: 400,
+    });
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: [
+      `${CHECK_IN_FIELD_MAP.senior}=${normalizedSeniorId}`,
+      `${CHECK_IN_FIELD_MAP.date}=${normalizedDateKey}`,
+      `${CHECK_IN_FIELD_MAP.window}=${normalizedWindowId}`,
+    ].join('^'),
+    sysparm_fields: 'sys_id',
+    sysparm_limit: '1',
+  });
+  const existingData = await serviceNowFetch(getNamedTablePath(CHECK_IN_TABLE, `?${params.toString()}`));
+  const existingRecord = Array.isArray(existingData?.result) ? existingData.result[0] : null;
+
+  if (existingRecord?.sys_id) {
+    return { created: false, sysId: existingRecord.sys_id };
+  }
+
+  const payload = {
+    [CHECK_IN_FIELD_MAP.senior]: normalizedSeniorId,
+    [CHECK_IN_FIELD_MAP.status]: 0,
+    [CHECK_IN_FIELD_MAP.window]: normalizedWindowId,
+    [CHECK_IN_FIELD_MAP.date]: normalizedDateKey,
+    [CHECK_IN_FIELD_MAP.notificationSent]: false,
+  };
+
+  if (lastCheckInAt) {
+    payload[CHECK_IN_FIELD_MAP.lastCheckIn] = lastCheckInAt;
+  }
+
+  const data = await serviceNowFetch(getNamedTablePath(CHECK_IN_TABLE), {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return { created: true, sysId: data?.result?.sys_id || '' };
+}
+
+export async function markCheckInNotificationSent({ seniorProfileId, dateKey, windowId }) {
+  const normalizedSeniorId = String(seniorProfileId || '').trim();
+  const normalizedDateKey = String(dateKey || '').trim();
+  const normalizedWindowId = String(windowId || '').trim().toLowerCase();
+
+  if (!normalizedSeniorId || !normalizedDateKey || !normalizedWindowId) {
+    return { updated: false };
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: [
+      `${CHECK_IN_FIELD_MAP.senior}=${normalizedSeniorId}`,
+      `${CHECK_IN_FIELD_MAP.date}=${normalizedDateKey}`,
+      `${CHECK_IN_FIELD_MAP.window}=${normalizedWindowId}`,
+    ].join('^'),
+    sysparm_fields: 'sys_id',
+    sysparm_limit: '1',
+  });
+  const existingData = await serviceNowFetch(getNamedTablePath(CHECK_IN_TABLE, `?${params.toString()}`));
+  const existingRecord = Array.isArray(existingData?.result) ? existingData.result[0] : null;
+
+  if (!existingRecord?.sys_id) {
+    return { updated: false };
+  }
+
+  await serviceNowFetch(
+    getNamedTablePath(CHECK_IN_TABLE, `/${encodeURIComponent(existingRecord.sys_id)}`),
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ [CHECK_IN_FIELD_MAP.notificationSent]: true }),
+    },
+  );
+
+  return { updated: true, sysId: existingRecord.sys_id };
 }
 
 function toLoginUser(record = {}) {
@@ -669,19 +817,10 @@ function isSeniorRole(role = '') {
 }
 
 function getServiceNowDateTime(value = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Singapore',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(value);
-  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-
-  return `${partMap.year}-${partMap.month}-${partMap.day} ${partMap.hour}:${partMap.minute}:${partMap.second}`;
+  // ServiceNow Date/Time fields accept UTC values and apply the viewing user's
+  // configured timezone. Sending Singapore wall-clock time here causes an
+  // additional +8-hour conversion in a Singapore-configured instance.
+  return getServiceNowUtcDateTime(value);
 }
 
 function getServiceNowUtcDateTime(value = new Date()) {
@@ -1164,6 +1303,635 @@ export async function getSosAlertHistory({ limit = 50 } = {}) {
     .filter(Boolean);
 }
 
+function normalizeAppointmentDate(value = '') {
+  const text = String(value || '').trim();
+
+  if (!text) {
+    return '';
+  }
+
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(text);
+  return match ? match[1] : text;
+}
+
+function normalizeAppointmentTime(value = '') {
+  const text = String(value || '').trim();
+
+  if (!text) {
+    return '';
+  }
+
+  // Try to extract time from combined "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM" format first
+  const dateTimeMatch = /^\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}(?::\d{2})?)/.exec(text);
+
+  if (dateTimeMatch) {
+    return dateTimeMatch[1];
+  }
+
+  // Try to extract time from ISO datetime "YYYY-MM-DDTHH:MM:SS" format
+  const isoDtMatch = /^\d{4}-\d{2}-\d{2}[T ](\d{2}:\d{2}(?::\d{2})?)/.exec(text);
+
+  if (isoDtMatch) {
+    return isoDtMatch[1];
+  }
+
+  // Try direct HH:MM:SS or HH:MM format
+  const match = /^(\d{2}:\d{2}(?::\d{2})?)/.exec(text);
+  return match ? match[1] : text;
+}
+
+function normalizeAppointmentStatus(value = '') {
+  const text = String(value || '').trim().toLowerCase();
+
+  if (/completed|done/.test(text)) {
+    return 'completed';
+  }
+
+  if (/cancelled|canceled/.test(text)) {
+    return 'cancelled';
+  }
+
+  return 'scheduled';
+}
+
+function inferCompletedStatus(status, date, time) {
+  if (status !== 'scheduled' || !date) {
+    return status;
+  }
+
+  const normalizedTime = (time || '23:59:59').length === 5 ? `${time}:00` : (time || '23:59:59');
+  const parsed = new Date(`${date}T${normalizedTime}`);
+
+  if (Number.isNaN(parsed.getTime())) {
+    const fallbackParsed = new Date(`${date}T23:59:59`);
+    return !Number.isNaN(fallbackParsed.getTime()) && fallbackParsed.getTime() < Date.now() ? 'completed' : status;
+  }
+
+  return parsed.getTime() < Date.now() ? 'completed' : status;
+}
+
+function getAppointmentDisplayValue(record = {}, primaryField = '', fallbackFields = []) {
+  const candidates = [primaryField, ...fallbackFields].filter(Boolean);
+
+  for (const field of candidates) {
+    const value = getDisplayValue(record[field]);
+
+    if (String(value || '').trim()) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function getAppointmentReferenceValue(record = {}, primaryField = '', fallbackFields = []) {
+  const candidates = [primaryField, ...fallbackFields].filter(Boolean);
+
+  for (const field of candidates) {
+    const value = getReferenceValue(record[field]);
+
+    if (String(value || '').trim()) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function isLikelyServiceNowSysId(value = '') {
+  return /^[a-f0-9]{32}$/i.test(String(value || '').trim());
+}
+
+function getSafeAppointmentSeniorName({ resolvedSeniorName = '', displaySeniorName = '' } = {}) {
+  const resolved = String(resolvedSeniorName || '').trim();
+
+  if (resolved && !isLikelyServiceNowSysId(resolved)) {
+    return resolved;
+  }
+
+  const display = String(displaySeniorName || '').trim();
+
+  if (display && !isLikelyServiceNowSysId(display)) {
+    return display;
+  }
+
+  return 'Senior';
+}
+
+function toCaregiverAppointmentRecord(record = {}, seniorNamesByProfileId = new Map()) {
+  const seniorReferenceId = getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']) || '';
+  const resolvedSeniorName = seniorNamesByProfileId.get(seniorReferenceId) || '';
+  const displaySeniorName = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']);
+  const seniorName = getSafeAppointmentSeniorName({
+    resolvedSeniorName,
+    displaySeniorName,
+  });
+  
+  // Extract title from dedicated name field
+  const rawTitle = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.name, ['appointment_name', 'name']);
+  const title = rawTitle || 'Appointment';
+
+  // Always prefer notes backup for date/time — avoids ServiceNow timezone conversion issues
+  // Notes backup stores the exact string the user entered: [DATETIME:YYYY-MM-DD HH:MM:SS]
+  let date = '';
+  let rawTime = '';
+
+  const notesForDatetime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.notes, ['notes', 'description']) || '';
+  const backupMatch = /\[DATETIME:([\d\-]+ \d{2}:\d{2})/.exec(notesForDatetime);
+  if (backupMatch) {
+    const backupDateTime = backupMatch[1];
+    const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(backupDateTime);
+    if (dateMatch) date = dateMatch[1];
+    const timeMatch = /(\d{2}):(\d{2})/.exec(backupDateTime);
+    if (timeMatch) rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
+  }
+
+  // Fallback: try the dateAndTime field (may have timezone offset applied by ServiceNow)
+  if (!date || !rawTime) {
+    const rawDateAndTime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.dateAndTime, ['appointment_date_and_time', 'date_and_time']) || '';
+    if (rawDateAndTime) {
+      const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(rawDateAndTime);
+      if (dateMatch) date = dateMatch[1];
+      const timeMatch = /(\d{2}):(\d{2})/.exec(rawDateAndTime);
+      if (timeMatch) rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
+    }
+  }
+  
+  const time = normalizeAppointmentTime(rawTime);
+  
+  const rawStatus = normalizeAppointmentStatus(getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.status, ['status']));
+
+  return {
+    id: record.sys_id || '',
+    seniorId: seniorReferenceId,
+    seniorName,
+    title,
+    date,
+    time,
+    location: getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.location, ['location']) || '',
+    notes: getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.notes, ['notes', 'description']) || '',
+    status: inferCompletedStatus(rawStatus, date, time),
+    createdAt: String(record.sys_created_on || ''),
+  };
+}
+
+async function getAppointmentById(appointmentId) {
+  const normalizedAppointmentId = String(appointmentId || '').trim();
+
+  if (!normalizedAppointmentId) {
+    throw Object.assign(new Error('Appointment ID is required.'), { status: 400 });
+  }
+
+  const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `/${encodeURIComponent(normalizedAppointmentId)}`));
+  return data?.result || null;
+}
+
+function withOptionalStatus(payload = {}, status = '') {
+  if (APPOINTMENT_FIELD_MAP.status && status) {
+    payload[APPOINTMENT_FIELD_MAP.status] = status;
+  }
+
+  return payload;
+}
+
+async function getSeniorNamesByProfileIds(profileIds = []) {
+  const uniqueIds = Array.from(
+    new Set(
+      profileIds
+        .map((id) => String(id || '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: `sys_idIN${uniqueIds.join(',')}`,
+    sysparm_fields: `sys_id,${FIELD_MAP.name}`,
+    sysparm_limit: String(Math.min(uniqueIds.length, 200)),
+  });
+  const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
+  const records = data?.result || [];
+
+  return records.reduce((lookup, record) => {
+    const sysId = String(record?.sys_id || '').trim();
+    const name = String(getDisplayValue(record?.[FIELD_MAP.name]) || '').trim();
+
+    if (sysId && name) {
+      lookup.set(sysId, name);
+    }
+
+    return lookup;
+  }, new Map());
+}
+
+export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail, limit = 100 } = {}) {
+  const normalizedCaregiverId = String(caregiverId || '').trim();
+  const normalizedCaregiverEmail = normalizeLoginValue(caregiverEmail);
+
+  if (!normalizedCaregiverId && !normalizedCaregiverEmail) {
+    throw Object.assign(new Error('Caregiver ID or email is required.'), { status: 400 });
+  }
+
+  const queryParts = [];
+
+  if (normalizedCaregiverId) {
+    queryParts.push(`${APPOINTMENT_FIELD_MAP.caregiver}=${normalizedCaregiverId}`);
+  }
+
+  if (normalizedCaregiverEmail) {
+    queryParts.push(`${APPOINTMENT_FIELD_MAP.caregiver}=${normalizedCaregiverEmail}`);
+  }
+
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
+  
+  // Specify which fields we want back from ServiceNow
+  const fieldsToReturn = [
+    'sys_id',
+    APPOINTMENT_FIELD_MAP.caregiver,
+    APPOINTMENT_FIELD_MAP.senior,
+    APPOINTMENT_FIELD_MAP.name,
+    APPOINTMENT_FIELD_MAP.type,
+    APPOINTMENT_FIELD_MAP.dateAndTime,
+    APPOINTMENT_FIELD_MAP.location,
+    APPOINTMENT_FIELD_MAP.notes,
+    APPOINTMENT_FIELD_MAP.status,
+    'sys_created_on',
+  ].filter(Boolean);
+
+  const params = new URLSearchParams({
+    sysparm_query: `${queryParts.join('^OR')}^ORDERBYDESCsys_created_on`,
+    sysparm_limit: String(normalizedLimit),
+    sysparm_fields: fieldsToReturn.join(','),
+  });
+  const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `?${params.toString()}`));
+  const records = data?.result || [];
+  const seniorNamesByProfileId = await getSeniorNamesByProfileIds(
+    records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
+  );
+
+  return records.map((record) => toCaregiverAppointmentRecord(record, seniorNamesByProfileId));
+}
+
+export async function getAppointmentsForSenior({ seniorUserId, seniorEmail, limit = 100 } = {}) {
+  const normalizedSeniorUserId = String(seniorUserId || '').trim();
+  const normalizedSeniorEmail = normalizeLoginValue(seniorEmail);
+
+  if (!normalizedSeniorUserId && !normalizedSeniorEmail) {
+    throw Object.assign(new Error('Senior user ID or email is required.'), { status: 400 });
+  }
+
+  const candidateSeniorIds = new Set(
+    [normalizedSeniorUserId]
+      .filter(Boolean)
+      .map((value) => normalizeLoginValue(value)),
+  );
+  const candidateSeniorNames = new Set(
+    [normalizedSeniorEmail]
+      .filter(Boolean)
+      .map((value) => normalizeLoginValue(value)),
+  );
+
+  const seniorProfile = normalizedSeniorUserId ? await findSeniorProfileByUserId(normalizedSeniorUserId) : null;
+
+  if (seniorProfile?.sys_id) {
+    candidateSeniorIds.add(normalizeLoginValue(seniorProfile.sys_id));
+    candidateSeniorNames.add(normalizeLoginValue(getDisplayValue(seniorProfile[FIELD_MAP.email])));
+    candidateSeniorNames.add(normalizeLoginValue(getDisplayValue(seniorProfile[FIELD_MAP.name])));
+  }
+
+  const seniorLoginRecord = normalizedSeniorUserId ? await getLoginRecordById(normalizedSeniorUserId) : null;
+  const lookupValues = [
+    normalizedSeniorEmail,
+    normalizeLoginValue(getDisplayValue(seniorLoginRecord?.[LOGIN_FIELD_MAP.email])),
+    normalizeLoginValue(getDisplayValue(seniorLoginRecord?.[LOGIN_FIELD_MAP.name])),
+  ].filter(Boolean);
+
+  if (lookupValues.length > 0) {
+    const queryParts = [];
+
+    for (const value of lookupValues) {
+      queryParts.push(`${FIELD_MAP.email}=${value}`);
+      queryParts.push(`${FIELD_MAP.name}=${value}`);
+      if (FIELD_MAP.userId !== 'sys_id') {
+        queryParts.push(`${FIELD_MAP.userId}=${value}`);
+      }
+    }
+
+    const profileParams = new URLSearchParams({
+      sysparm_query: queryParts.join('^OR'),
+      sysparm_fields: `sys_id,${FIELD_MAP.name},${FIELD_MAP.email}`,
+      sysparm_limit: '50',
+    });
+    const profileData = await serviceNowFetch(getTablePath(`?${profileParams.toString()}`));
+
+    for (const profileRecord of profileData?.result || []) {
+      candidateSeniorIds.add(normalizeLoginValue(profileRecord?.sys_id));
+      candidateSeniorNames.add(normalizeLoginValue(getDisplayValue(profileRecord?.[FIELD_MAP.email])));
+      candidateSeniorNames.add(normalizeLoginValue(getDisplayValue(profileRecord?.[FIELD_MAP.name])));
+    }
+  }
+
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
+  
+  // Specify which fields we want back from ServiceNow
+  const fieldsToReturn = [
+    'sys_id',
+    APPOINTMENT_FIELD_MAP.caregiver,
+    APPOINTMENT_FIELD_MAP.senior,
+    APPOINTMENT_FIELD_MAP.name,
+    APPOINTMENT_FIELD_MAP.type,
+    APPOINTMENT_FIELD_MAP.dateAndTime,
+    APPOINTMENT_FIELD_MAP.location,
+    APPOINTMENT_FIELD_MAP.notes,
+    APPOINTMENT_FIELD_MAP.status,
+    'sys_created_on',
+  ].filter(Boolean);
+  
+  const params = new URLSearchParams({
+    sysparm_query: 'ORDERBYDESCsys_created_on',
+    sysparm_limit: String(Math.min(normalizedLimit * 3, 500)),
+    sysparm_fields: fieldsToReturn.join(','),
+  });
+  const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `?${params.toString()}`));
+  const records = data?.result || [];
+
+  if (records.length === 0) {
+    return [];
+  }
+
+  const seniorNamesByProfileId = await getSeniorNamesByProfileIds(
+    records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
+  );
+
+  return records
+    .map((record) => toCaregiverAppointmentRecord(record, seniorNamesByProfileId))
+    .filter((appointment) => {
+      const normalizedAppointmentSeniorId = normalizeLoginValue(appointment.seniorId);
+      const normalizedAppointmentSeniorName = normalizeLoginValue(appointment.seniorName);
+
+      return (
+        (normalizedAppointmentSeniorId && candidateSeniorIds.has(normalizedAppointmentSeniorId)) ||
+        (normalizedAppointmentSeniorName && candidateSeniorNames.has(normalizedAppointmentSeniorName))
+      );
+    })
+    .slice(0, normalizedLimit);
+}
+
+export async function getUpcomingAppointmentsForReminder({ status = 'scheduled', limit = 200 } = {}) {
+  try {
+    const normalizedLimit = Math.max(1, Math.min(Number(limit) || 200, 500));
+    
+    const fieldsToReturn = [
+      'sys_id',
+      APPOINTMENT_FIELD_MAP.caregiver,
+      APPOINTMENT_FIELD_MAP.senior,
+      APPOINTMENT_FIELD_MAP.name,
+      APPOINTMENT_FIELD_MAP.dateAndTime,
+      APPOINTMENT_FIELD_MAP.location,
+      APPOINTMENT_FIELD_MAP.notes,
+      APPOINTMENT_FIELD_MAP.status,
+    ].filter(Boolean);
+
+    // Fetch all scheduled appointments
+    const params = new URLSearchParams({
+      sysparm_query: `${APPOINTMENT_FIELD_MAP.status}=${status}^ORDERBYASCsys_created_on`,
+      sysparm_limit: String(normalizedLimit),
+      sysparm_fields: fieldsToReturn.join(','),
+    });
+    
+    const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `?${params.toString()}`));
+    const records = data?.result || [];
+
+    if (records.length === 0) {
+      return [];
+    }
+
+    // Get caregiver info for email
+    const caregiverIds = new Set(
+      records
+        .map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.caregiver, ['sys_id']))
+        .filter(Boolean)
+    );
+
+    const caregiverEmails = new Map();
+    for (const caregiverId of caregiverIds) {
+      const caregiverRecord = await getLoginRecordById(caregiverId).catch(() => null);
+      if (caregiverRecord) {
+        caregiverEmails.set(
+          normalizeLoginValue(caregiverId),
+          normalizeLoginValue(getDisplayValue(caregiverRecord[LOGIN_FIELD_MAP.email]))
+        );
+      }
+    }
+
+    const seniorNamesByProfileId = await getSeniorNamesByProfileIds(
+      records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
+    );
+
+    // Fetch senior emails from their profiles
+    const seniorProfileIds = Array.from(new Set(
+      records
+        .map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']))
+        .filter(Boolean)
+    ));
+    const seniorEmailsByProfileId = new Map();
+    for (const profileId of seniorProfileIds) {
+      try {
+        const profileData = await serviceNowFetch(getTablePath(`/${encodeURIComponent(profileId)}`));
+        const email = normalizeLoginValue(getDisplayValue(profileData?.result?.[FIELD_MAP.email]));
+        if (email) seniorEmailsByProfileId.set(profileId, email);
+      } catch {
+        // ignore missing profiles
+      }
+    }
+
+    return records.map((record) => {
+      // Parse date and time using the same logic as toCaregiverAppointmentRecord
+      let date = '';
+      let rawTime = '';
+
+      const notesForDatetime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.notes, ['notes', 'description']) || '';
+      const backupMatch = /\[DATETIME:([\d\-]+ \d{2}:\d{2})/.exec(notesForDatetime);
+      if (backupMatch) {
+        const backupDateTime = backupMatch[1];
+        const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(backupDateTime);
+        if (dateMatch) date = dateMatch[1];
+        const timeMatch = /(\d{2}):(\d{2})/.exec(backupDateTime);
+        if (timeMatch) rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
+      }
+
+      // Fallback: try the dateAndTime field
+      if (!date || !rawTime) {
+        const rawDateAndTime = getAppointmentDisplayValue(record, APPOINTMENT_FIELD_MAP.dateAndTime, ['appointment_date_and_time', 'date_and_time']) || '';
+        if (rawDateAndTime) {
+          const dateMatch = /^(\d{4}-\d{2}-\d{2})/.exec(rawDateAndTime);
+          if (dateMatch) date = dateMatch[1];
+          const timeMatch = /(\d{2}):(\d{2})/.exec(rawDateAndTime);
+          if (timeMatch) rawTime = `${timeMatch[1]}:${timeMatch[2]}`;
+        }
+      }
+
+      const time = normalizeAppointmentTime(rawTime);
+      const caregiverId = getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.caregiver, ['sys_id']);
+      const seniorReferenceId = getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']) || '';
+      
+      return {
+        id: record.sys_id,
+        caregiverId,
+        caregiverEmail: caregiverEmails.get(normalizeLoginValue(caregiverId)) || '',
+        seniorId: seniorReferenceId,
+        seniorName: seniorNamesByProfileId.get(seniorReferenceId) || '',
+        seniorEmail: seniorEmailsByProfileId.get(seniorReferenceId) || '',
+        title: String(record[APPOINTMENT_FIELD_MAP.name] || '').trim() || 'Appointment',
+        date: date,
+        time: time,
+        location: String(record[APPOINTMENT_FIELD_MAP.location] || '').trim(),
+        notes: String(record[APPOINTMENT_FIELD_MAP.notes] || '').trim(),
+        status: String(record[APPOINTMENT_FIELD_MAP.status] || '').trim(),
+      };
+    });
+  } catch (error) {
+    console.error('[getUpcomingAppointmentsForReminder] Error:', error);
+    return [];
+  }
+}
+
+export async function createAppointmentForCaregiver({ caregiverId, caregiverEmail, seniorId, title, date, time, location, notes, status = 'scheduled' } = {}) {
+  const normalizedCaregiverId = String(caregiverId || '').trim();
+  const normalizedCaregiverEmail = normalizeLoginValue(caregiverEmail);
+  const normalizedSeniorId = String(seniorId || '').trim();
+  const normalizedTitle = String(title || '').trim();
+  const normalizedDate = normalizeAppointmentDate(String(date || '').trim());
+  const normalizedTime = normalizeAppointmentTime(String(time || '').trim());
+
+  console.log('[Appointment Create] Input time:', time);
+  console.log('[Appointment Create] Input date:', date);
+  console.log('[Appointment Create] Normalized time:', normalizedTime);
+  console.log('[Appointment Create] Normalized date:', normalizedDate);
+  console.log('[Appointment Create] Field APPOINTMENT_FIELD_MAP.time:', APPOINTMENT_FIELD_MAP.time);
+
+  if (!normalizedCaregiverId && !normalizedCaregiverEmail) {
+    throw Object.assign(new Error('Caregiver ID or email is required.'), { status: 400 });
+  }
+
+  if (!normalizedSeniorId || !normalizedTitle || !normalizedDate || !normalizedTime) {
+    throw Object.assign(new Error('Senior, title, date, and time are required.'), { status: 400 });
+  }
+
+  const seniorProfile = await findSeniorProfileByIdOrUserId(normalizedSeniorId);
+
+  if (!seniorProfile?.sys_id) {
+    throw Object.assign(new Error('Senior profile was not found.'), { status: 404 });
+  }
+
+  // Send appointment data to ServiceNow
+  const dateTimeStr = `${normalizedDate} ${normalizedTime}:00`;
+  const backupNotes = notes ? `${String(notes).trim()}\n[DATETIME:${dateTimeStr}]` : `[DATETIME:${dateTimeStr}]`;
+  
+  const payload = withOptionalStatus({
+    [APPOINTMENT_FIELD_MAP.caregiver]: normalizedCaregiverId || normalizedCaregiverEmail,
+    [APPOINTMENT_FIELD_MAP.senior]: seniorProfile.sys_id,
+    [APPOINTMENT_FIELD_MAP.name]: normalizedTitle,
+    [APPOINTMENT_FIELD_MAP.dateAndTime]: dateTimeStr,
+    [APPOINTMENT_FIELD_MAP.location]: String(location || '').trim(),
+    [APPOINTMENT_FIELD_MAP.notes]: backupNotes,
+  }, status);
+
+  console.log('[Appointment Create] Payload being sent:', JSON.stringify(payload, null, 2));
+
+  const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE), {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  const record = data?.result || {};
+  console.log('[Appointment Create] Full response record:', JSON.stringify(record, null, 2));
+  console.log('[Appointment Create] Response dateAndTime field (' + APPOINTMENT_FIELD_MAP.dateAndTime + '):', record[APPOINTMENT_FIELD_MAP.dateAndTime]);
+  console.log('[Appointment Create] Response type field (' + APPOINTMENT_FIELD_MAP.type + '):', record[APPOINTMENT_FIELD_MAP.type]);
+  console.log('[Appointment Create] All response data:', JSON.stringify(data, null, 2));
+  
+  const seniorNamesByProfileId = await getSeniorNamesByProfileIds([
+    getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']),
+  ]);
+
+  return toCaregiverAppointmentRecord(record, seniorNamesByProfileId);
+}
+
+export async function updateAppointmentForCaregiver({ appointmentId, seniorId, title, date, time, location, notes, status } = {}) {
+  const normalizedAppointmentId = String(appointmentId || '').trim();
+
+  if (!normalizedAppointmentId) {
+    throw Object.assign(new Error('Appointment ID is required.'), { status: 400 });
+  }
+
+  const payload = {};
+
+  if (seniorId !== undefined) {
+    const seniorProfile = await findSeniorProfileByIdOrUserId(String(seniorId || '').trim());
+
+    if (!seniorProfile?.sys_id) {
+      throw Object.assign(new Error('Senior profile was not found.'), { status: 404 });
+    }
+
+    payload[APPOINTMENT_FIELD_MAP.senior] = seniorProfile.sys_id;
+  }
+
+  if (title !== undefined) {
+    payload[APPOINTMENT_FIELD_MAP.name] = String(title || '').trim();
+  }
+  if (date !== undefined || time !== undefined) {
+    const normalizedTime = time !== undefined ? normalizeAppointmentTime(String(time || '').trim()) : null;
+    const normalizedDate = date !== undefined ? normalizeAppointmentDate(String(date || '').trim()) : null;
+    console.log('[Appointment Update] Input time:', time);
+    console.log('[Appointment Update] Normalized time:', normalizedTime);
+    if (normalizedDate && normalizedTime) {
+      // Send as datetime format: YYYY-MM-DD HH:MM:SS
+      const dateTimeStr = `${normalizedDate} ${normalizedTime}:00`;
+      payload[APPOINTMENT_FIELD_MAP.dateAndTime] = dateTimeStr;
+      // Also backup in notes (read-restricted field workaround)
+      const currentNotes = String(payload[APPOINTMENT_FIELD_MAP.notes] || '').trim();
+      payload[APPOINTMENT_FIELD_MAP.notes] = currentNotes ? `${currentNotes}\n[DATETIME:${dateTimeStr}]` : `[DATETIME:${dateTimeStr}]`;
+    }
+  }
+  if (location !== undefined) payload[APPOINTMENT_FIELD_MAP.location] = String(location || '').trim();
+  if (notes !== undefined && time === undefined) payload[APPOINTMENT_FIELD_MAP.notes] = String(notes || '').trim();
+  if (status !== undefined && APPOINTMENT_FIELD_MAP.status) payload[APPOINTMENT_FIELD_MAP.status] = status;
+
+  if (Object.keys(payload).length === 0) {
+    throw Object.assign(new Error('No appointment changes were provided.'), { status: 400 });
+  }
+
+  console.log('[Appointment Update] Payload being sent:', JSON.stringify(payload, null, 2));
+
+  const data = await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `/${encodeURIComponent(normalizedAppointmentId)}`), {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+  const record = data?.result || await getAppointmentById(normalizedAppointmentId);
+  const seniorNamesByProfileId = await getSeniorNamesByProfileIds([
+    getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior']),
+  ]);
+
+  return toCaregiverAppointmentRecord(record, seniorNamesByProfileId);
+}
+
+export async function deleteAppointmentForCaregiver({ appointmentId } = {}) {
+  const normalizedAppointmentId = String(appointmentId || '').trim();
+
+  if (!normalizedAppointmentId) {
+    throw Object.assign(new Error('Appointment ID is required.'), { status: 400 });
+  }
+
+  await serviceNowFetch(getNamedTablePath(APPOINTMENT_TABLE, `/${encodeURIComponent(normalizedAppointmentId)}`), {
+    method: 'DELETE',
+  });
+
+  return { id: normalizedAppointmentId };
+}
+
 async function getLoginRecordById(userId) {
   if (!userId) {
     return null;
@@ -1287,6 +2055,7 @@ function toSeniorSearchRecord(record = {}) {
     name: record[FIELD_MAP.name] || 'Senior',
     phone: record[FIELD_MAP.phone] || '',
     email: record[FIELD_MAP.email] || '',
+    lastCheckInAt: record[FIELD_MAP.lastCheckInAt] || null,
   };
 }
 
@@ -1303,14 +2072,10 @@ export async function searchSeniorProfiles({ searchName, phone }) {
     queryParts.push(`${FIELD_MAP.phone}LIKE${normalizedPhone}`);
   }
 
-  if (queryParts.length === 0) {
-    return [];
+  const params = new URLSearchParams({ sysparm_limit: '100' });
+  if (queryParts.length > 0) {
+    params.set('sysparm_query', queryParts.join('^OR'));
   }
-
-  const params = new URLSearchParams({
-    sysparm_query: queryParts.join('^OR'),
-    sysparm_limit: '20',
-  });
   const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
 
   return (data?.result || []).map(toSeniorSearchRecord);
@@ -1531,7 +2296,7 @@ function toActiveSosAlert(record = {}) {
   };
 }
 
-async function getLatestActiveSosAlertForSenior(senior = {}) {
+export async function getLatestActiveSosAlertForSenior(senior = {}) {
   const queryParts = [];
   const seniorName = String(senior.name || '').trim();
   const seniorPhone = String(senior.phone || '').trim();
@@ -1630,6 +2395,36 @@ export async function createCaregiverConnection(data) {
     throw Object.assign(new Error('Senior profile was not found.'), { status: 404 });
   }
 
+  const existingConnectionParams = new URLSearchParams({
+    sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.senior}=${seniorProfile.sys_id}`,
+    sysparm_limit: '20',
+  });
+  const existingConnectionData = await serviceNowFetch(
+    getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${existingConnectionParams.toString()}`),
+  );
+  const existingConnections = existingConnectionData?.result || [];
+
+  const existingForSameCaregiver = existingConnections.find((connection) => {
+    const existingCaregiverId = getReferenceValue(connection?.[CAREGIVER_CONNECTION_FIELD_MAP.user]);
+    return existingCaregiverId && existingCaregiverId === caregiverUser.sys_id;
+  });
+
+  if (existingForSameCaregiver) {
+    return { result: existingForSameCaregiver, reused: true };
+  }
+
+  const existingForDifferentCaregiver = existingConnections.find((connection) => {
+    const existingCaregiverId = getReferenceValue(connection?.[CAREGIVER_CONNECTION_FIELD_MAP.user]);
+    return existingCaregiverId && existingCaregiverId !== caregiverUser.sys_id;
+  });
+
+  if (existingForDifferentCaregiver) {
+    throw Object.assign(
+      new Error('This senior is already linked to another caregiver. Each senior can only have one caregiver.'),
+      { status: 409 },
+    );
+  }
+
   const response = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE), {
     method: 'POST',
     body: JSON.stringify({
@@ -1668,6 +2463,58 @@ export async function deleteCaregiverConnection(data = {}) {
   return { id: connectionId };
 }
 
+export async function updateCaregiverConnection(data = {}) {
+  const connectionId = String(data.connectionId || '').trim();
+  const updateData = data.updateData || {};
+
+  if (!connectionId) {
+    throw Object.assign(new Error('Caregiver connection ID is required.'), { status: 400 });
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    throw Object.assign(new Error('No fields to update.'), { status: 400 });
+  }
+
+  const response = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `/${encodeURIComponent(connectionId)}`), {
+    method: 'PATCH',
+    body: JSON.stringify(updateData),
+  });
+
+  return response?.result || response;
+}
+
+export async function getCaregiverContactsForSenior({ seniorProfileId } = {}) {
+  const normalizedSeniorProfileId = String(seniorProfileId || '').trim();
+
+  if (!normalizedSeniorProfileId) {
+    throw Object.assign(new Error('Senior profile ID is required.'), { status: 400 });
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.senior}=${normalizedSeniorProfileId}`,
+    sysparm_limit: '20',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${params.toString()}`));
+
+  return Promise.all((data?.result || []).map(async (connection) => {
+    const caregiverUserId = getReferenceValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.user]);
+    const caregiverUser = caregiverUserId ? await getLoginRecordById(caregiverUserId) : null;
+
+    return {
+      connectionId: connection.sys_id || '',
+      caregiverId: caregiverUserId || '',
+      caregiverName:
+        getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.name]) ||
+        getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.username]) ||
+        getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.email])?.split('@')[0] ||
+        '',
+      caregiverEmail: getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.email]) || '',
+      telegramChatId: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.telegramChatId]) || '',
+      relationship: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.relationship]) || '',
+    };
+  }));
+}
+
 export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmail, searchName, phone }) {
   const normalizedCaregiverId = String(caregiverId || '').trim();
   const normalizedEmail = normalizeLoginValue(caregiverEmail);
@@ -1683,6 +2530,12 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
   if (!caregiverUserId) {
     return [];
   }
+
+  const caregiverUser = await getLoginRecordById(caregiverUserId).catch(() => null);
+  const resolvedCaregiverEmail =
+    getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.email]) ||
+    normalizedEmail ||
+    '';
 
   const params = new URLSearchParams({
     sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.user}=${caregiverUserId}`,
@@ -1709,13 +2562,20 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
       const seniorUserId = getReferenceValue(seniorProfile[FIELD_MAP.userId]);
       const seniorUser = seniorUserId ? await getLoginRecordById(seniorUserId) : null;
       const senior = toCaregiverSeniorRecord(connection, seniorProfile, seniorUser || {});
+      const telegramChatId = getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.telegramChatId]) || '';
+      const baseSenior = {
+        ...senior,
+        caregiverId: caregiverUserId,
+        caregiverEmail: resolvedCaregiverEmail,
+        telegramChatId,
+      };
       const sosAlert = await getLatestActiveSosAlertForSenior(senior);
       const medicationSummary = await getMedicationSummaryForSeniorProfile(seniorProfile.sys_id);
       const medicalInformation = await getMedicalInformationForSeniorProfile(seniorProfile.sys_id);
 
       return sosAlert
         ? {
-            ...senior,
+            ...baseSenior,
             ...medicationSummary,
             ...medicalInformation,
             status: 'SOS Active',
@@ -1725,7 +2585,7 @@ export async function getCaregiverSeniorConnections({ caregiverId, caregiverEmai
             alertStatus: sosAlert.status,
             alertTime: sosAlert.createdAt,
           }
-        : { ...senior, ...medicationSummary, ...medicalInformation };
+        : { ...baseSenior, ...medicationSummary, ...medicalInformation };
     } catch (error) {
       console.error(`Skipping unresolvable caregiver connection ${connection?.sys_id || '?'}:`, error.message);
       return null;
@@ -1851,6 +2711,16 @@ function formatMedicineTakenAt(value) {
   const time = formatCheckInTime(parts.totalMinutes).toLowerCase();
 
   return `${time} ${date}`;
+}
+
+function getPersistedMedicineStatus(status = '') {
+  const normalizedStatus = String(status || '').trim();
+
+  if (/^taken$/i.test(normalizedStatus)) {
+    return `Taken at ${formatMedicineTakenAt(new Date())}`;
+  }
+
+  return normalizedStatus;
 }
 
 function getMedicineTakenInfo(record = {}) {
@@ -1982,7 +2852,7 @@ export async function saveMedicineForUser(userId, medicine = {}) {
     const data = await serviceNowFetch(getNamedTablePath(MEDICINE_TABLE, `/${encodeURIComponent(existingRecord.sys_id)}`), {
       method: 'PATCH',
       body: JSON.stringify({
-        [MEDICINE_FIELD_MAP.status]: medicine.status || '',
+        [MEDICINE_FIELD_MAP.status]: getPersistedMedicineStatus(medicine.status),
       }),
     });
 
@@ -1995,7 +2865,7 @@ export async function saveMedicineForUser(userId, medicine = {}) {
     [MEDICINE_FIELD_MAP.dose]: medicine.dose || '',
     [MEDICINE_FIELD_MAP.time]: medicine.time || '',
     [MEDICINE_FIELD_MAP.frequency]: medicine.frequency || '',
-    [MEDICINE_FIELD_MAP.status]: medicine.status || '',
+    [MEDICINE_FIELD_MAP.status]: getPersistedMedicineStatus(medicine.status),
     [MEDICINE_FIELD_MAP.notes]: medicine.notes || '',
     [MEDICINE_FIELD_MAP.isExtra]: true,
   };

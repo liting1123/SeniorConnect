@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, Clock, Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
+import { Bell, Calendar, CalendarCheck, Clock, Gift, Home, User, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { LANGUAGE_STORAGE_KEY } from '../i18n';
@@ -8,11 +8,11 @@ import LanguageSelectionScreen from './components/LanguageSelectionScreen';
 import HomePage from './components/HomePage';
 import SOSConfirmationScreen from './components/SOSConfirmation';
 import ProfileScreen, { PERSONAL_INFO_KEY } from './components/ProfileScreen';
-import PointsScreen from './components/PointsScreen';
 import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel } from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
 import CaregiverDashboardScreen from './components/CaregiverDashboardScreen';
 import GameScreen from './components/GameScreen';
+import SeniorAppointmentsScreen from './components/SeniorAppointmentsScreen';
 import {
   type AppUser,
   type CheckInReminder,
@@ -29,9 +29,13 @@ import {
   setCachedUserPoints,
   updateSeniorProfile,
 } from './services/backend';
-import { createSosAlert } from './services/serviceNow';
+import {
+  createSosAlert,
+  getSeniorAppointments,
+  type CaregiverAppointment,
+} from './services/serviceNow';
 
-type Screen = 'welcome' | 'language' | 'home' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
+type Screen = 'welcome' | 'language' | 'home' | 'appointments' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
 type LanguageReturnScreen = 'home' | 'caregiverDashboard';
 type CheckInWindowId = 'morning' | 'evening';
 const HIGH_CONTRAST_STORAGE_KEY = 'careconnect.highContrast';
@@ -219,7 +223,7 @@ function getCurrentCheckInWindowId(value = new Date()): CheckInWindowId | null {
     return 'morning';
   }
 
-  if (totalMinutes >= 13 * 60 && totalMinutes <= 23 * 60 + 59) {
+  if (totalMinutes >= 12 * 60 && totalMinutes <= 23 * 60 + 59) {
     return 'evening';
   }
 
@@ -308,6 +312,34 @@ function getCompletedWindowFromError(error: unknown): CheckInWindowId | null {
   return null;
 }
 
+function areSeniorAppointmentsEqual(left: CaregiverAppointment[], right: CaregiverAppointment[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+
+    if (
+      leftItem.id !== rightItem.id ||
+      leftItem.seniorId !== rightItem.seniorId ||
+      leftItem.seniorName !== rightItem.seniorName ||
+      leftItem.title !== rightItem.title ||
+      leftItem.date !== rightItem.date ||
+      leftItem.time !== rightItem.time ||
+      leftItem.location !== rightItem.location ||
+      leftItem.notes !== rightItem.notes ||
+      leftItem.status !== rightItem.status ||
+      leftItem.createdAt !== rightItem.createdAt
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [highContrast, setHighContrast] = useState(() => {
@@ -324,6 +356,7 @@ export default function App() {
   const [isSendingSOS, setIsSendingSOS] = useState(false);
   const isSendingSOSRef = useRef(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [earnedPointsPopup, setEarnedPointsPopup] = useState<number | null>(null);
   const isCheckingInRef = useRef(false);
   const [completedCheckIn, setCompletedCheckIn] = useState<CompletedCheckInStatus | null>(() => getSavedCompletedCheckIn(getStoredUser()));
   const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
@@ -337,6 +370,9 @@ export default function App() {
   const [snoozedMedicineUntil, setSnoozedMedicineUntil] = useState<Record<string, number>>({});
   const snoozedMedicineUntilRef = useRef<Record<string, number>>({});
   const [familyRegistrationNotice, setFamilyRegistrationNotice] = useState('');
+  const [seniorAppointments, setSeniorAppointments] = useState<CaregiverAppointment[]>([]);
+  const [isLoadingSeniorAppointments, setIsLoadingSeniorAppointments] = useState(false);
+  const hasLoadedSeniorAppointmentsRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(HIGH_CONTRAST_STORAGE_KEY, String(highContrast));
@@ -362,6 +398,23 @@ export default function App() {
 
     return () => {
       window.removeEventListener('storage', handleStorageUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
+    let dismissTimer: number | undefined;
+    const handlePointsEarned = (event: Event) => {
+      const amount = Number((event as CustomEvent<{ amount?: number }>).detail?.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return;
+      setEarnedPointsPopup(amount);
+      window.clearTimeout(dismissTimer);
+      dismissTimer = window.setTimeout(() => setEarnedPointsPopup(null), 3000);
+    };
+
+    window.addEventListener('careconnect-points-earned', handlePointsEarned);
+    return () => {
+      window.removeEventListener('careconnect-points-earned', handlePointsEarned);
+      window.clearTimeout(dismissTimer);
     };
   }, []);
 
@@ -522,6 +575,50 @@ export default function App() {
   useEffect(() => {
     const user = getStoredUser();
 
+    if (!user || !isSeniorRole(user.role)) {
+      setSeniorAppointments([]);
+      setIsLoadingSeniorAppointments(false);
+      hasLoadedSeniorAppointmentsRef.current = false;
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadSeniorAppointments = async () => {
+      if (!hasLoadedSeniorAppointmentsRef.current) {
+        setIsLoadingSeniorAppointments(true);
+      }
+
+      try {
+        const appointments = await getSeniorAppointments(user.uid, user.email);
+
+        if (isMounted) {
+          setSeniorAppointments((currentAppointments) => (
+            areSeniorAppointmentsEqual(currentAppointments, appointments) ? currentAppointments : appointments
+          ));
+          hasLoadedSeniorAppointmentsRef.current = true;
+        }
+      } catch (error) {
+        console.error('Unable to load senior appointments:', error);
+      } finally {
+        if (isMounted) {
+          setIsLoadingSeniorAppointments(false);
+        }
+      }
+    };
+
+    loadSeniorAppointments();
+    const timer = window.setInterval(loadSeniorAppointments, 30000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
+  }, [currentScreen]);
+
+  useEffect(() => {
+    const user = getStoredUser();
+
     if (!user || !isSeniorRole(user.role) || currentScreen === 'welcome' || currentScreen === 'language') {
       return;
     }
@@ -655,6 +752,7 @@ export default function App() {
       await createSosAlert({
         location,
         message: 'SOS alert triggered',
+        seniorProfileId: seniorProfile?.sysId || '',
         seniorName,
         seniorPhone,
         status: 'New',
@@ -672,10 +770,10 @@ export default function App() {
   };
 
   const handleCheckIn = async ({
-    redirectToPoints = true,
+    redirectToGame = true,
     suppressWindowCompletedAlert = false,
   }: {
-    redirectToPoints?: boolean;
+    redirectToGame?: boolean;
     suppressWindowCompletedAlert?: boolean;
   } = {}) => {
     if (isCheckingInRef.current) {
@@ -707,8 +805,9 @@ export default function App() {
           detail: { uid: user.uid, points: nextPoints },
         }),
       );
-      if (redirectToPoints) {
-        setCurrentScreen('points');
+      window.dispatchEvent(new CustomEvent('careconnect-points-earned', { detail: { amount: 5 } }));
+      if (redirectToGame) {
+        setCurrentScreen('game');
       }
     } catch (error) {
       console.error('Check-in failed:', error);
@@ -790,6 +889,8 @@ export default function App() {
             isCurrentCheckInWindowCompleted={isCurrentCheckInWindowCompleted}
           />
         );
+      case 'appointments':
+        return <SeniorAppointmentsScreen appointments={seniorAppointments} isLoading={isLoadingSeniorAppointments} />;
       case 'profile':
         return (
           <ProfileScreen
@@ -799,8 +900,6 @@ export default function App() {
             onToggleHighContrast={() => setHighContrast((value) => !value)}
           />
         );
-      case 'points':
-        return <PointsScreen highContrast={highContrast} />;
       case 'medication':
         return (
           <MedicationScreen
@@ -817,8 +916,7 @@ export default function App() {
           <GameScreen
             highContrast={highContrast}
             onToggleHighContrast={() => setHighContrast((value) => !value)}
-            onGamePlayCheckIn={() => handleCheckIn({ redirectToPoints: false, suppressWindowCompletedAlert: true })}
-            shouldPromptCheckIn={Boolean(activeUser && isSeniorRole(activeUser.role) && !isCurrentCheckInWindowCompleted)}
+            onGamePlayCheckIn={() => handleCheckIn({ redirectToGame: true, suppressWindowCompletedAlert: true })}
           />
         );
       case 'carePortal':
@@ -878,6 +976,13 @@ export default function App() {
               onClick={() => setCurrentScreen('home')}
             />
             <NavButton
+              icon={<Calendar className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
+              label={t('healthBuddy')}
+              active={currentScreen === 'appointments'}
+              highContrast={highContrast}
+              onClick={() => setCurrentScreen('appointments')}
+            />
+            <NavButton
               icon={<Pill className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
               label={t('meds')}
               active={currentScreen === 'medication'}
@@ -885,15 +990,8 @@ export default function App() {
               onClick={() => setCurrentScreen('medication')}
             />
             <NavButton
-              icon={<Trophy className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
-              label={t('points')}
-              active={currentScreen === 'points'}
-              highContrast={highContrast}
-              onClick={() => setCurrentScreen('points')}
-            />
-            <NavButton
-              icon={<Gamepad2 className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
-              label={t('game')}
+              icon={<Gift className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
+              label={t('Rewards')}
               active={currentScreen === 'game'}
               highContrast={highContrast}
               onClick={() => setCurrentScreen('game')}
@@ -916,6 +1014,26 @@ export default function App() {
               isSending={isSendingSOS}
             />
           </div>
+        )}
+
+        {earnedPointsPopup !== null && (
+          <button
+            type="button"
+            onClick={() => setEarnedPointsPopup(null)}
+            className="absolute inset-x-4 top-4 z-[70] flex items-center justify-between rounded-[22px] border-2 border-[#cfe0c6] bg-[#fbfcf8] px-5 py-4 text-left shadow-2xl"
+            aria-label={t('closeRewardPopup')}
+          >
+            <div className="flex items-center gap-4 text-[#34733b]">
+              <CalendarCheck className="h-10 w-10 stroke-[2]" />
+              <div>
+                <h2 className="text-lg font-black text-[#242424]">{t('pointEarned')}</h2>
+                <p className="mt-1 text-sm text-[#555]">{t('pointsAddedMessage')}</p>
+              </div>
+            </div>
+            <div className="rounded-[16px] bg-[#4d9654] px-6 py-3 text-xl font-black text-white">
+              +{earnedPointsPopup}
+            </div>
+          </button>
         )}
 
         {currentScreen === 'medication' && activeMedicineReminder && !showSOSConfirmation && (
@@ -951,7 +1069,7 @@ export default function App() {
           </div>
         )}
 
-        {['home', 'profile', 'points', 'medication', 'game'].includes(currentScreen) && activeCheckInReminder && !showSOSConfirmation && (
+        {['home', 'appointments', 'profile', 'points', 'medication', 'game'].includes(currentScreen) && activeCheckInReminder && !showSOSConfirmation && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
             <div className="w-full rounded-[28px] bg-white p-6 text-center shadow-2xl">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
@@ -1002,7 +1120,7 @@ function NavButton({
   return (
     <button
       onClick={onClick}
-      className={`flex min-w-[72px] flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors active:scale-95 min-[390px]:gap-2 min-[390px]:px-2 ${
+      className={`flex flex-1 min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 transition-colors active:scale-95 min-[390px]:gap-1.5 min-[390px]:px-1.5 ${
         highContrast
           ? active
             ? 'bg-white text-black'
@@ -1013,7 +1131,7 @@ function NavButton({
       }`}
     >
       {icon}
-      <span className="text-sm font-bold min-[390px]:text-base">{label}</span>
+      <span className="w-full truncate text-center text-xs font-bold leading-4 min-[390px]:text-sm">{label}</span>
     </button>
   );
 }

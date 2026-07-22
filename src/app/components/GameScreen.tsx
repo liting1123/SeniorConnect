@@ -1,4 +1,4 @@
-import { Bell, CheckCircle2, Gamepad2 } from 'lucide-react';
+import { CheckCircle2, Gamepad2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -8,9 +8,9 @@ import {
   setCachedUserPoints,
   type AppUser,
 } from '../services/backend';
-import GameLauncher from './GameLauncher';
 import MemoryGame from './MemoryGame';
 import PuzzleGame from './PuzzleGame';
+import PointsScreen from './PointsScreen';
 
 type CardData = {
   id: number;
@@ -94,12 +94,10 @@ export default function GameScreen({
   highContrast,
   onToggleHighContrast,
   onGamePlayCheckIn,
-  shouldPromptCheckIn = false,
 }: {
   highContrast: boolean;
   onToggleHighContrast: () => void;
   onGamePlayCheckIn?: () => Promise<void> | void;
-  shouldPromptCheckIn?: boolean;
 }) {
   const { t } = useTranslation();
   const [cards, setCards] = useState<CardData[]>(initialCards);
@@ -107,9 +105,6 @@ export default function GameScreen({
   const [isSavingPoint, setIsSavingPoint] = useState(false);
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const [gameMode, setGameMode] = useState<GameMode>('menu');
-  const [showCheckInPrompt, setShowCheckInPrompt] = useState(false);
-  const [pendingGameMode, setPendingGameMode] = useState<PlayableGameMode | null>(null);
-  const [isPreparingGame, setIsPreparingGame] = useState(false);
   const rewardStartedRef = useRef(false);
   const revealedCount = cards.filter((card) => card.revealed).length;
   const canConfirm = revealedCount >= requiredReveals;
@@ -181,6 +176,7 @@ export default function GameScreen({
           detail: { uid: user.uid, points: nextPoints },
         }),
       );
+      window.dispatchEvent(new CustomEvent('careconnect-points-earned', { detail: { amount: 1 } }));
       setRewardClaimed(true);
       setConfirmed(true);
       saveGameState(user, cards, true);
@@ -221,90 +217,25 @@ export default function GameScreen({
     updateRewardCount();
   };
 
-  const launchSelectedGame = async (mode: PlayableGameMode, checkInBeforePlay: boolean) => {
-    if (isPreparingGame) {
-      return;
-    }
-
-    setIsPreparingGame(true);
-
-    try {
-      if (checkInBeforePlay) {
-        await onGamePlayCheckIn?.();
-      }
-
-      setGameMode(mode);
-      setShowCheckInPrompt(false);
-      setPendingGameMode(null);
-    } finally {
-      setIsPreparingGame(false);
-    }
+  const launchSelectedGame = (mode: PlayableGameMode) => {
+    setGameMode(mode);
   };
 
-  const handleSelectGame = async (mode: PlayableGameMode) => {
-    if (shouldPromptCheckIn) {
-      setPendingGameMode(mode);
-      setShowCheckInPrompt(true);
-      return;
-    }
-
-    await launchSelectedGame(mode, true);
+  const handleSelectGame = (mode: PlayableGameMode) => {
+    launchSelectedGame(mode);
   };
 
-  const handlePromptCheckInNow = async () => {
-    if (!pendingGameMode) {
-      return;
-    }
-
-    await launchSelectedGame(pendingGameMode, true);
-  };
-
-  const handlePromptContinue = async () => {
-    if (!pendingGameMode) {
-      return;
-    }
-
-    await launchSelectedGame(pendingGameMode, false);
+  const handleGameComplete = () => {
+    onGamePlayCheckIn?.();
   };
 
   if (gameMode === 'menu') {
-    return (
-      <div className="relative h-full">
-        <GameLauncher onSelect={handleSelectGame} highContrast={highContrast} />
-        {showCheckInPrompt && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
-            <div className="w-full rounded-[28px] bg-white p-6 text-center shadow-2xl">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
-                <Bell className="h-9 w-9" />
-              </div>
-              <h2 className="mt-4 text-3xl font-bold text-[#07122e]">{t('checkInReminder')}</h2>
-              <p className="mt-3 text-xl leading-7 text-gray-600">{t('pleaseCompleteCheckIn')}</p>
-              <div className="mt-6 flex flex-col gap-3">
-                <button
-                  onClick={handlePromptCheckInNow}
-                  disabled={isPreparingGame}
-                  className="flex h-14 items-center justify-center rounded-full bg-[#18833b] text-xl font-bold text-white active:scale-95 disabled:cursor-wait disabled:opacity-70"
-                >
-                  {isPreparingGame ? t('checking') : t('checkInNow')}
-                </button>
-                <button
-                  onClick={handlePromptContinue}
-                  disabled={isPreparingGame}
-                  className="flex h-14 items-center justify-center rounded-full border-2 border-[#416642] bg-white text-xl font-bold text-[#416642] active:scale-95 disabled:cursor-wait disabled:opacity-70"
-                >
-                  {t('continue')}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
+    return <PointsScreen highContrast={highContrast} onSelectGame={handleSelectGame} />;
   }
 
   if (gameMode === 'memory') {
-    return <MemoryGame onBack={() => setGameMode('menu')} highContrast={highContrast} onToggleHighContrast={onToggleHighContrast} />;
+    return <MemoryGame onBack={() => setGameMode('menu')} highContrast={highContrast} onToggleHighContrast={onToggleHighContrast} onGameComplete={handleGameComplete} />;
   }
 
-  return <PuzzleGame onBack={() => setGameMode('menu')} />;
+  return <PuzzleGame onBack={() => setGameMode('menu')} onGameComplete={handleGameComplete} />;
 }

@@ -74,6 +74,9 @@ export default function LoginScreen({
         if (delivery?.delivery === 'in-app-notification' && delivery.code) {
           setNotice('Email failed. Verification code sent as app notification to caregiver/volunteer.');
           notifyVolunteerOrCaregiver(`Your CareConnect verification code is ${delivery.code}`);
+        } else if (delivery?.delivery === 'telegram') {
+          setNotice('Verification code sent to your Telegram bot chat.');
+          notifyVolunteerOrCaregiver('Verification code sent to Telegram.');
         } else {
           setNotice('Notification sent to caregiver/volunteer email. Please check your inbox for the 6-digit code.');
           notifyVolunteerOrCaregiver('Verification code sent to caregiver/volunteer email.');
@@ -137,6 +140,9 @@ export default function LoginScreen({
       if (delivery?.delivery === 'in-app-notification' && delivery.code) {
         setNotice('Email failed. Verification code sent as app notification to caregiver/volunteer.');
         notifyVolunteerOrCaregiver(`Your CareConnect verification code is ${delivery.code}`);
+      } else if (delivery?.delivery === 'telegram') {
+        setNotice('Verification code sent to your Telegram bot chat.');
+        notifyVolunteerOrCaregiver('Verification code sent to Telegram.');
       } else {
         setNotice('Notification sent to caregiver/volunteer email. Please check your inbox for the 6-digit code.');
         notifyVolunteerOrCaregiver('Verification code resent to caregiver/volunteer email.');

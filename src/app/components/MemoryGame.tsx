@@ -23,6 +23,7 @@ interface Card {
 
 interface MemoryGameProps {
   onBack?: () => void;
+  onGameComplete?: () => void;
   highContrast: boolean;
   onToggleHighContrast: () => void;
 }
@@ -36,7 +37,7 @@ const buttonClass = (highContrast: boolean, variant: 'primary' | 'secondary' = '
         highContrast ? 'border-white bg-black text-white hover:bg-[#121212]' : ''
       }`;
 
-const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, highContrast, onToggleHighContrast }) => {
+const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, onGameComplete, highContrast, onToggleHighContrast }) => {
   const { t } = useTranslation();
   const [gridN, setGridN] = useState(2);
   const [cards, setCards] = useState<Card[]>([]);
@@ -119,6 +120,7 @@ const MemoryGame: React.FC<MemoryGameProps> = ({ onBack, highContrast, onToggleH
   const endGame = (finalMoves: number) => {
     if (timerRef.current) clearInterval(timerRef.current);
     setMessage(t('youWonIn', { moves: finalMoves, seconds: secondsRef.current }));
+    onGameComplete?.();
   };
 
   const flipCard = (index: number) => {

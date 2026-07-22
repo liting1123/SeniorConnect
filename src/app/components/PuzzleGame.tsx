@@ -9,6 +9,7 @@ import { shuffle } from './shared/utils';
 
 interface PuzzleGameProps {
   onBack?: () => void;
+  onGameComplete?: () => void;
 }
 
 type PuzzleTheme = {
@@ -46,7 +47,7 @@ const buttonClass = (highContrast: boolean, variant: 'primary' | 'secondary' = '
         highContrast ? 'border-white bg-[#111] text-white hover:bg-[#111]' : ''
       }`;
 
-const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
+const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack, onGameComplete }) => {
   const { t } = useTranslation();
   const [gridN, setGridN] = useState(2);
   const [boardTiles, setBoardTiles] = useState<string[]>([]);
@@ -223,6 +224,7 @@ const PuzzleGame: React.FC<PuzzleGameProps> = ({ onBack }) => {
     if (timerRef.current) clearInterval(timerRef.current);
     setIsSolved(true);
     setMessage(t('puzzleSolvedIn', { moves: finalMoves, seconds: secondsRef.current }));
+    onGameComplete?.();
   };
 
   useEffect(() => {

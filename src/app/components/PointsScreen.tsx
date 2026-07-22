@@ -1,4 +1,4 @@
-import { Calendar, Car, CheckCircle2, Clock3, Coffee, Gift, Lock, ShoppingCart, Star, User, X } from 'lucide-react';
+import { Car, CheckCircle2, ChevronRight, Clock3, Coffee, Gamepad2, Gift, Lock, ShoppingCart, Star, User, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -66,7 +66,13 @@ function formatRedeemedAt(value: string) {
   });
 }
 
-export default function PointsScreen({ highContrast = false }: { highContrast?: boolean }) {
+export default function PointsScreen({
+  highContrast = false,
+  onSelectGame,
+}: {
+  highContrast?: boolean;
+  onSelectGame?: (mode: 'memory' | 'puzzle') => void;
+}) {
   const { t } = useTranslation();
   const [rewardHistory, setRewardHistory] = useState<RewardHistoryItem[]>(() => {
     const user = getStoredUser();
@@ -168,53 +174,55 @@ export default function PointsScreen({ highContrast = false }: { highContrast?: 
   }, []);
 
   return (
-    <div className={`h-full overflow-y-auto ${highContrast ? 'bg-black text-white' : 'bg-[#fbf9f8] text-[#1b1c1c]'}`}>
-      <main className="flex flex-col gap-7 px-5 pb-8 pt-5 min-[390px]:gap-8 min-[390px]:px-6">
-        <section className="rounded-[30px] bg-white px-5 py-7 text-center shadow-[0_10px_28px_rgba(49,99,66,0.08)] min-[390px]:rounded-[34px] min-[390px]:py-8">
-          <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-full bg-[#eda256] text-[#6b3a12] min-[390px]:h-32 min-[390px]:w-32">
-            <User className="h-16 w-16 fill-current stroke-[1.5] min-[390px]:h-20 min-[390px]:w-20" />
+    <div className={`h-full overflow-y-auto ${highContrast ? 'bg-black text-white' : 'bg-[#fcfcfa] text-[#1b1c1c]'}`}>
+      <main className="flex flex-col gap-4 px-4 pb-7 pt-5 min-[390px]:px-5">
+        <header className="flex items-start gap-4 px-1 pb-1">
+          <Gift className={`mt-1 h-10 w-10 stroke-[2.3] ${highContrast ? 'text-white' : 'text-[#34733b]'}`} />
+          <div>
+            <h1 className={`text-[30px] font-black leading-9 ${highContrast ? 'text-white' : 'text-[#0b4f24]'}`}>{t('Play & Earn')}</h1>
+            <p className={`mt-1 text-base leading-6 ${highContrast ? 'text-white/85' : 'text-[#515151]'}`}>{t('rewardsSubtitle')}</p>
           </div>
-          <div className="mt-6 flex items-center justify-center gap-3">
-            <Star className="h-9 w-9 fill-[#eda256] text-[#eda256] min-[390px]:h-10 min-[390px]:w-10" />
-            <p className="text-[38px] font-black leading-none text-[#4a6b4b] min-[390px]:text-[42px]">
-              {points} {t('points')}
+        </header>
+
+        <section className={`relative flex items-center gap-4 overflow-hidden rounded-[24px] border px-5 py-6 shadow-sm ${highContrast ? 'border-white bg-black' : 'border-[#e1e9dc] bg-[#f9fbf5]'}`}>
+          <div className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-full ${highContrast ? 'border border-white' : 'bg-[#e5efdc] text-[#005521]'}`}>
+            <User className="h-12 w-12 fill-current stroke-[1.5]" />
+          </div>
+          <div className="min-w-0 flex-1 pr-10">
+            <p className={`text-base font-semibold ${highContrast ? 'text-white' : 'text-[#505050]'}`}>{t('youHave')}</p>
+            <p className={`mt-1 flex items-end gap-2 font-black leading-none ${highContrast ? 'text-white' : 'text-[#005522]'}`}>
+              <span className="text-[48px]">{points}</span><span className="pb-1 text-2xl">{t('points')}</span>
             </p>
+            <p className={`mt-2 text-sm ${highContrast ? 'text-white/85' : 'text-[#555]'}`}>{t('pointsSummaryShort')}</p>
           </div>
-          <p className="mx-auto mt-4 max-w-[260px] text-center text-lg font-medium leading-7 text-[#5d655d]">
-            {t('pointsSummaryMessage')}
-          </p>
+          <Star className="absolute right-4 top-1/2 h-14 w-14 -translate-y-1/2 fill-[#ffc33d] text-[#eea817]" />
           {error && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
         </section>
 
-        <section className={`flex items-center justify-between rounded-[26px] px-5 py-5 shadow-[0_8px_20px_rgba(49,99,66,0.08)] min-[390px]:rounded-[30px] ${highContrast ? 'border-2 border-white bg-black' : 'bg-[#5d7f61]'}`}>
-          <div className="flex items-center gap-4 text-white">
-            <Calendar className="h-9 w-9 fill-current stroke-[1.5]" />
-            <div>
-              <h2 className="text-xl font-bold leading-7">{t('dailyCheckIn')}</h2>
-              <p className="text-lg font-semibold leading-6 opacity-80">{t('logInToday')}</p>
-            </div>
-          </div>
-          <div className={`rounded-full px-5 py-3 text-lg font-black shadow-sm ${highContrast ? 'border border-white bg-black text-white' : 'bg-[#e1ffe5] text-[#5d7f61]'}`}>
-            +5
+        <section className={`rounded-[24px] border p-3 shadow-sm ${highContrast ? 'border-white' : 'border-[#eceeeb] bg-white'}`}>
+          <h2 className="flex items-center gap-3 px-2 py-2 text-xl font-black"><Gamepad2 className="h-6 w-6 text-[#34733b]" />{t("Let's Play Game")}</h2>
+          <div className={`mt-1 overflow-hidden rounded-[20px] border ${highContrast ? 'border-white' : 'border-[#e8e8e5]'}`}>
+            <GameRow emoji="🧠" title={t('memoryGame')} description={t('memoryGameDescriptionShort')} onPlay={() => onSelectGame?.('memory')} highContrast={highContrast} playLabel={t('play')} />
+            <GameRow emoji="🧩" title={t('puzzleGame')} description={t('puzzleGameDescriptionShort')} onPlay={() => onSelectGame?.('puzzle')} highContrast={highContrast} playLabel={t('play')} />
           </div>
         </section>
 
-        <section>
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className={`text-[24px] font-black leading-8 ${highContrast ? 'text-white' : 'text-[#151515]'}`}>
+        <section className={`rounded-[24px] border p-3 shadow-sm ${highContrast ? 'border-white' : 'border-[#eceeeb] bg-white'}`}>
+          <div className="flex items-center justify-between gap-3 px-2 py-2">
+            <h2 className={`flex items-center gap-3 text-xl font-black ${highContrast ? 'text-white' : 'text-[#151515]'}`}><Gift className="h-6 w-6 text-[#34733b]" />
               {t('redeemRewards')}
             </h2>
             <button
               type="button"
               onClick={() => setShowRewardHistory(true)}
-              className={`flex h-11 shrink-0 items-center justify-center gap-2 rounded-full px-4 text-base font-black active:scale-95 ${highContrast ? 'border border-white bg-black text-white' : 'bg-[#e7f3e8] text-[#416642]'}`}
+              className={`flex shrink-0 items-center gap-1 text-base font-semibold active:scale-95 ${highContrast ? 'text-white' : 'text-[#17602b]'}`}
               aria-label={t('viewRewardHistory')}
             >
-              <Gift className="h-5 w-5" />
               {t('history')}
+              <ChevronRight className="h-5 w-5" />
             </button>
           </div>
-          <div className="flex flex-col gap-3">
+          <div className={`mt-1 overflow-hidden rounded-[20px] border ${highContrast ? 'border-white' : 'border-[#e8e8e5]'}`}>
             <RewardCard
               icon={<ShoppingCart className="h-8 w-8" />}
               title="$5 NTUC Voucher"
@@ -240,7 +248,7 @@ export default function PointsScreen({ highContrast = false }: { highContrast?: 
             <RewardCard
               icon={<Coffee className="h-8 w-8" />}
               title="1-for-1 Kaya Butter Toast Set (Fun Toast)"
-              cost={200}
+              cost={150}
               pointsLabel={t('points')}
               redeemLabel={t('redeem')}
               userPoints={points}
@@ -253,7 +261,7 @@ export default function PointsScreen({ highContrast = false }: { highContrast?: 
       </main>
       {successReward === '$5 NTUC Voucher' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
-          <div className="w-full max-w-[340px] rounded-[28px] bg-white p-6 text-center]">
+          <div className="w-full max-w-[340px] rounded-[28px] bg-white p-6 text-center">
             <button
               type="button"
               onClick={() => setSuccessReward('')}
@@ -332,6 +340,28 @@ export default function PointsScreen({ highContrast = false }: { highContrast?: 
   );
 }
 
+function GameRow({ emoji, title, description, playLabel, highContrast, onPlay }: {
+  emoji: string;
+  title: string;
+  description: string;
+  playLabel: string;
+  highContrast: boolean;
+  onPlay: () => void;
+}) {
+  return (
+    <div className={`flex items-center gap-3 border-b px-4 py-4 last:border-b-0 ${highContrast ? 'border-white' : 'border-[#e8e8e5]'}`}>
+      <span className="text-4xl" aria-hidden="true">{emoji}</span>
+      <div className="min-w-0 flex-1">
+        <h3 className="text-lg font-black">{title}</h3>
+        <p className={`mt-1 text-sm ${highContrast ? 'text-white/80' : 'text-[#555]'}`}>{description}</p>
+      </div>
+      <button type="button" onClick={onPlay} className={`min-w-[82px] rounded-[16px] border-2 px-4 py-2.5 text-base font-black active:scale-95 ${highContrast ? 'border-white text-white' : 'border-[#cfe0c6] bg-[#f3f8ee] text-[#075524]'}`}>
+        {playLabel}
+      </button>
+    </div>
+  );
+}
+
 function RewardCard({
   icon,
   title,
@@ -357,22 +387,22 @@ function RewardCard({
 
   return (
     <div
-      className={`flex items-center gap-3 rounded-[22px] px-4 py-3 transition-colors ${
-        highContrast ? 'border border-white bg-black' : canRedeem ? 'bg-[#f4f2f2]' : 'bg-[#f4f2f2] opacity-70'
+      className={`flex items-center gap-3 border-b px-4 py-4 transition-colors last:border-b-0 ${
+        highContrast ? 'border-white bg-black' : 'border-[#e8e8e5] bg-white'
       }`}
     >
       <div
         className={`flex h-[54px] w-[54px] flex-shrink-0 items-center justify-center rounded-2xl ${
-          highContrast ? 'bg-black text-[#ffe452] border border-white' : canRedeem ? 'bg-white text-[#4a6b4b]' : 'bg-white text-gray-400'
+          highContrast ? 'border border-white bg-black text-white' : 'bg-[#f2efff] text-[#7654c7]'
         }`}
       >
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <h3 className={`text-lg font-black leading-6 ${highContrast ? 'text-white' : canRedeem ? 'text-[#151515]' : 'text-gray-500'}`}>
+        <h3 className={`text-base font-black leading-6 ${highContrast ? 'text-white' : 'text-[#151515]'}`}>
           {title}
         </h3>
-        <p className={`mt-0.5 text-sm font-black leading-5 ${highContrast ? 'text-white/90' : canRedeem ? 'text-[#4a6b4b]' : 'text-gray-400'}`}>
+        <p className={`mt-0.5 text-sm font-semibold leading-5 ${highContrast ? 'text-white/90' : 'text-[#17602b]'}`}>
           {cost} {pointsLabel}
         </p>
       </div>
@@ -386,8 +416,8 @@ function RewardCard({
               ? 'bg-[#ffe452] text-black active:scale-95'
               : 'cursor-not-allowed border border-white bg-black text-white/45'
             : canRedeem
-            ? 'bg-[#416642] text-white active:scale-95'
-            : 'cursor-not-allowed bg-gray-300 text-gray-500'
+            ? 'border-2 border-[#bad4b2] bg-white text-[#075524] active:scale-95'
+            : 'cursor-not-allowed border-2 border-gray-200 bg-gray-100 text-gray-400'
         }`}
       >
         <span className="sr-only">{canRedeem ? 'Available' : 'Locked'}</span>

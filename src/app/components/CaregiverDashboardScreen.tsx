@@ -3796,10 +3796,7 @@ function CaregiverProfile({
   };
 
   const handleSaveTelegramId = async () => {
-    if (!telegramId.trim()) {
-      setTelegramMessage({ type: 'error', text: 'Please enter a Telegram Chat ID' });
-      return;
-    }
+    const trimmedTelegramId = telegramId.trim();
 
     setLoadingTelegramId(true);
     try {
@@ -3809,21 +3806,31 @@ function CaregiverProfile({
         body: JSON.stringify({
           caregiverId: userData?.uid,
           caregiverEmail: userData?.email,
-          telegramId: telegramId.trim(),
+          telegramId: trimmedTelegramId,
         }),
       });
 
+      const data = await response.json().catch(() => null);
+
       if (!response.ok) {
-        throw new Error('Failed to save Telegram ID');
+        throw new Error(data?.error || 'Failed to save Telegram ID');
       }
 
-      const savedTelegramId = telegramId.trim();
-      setTelegramId(savedTelegramId);
       const identityKey = String(userData?.uid || userData?.email || '').trim();
-      if (identityKey) {
-        localStorage.setItem(getCaregiverTelegramStorageKey(identityKey), savedTelegramId);
+      if (trimmedTelegramId) {
+        setTelegramId(trimmedTelegramId);
+        if (identityKey) {
+          localStorage.setItem(getCaregiverTelegramStorageKey(identityKey), trimmedTelegramId);
+        }
+        setTelegramMessage({ type: 'success', text: 'Telegram Chat ID saved successfully!' });
+      } else {
+        setTelegramId('');
+        if (identityKey) {
+          localStorage.removeItem(getCaregiverTelegramStorageKey(identityKey));
+        }
+        setTelegramMessage({ type: 'success', text: 'Telegram Chat ID removed. Caregiver notifications will fallback to email.' });
       }
-      setTelegramMessage({ type: 'success', text: 'Telegram Chat ID saved successfully!' });
+
       window.setTimeout(() => loadTelegramId(String(userData?.uid || ''), String(userData?.email || '')), 500);
       window.setTimeout(() => setTelegramMessage(null), 3000);
     } catch (error: any) {

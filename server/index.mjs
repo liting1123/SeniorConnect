@@ -116,6 +116,16 @@ function rememberCaregiverTelegramChatId({ caregiverId, caregiverEmail, telegram
   }
 }
 
+function forgetCaregiverTelegramChatId({ caregiverId, caregiverEmail } = {}) {
+  const keys = [caregiverId, caregiverEmail]
+    .map((value) => normalizeTelegramCacheKey(value))
+    .filter(Boolean);
+
+  for (const key of keys) {
+    caregiverTelegramChatIdCache.delete(key);
+  }
+}
+
 function getCachedCaregiverTelegramChatId({ caregiverId, caregiverEmail } = {}) {
   const keys = [caregiverId, caregiverEmail]
     .map((value) => normalizeTelegramCacheKey(value))
@@ -157,8 +167,7 @@ async function resolveCaregiverTelegramChatIds({ caregiverId, caregiverEmail } =
     new Map(
       (contacts || [])
         .map((contact) => {
-          const cachedTelegramChatId = getCachedCaregiverTelegramChatId(contact);
-          const telegramChatId = String(contact?.telegramChatId || cachedTelegramChatId || '').trim();
+          const telegramChatId = String(contact?.telegramChatId || '').trim();
           return [normalizeEmail(contact.caregiverEmail), { ...contact, telegramChatId }];
         })
         .filter(([email, contact]) => Boolean(email) && Boolean(String(contact?.telegramChatId || '').trim())),
@@ -465,8 +474,7 @@ async function sendTelegramMessageToCaregivers(caregiverContacts, text, label = 
     new Map(
       (caregiverContacts || [])
         .map((contact) => {
-          const cachedTelegramChatId = getCachedCaregiverTelegramChatId(contact);
-          const telegramChatId = String(contact?.telegramChatId || cachedTelegramChatId || '').trim();
+          const telegramChatId = String(contact?.telegramChatId || '').trim();
 
           return [normalizeEmail(contact.caregiverEmail), { ...contact, telegramChatId }];
         })
@@ -517,6 +525,26 @@ function selectPrimaryCaregiverContact(caregiverContacts = []) {
 
   const withEmail = uniqueContacts.find((contact) => normalizeEmail(contact?.caregiverEmail || ''));
   return withEmail || uniqueContacts[0];
+}
+
+function hasTelegramChatId(contact = {}) {
+  return Boolean(String(contact?.telegramChatId || '').trim());
+}
+
+async function caregiverHasTelegramConfigured(contact = {}, fallback = {}) {
+  if (hasTelegramChatId(contact)) {
+    return true;
+  }
+
+  const caregiverId = String(contact?.caregiverId || fallback?.caregiverId || '').trim();
+  const caregiverEmail = normalizeEmail(contact?.caregiverEmail || fallback?.caregiverEmail || '');
+
+  if (!caregiverId && !caregiverEmail) {
+    return false;
+  }
+
+  const resolvedChatId = await resolveDirectCaregiverTelegramChatId({ caregiverId, caregiverEmail });
+  return Boolean(String(resolvedChatId || '').trim());
 }
 
 async function sendTelegramTestNotification({ caregiverId, caregiverEmail, message }) {
@@ -615,6 +643,37 @@ async function saveTelegramChatIdForCaregiver({ caregiverId, caregiverEmail, tel
     updatedConnections: connections.length,
     hadExistingTelegram: previousTelegramIds.length > 0,
     previousTelegramIds,
+  };
+}
+
+async function clearTelegramChatIdForCaregiver({ caregiverId, caregiverEmail }) {
+  const normalizedCaregiverId = String(caregiverId || '').trim();
+  const normalizedCaregiverEmail = String(caregiverEmail || '').trim();
+
+  const connections = await getCaregiverSeniorConnections({
+    caregiverId: normalizedCaregiverId,
+    caregiverEmail: normalizedCaregiverEmail,
+  });
+
+  if (!connections || connections.length === 0) {
+    throw Object.assign(new Error('No caregiver connections found.'), { status: 404 });
+  }
+
+  await Promise.all(
+    connections.map((connection) =>
+      updateCaregiverConnection({
+        connectionId: connection.connectionId,
+        updateData: {
+          u_telegram_chat_id: '',
+        },
+      }),
+    ),
+  );
+
+  forgetCaregiverTelegramChatId({ caregiverId: normalizedCaregiverId, caregiverEmail: normalizedCaregiverEmail });
+
+  return {
+    updatedConnections: connections.length,
   };
 }
 
@@ -964,8 +1023,9 @@ async function checkForMissedCheckIns() {
             console.log(`[Check-In Monitor] Senior ${seniorId} (${seniorName}) missed ${currentWindow} check-in window - notifying caregiver ${caregiverId}`);
 
             const primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
+            const primaryHasTelegram = await caregiverHasTelegramConfigured(primaryContact);
 
-            if (primaryContact?.caregiverEmail) {
+            if (primaryContact?.caregiverEmail && !primaryHasTelegram) {
               await sendCaregiverMissedCheckInEmail({
                 caregiverEmail: primaryContact.caregiverEmail,
                 caregiverName: primaryContact.caregiverName || 'Caregiver',
@@ -975,8 +1035,10 @@ async function checkForMissedCheckIns() {
               console.log(
                 `[Check-In Monitor] ✓ Caregiver email sent to ${primaryContact.caregiverEmail} for senior ${seniorId}`,
               );
-            } else {
+            } else if (!primaryContact?.caregiverEmail) {
               console.warn(`[Check-In Monitor] No caregiver email found for senior ${seniorId}; skipping caregiver email notification.`);
+            } else {
+              console.log(`[Check-In Monitor] Caregiver ${primaryContact.caregiverId || primaryContact.caregiverEmail} has Telegram configured; skipping email for senior ${seniorId}.`);
             }
 
             await sendTelegramMessageToCaregivers(
@@ -1099,14 +1161,6 @@ async function checkAndSend24HourAppointmentReminders() {
           const seniorName = appointment.seniorName || 'Senior';
           const formattedTime = formatTimeWith12Hour(appointment.time);
 
-          await sendAppointmentReminderEmail(appointment.caregiverEmail, appointment.seniorEmail || '', {
-            seniorName,
-            title: appointment.title,
-            date: appointment.date,
-            time: appointment.time,
-            location: appointment.location,
-          });
-
           const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: appointment.seniorId }).catch(() => []);
           const ownerCaregiverId = String(appointment.caregiverId || '').trim();
           const ownerCaregiverEmail = normalizeEmail(appointment.caregiverEmail || '');
@@ -1125,6 +1179,23 @@ async function checkAndSend24HourAppointmentReminders() {
             return false;
           });
 
+          const ownerPrimaryContact = selectPrimaryCaregiverContact(ownerOnlyContacts);
+          const ownerHasTelegram = await caregiverHasTelegramConfigured(ownerPrimaryContact, {
+            caregiverId: ownerCaregiverId,
+            caregiverEmail: appointment.caregiverEmail,
+          });
+          const caregiverEmailForReminder = ownerHasTelegram ? '' : appointment.caregiverEmail;
+
+          if (caregiverEmailForReminder || appointment.seniorEmail) {
+            await sendAppointmentReminderEmail(caregiverEmailForReminder, appointment.seniorEmail || '', {
+              seniorName,
+              title: appointment.title,
+              date: appointment.date,
+              time: appointment.time,
+              location: appointment.location,
+            });
+          }
+
           await sendTelegramMessageToCaregivers(
             ownerOnlyContacts,
             `⏰ <b>Appointment Reminder — Tomorrow</b>\n\n` +
@@ -1135,6 +1206,10 @@ async function checkAndSend24HourAppointmentReminders() {
               (appointment.location ? `\n📍 Location: ${appointment.location}` : ''),
             'appointment reminder',
           );
+
+          if (ownerHasTelegram) {
+            console.log(`[Appointment Reminder] Caregiver ${ownerPrimaryContact.caregiverId || ownerPrimaryContact.caregiverEmail} has Telegram configured; skipped caregiver email.`);
+          }
 
           // Mark as reminded
           appointmentReminders.add(appointmentId);
@@ -1404,17 +1479,7 @@ export async function handleRequest(request, response) {
     let telegramChatId = '';
 
     try {
-      telegramChatId = caregiverId
-        ? getCachedCaregiverTelegramChatId({ caregiverId })
-        : getCachedCaregiverTelegramChatId({ caregiverEmail: email });
-
-      if (telegramChatId) {
-        console.log(`[Telegram] Using cached personal chat ID for ${email}`);
-      }
-
-      if (!telegramChatId) {
-        telegramChatId = await resolveDirectCaregiverTelegramChatId({ caregiverId, caregiverEmail: email });
-      }
+      telegramChatId = await resolveDirectCaregiverTelegramChatId({ caregiverId, caregiverEmail: email });
 
       if (telegramChatId) {
         rememberCaregiverTelegramChatId({
@@ -1422,9 +1487,28 @@ export async function handleRequest(request, response) {
           caregiverEmail: email,
           telegramChatId,
         });
+      } else {
+        forgetCaregiverTelegramChatId({ caregiverId, caregiverEmail: email });
       }
     } catch (error) {
       console.error('[Telegram] Unable to resolve per-user chat ID for MFA:', error instanceof Error ? error.message : error);
+    }
+
+    if (telegramChatId) {
+      try {
+        await sendTelegramMessageToChatId(
+          telegramChatId,
+          `🔐 <b>CareConnect Login Code</b>\n\n` +
+          `Your verification code is:\n\n` +
+          `<b>${code}</b>\n\n` +
+          `Expires in 10 minutes.\n` +
+          `If you did not attempt to log in, ignore this message.`
+        );
+        sendJson(response, 200, { ok: true, delivery: 'telegram' });
+        return;
+      } catch (err) {
+        console.error('[Telegram] Failed to send MFA code, falling back to email:', err instanceof Error ? err.message : err);
+      }
     }
 
     try {
@@ -1450,19 +1534,6 @@ export async function handleRequest(request, response) {
         error: friendlyMessage,
       });
       return;
-    }
-
-    if (telegramChatId) {
-      sendTelegramMessageToChatId(
-        telegramChatId,
-        `🔐 <b>CareConnect Login Code</b>\n\n` +
-        `Your verification code is:\n\n` +
-        `<b>${code}</b>\n\n` +
-        `Expires in 10 minutes.\n` +
-        `If you did not attempt to log in, ignore this message.`
-      ).catch((err) => console.error('[Telegram] Failed to send MFA code:', err));
-    } else {
-      console.warn(`[Telegram] No personal Telegram chat ID found for ${email}; MFA will be delivered by email only.`);
     }
 
     sendJson(response, 200, { ok: true, delivery: 'email' });
@@ -1516,8 +1587,9 @@ export async function handleRequest(request, response) {
       try {
         const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: body.seniorProfileId });
         const primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
+        const primaryHasTelegram = await caregiverHasTelegramConfigured(primaryContact);
 
-        if (primaryContact?.caregiverEmail) {
+        if (primaryContact?.caregiverEmail && !primaryHasTelegram) {
           await sendSosAlertEmail({
             caregiverEmail: primaryContact.caregiverEmail,
             caregiverName: primaryContact.caregiverName || 'Caregiver',
@@ -1525,6 +1597,8 @@ export async function handleRequest(request, response) {
             location: body.location,
             message: body.message,
           });
+        } else if (primaryHasTelegram) {
+          console.log(`[SOS Alert] Caregiver ${primaryContact.caregiverId || primaryContact.caregiverEmail} has Telegram configured; skipping email.`);
         }
 
         await sendTelegramMessageToCaregivers(
@@ -1601,14 +1675,7 @@ export async function handleRequest(request, response) {
     }
 
     try {
-      const cachedTelegramId = getCachedCaregiverTelegramChatId({ caregiverId, caregiverEmail });
-
-      if (cachedTelegramId) {
-        sendJson(response, 200, { telegramId: cachedTelegramId });
-        return;
-      }
-
-      const connections = await getCaregiverSeniorConnections({ caregiverId });
+      const connections = await getCaregiverSeniorConnections({ caregiverId, caregiverEmail });
       const telegramId = connections && connections.length > 0 ? connections[0].telegramChatId : null;
 
       if (telegramId) {
@@ -1617,6 +1684,8 @@ export async function handleRequest(request, response) {
           caregiverEmail,
           telegramChatId: telegramId,
         });
+      } else {
+        forgetCaregiverTelegramChatId({ caregiverId, caregiverEmail });
       }
 
       sendJson(response, 200, { telegramId });
@@ -1634,12 +1703,24 @@ export async function handleRequest(request, response) {
     const caregiverEmail = String(body.caregiverEmail || '').trim();
     const telegramId = String(body.telegramId || '').trim();
 
-    if ((!caregiverId && !caregiverEmail) || !telegramId) {
-      sendJson(response, 400, { error: 'Missing caregiverId/caregiverEmail or telegramId' });
+    if (!caregiverId && !caregiverEmail) {
+      sendJson(response, 400, { error: 'Missing caregiverId/caregiverEmail' });
       return;
     }
 
     try {
+      if (!telegramId) {
+        await clearTelegramChatIdForCaregiver({ caregiverId, caregiverEmail });
+        forgetCaregiverTelegramChatId({ caregiverId, caregiverEmail });
+        sendJson(response, 200, {
+          success: true,
+          message: 'Telegram ID removed',
+          telegramId: '',
+          disconnected: true,
+        });
+        return;
+      }
+
       const saveResult = await saveTelegramChatIdForCaregiver({ caregiverId, caregiverEmail, telegramChatId: telegramId });
       rememberCaregiverTelegramChatId({ caregiverId, caregiverEmail, telegramChatId: telegramId });
       console.log(`[Caregiver] ✓ Telegram ID updated for caregiver ${caregiverId}: ${telegramId}`);
@@ -1840,20 +1921,32 @@ export async function handleRequest(request, response) {
       status: body.status,
     });
 
-    // Send appointment creation notification (email + Telegram) to caregiver and senior
+    // Send appointment creation notification
+    const caregiverContacts = await getCaregiverTelegramContacts({
+      caregiverId: body.caregiverId,
+      caregiverEmail: body.caregiverEmail,
+    });
+    const primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
+    const primaryHasTelegram = await caregiverHasTelegramConfigured(primaryContact, {
+      caregiverId: body.caregiverId,
+      caregiverEmail: body.caregiverEmail,
+    });
+    const caregiverEmailForNotification = primaryHasTelegram ? '' : body.caregiverEmail;
+
     try {
       const seniorName = body.seniorName || 'Senior';
-      const formattedTime = formatTimeWith12Hour(body.time);
-      await sendAppointmentNotificationEmail(body.caregiverEmail, {
-        seniorName,
-        seniorEmail: body.seniorEmail || '',
-        title: body.title,
-        date: body.date,
-        time: body.time,
-        location: body.location,
-        action: 'created',
-      });
-      console.log('[Appointment] Notification emails sent for new appointment:', appointment.id);
+      if (caregiverEmailForNotification || body.seniorEmail) {
+        await sendAppointmentNotificationEmail(caregiverEmailForNotification, {
+          seniorName,
+          seniorEmail: body.seniorEmail || '',
+          title: body.title,
+          date: body.date,
+          time: body.time,
+          location: body.location,
+          action: 'created',
+        });
+        console.log('[Appointment] Notification emails sent for new appointment:', appointment.id);
+      }
     } catch (emailError) {
       console.error('[Appointment] Failed to send notification email:', emailError);
     }
@@ -1861,10 +1954,6 @@ export async function handleRequest(request, response) {
     try {
       const seniorName = body.seniorName || 'Senior';
       const formattedTime = formatTimeWith12Hour(body.time);
-      const caregiverContacts = await getCaregiverTelegramContacts({
-        caregiverId: body.caregiverId,
-        caregiverEmail: body.caregiverEmail,
-      });
 
       await sendTelegramMessageToCaregivers(
         caregiverContacts,
@@ -1921,24 +2010,31 @@ export async function handleRequest(request, response) {
       const body = await readJson(request);
       const seniorName = body.seniorName || 'Senior';
       const formattedTime = formatTimeWith12Hour(body.time);
-
-      // Email to caregiver + senior
-      await sendAppointmentNotificationEmail(body.caregiverEmail, {
-        seniorName,
-        seniorEmail: body.seniorEmail || '',
-        title: body.title,
-        date: body.date,
-        time: body.time,
-        location: body.location,
-        action: body.action,
-      });
-
-      // Telegram notification
-      const actionText = body.action === 'created' ? 'New Appointment Created 📅' : 'Appointment Updated 📝';
       const caregiverContacts = await getCaregiverTelegramContacts({
         caregiverId: body.caregiverId,
         caregiverEmail: body.caregiverEmail,
       });
+      const primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
+      const primaryHasTelegram = await caregiverHasTelegramConfigured(primaryContact, {
+        caregiverId: body.caregiverId,
+        caregiverEmail: body.caregiverEmail,
+      });
+      const caregiverEmailForNotification = primaryHasTelegram ? '' : body.caregiverEmail;
+
+      if (caregiverEmailForNotification || body.seniorEmail) {
+        await sendAppointmentNotificationEmail(caregiverEmailForNotification, {
+          seniorName,
+          seniorEmail: body.seniorEmail || '',
+          title: body.title,
+          date: body.date,
+          time: body.time,
+          location: body.location,
+          action: body.action,
+        });
+      }
+
+      // Telegram notification
+      const actionText = body.action === 'created' ? 'New Appointment Created 📅' : 'Appointment Updated 📝';
 
       await sendTelegramMessageToCaregivers(
         caregiverContacts,

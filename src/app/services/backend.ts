@@ -463,7 +463,7 @@ export async function verifyFamilyCode(
 }
 
 export async function requestLoginMfaCode(user: AppUser) {
-  return request<{ ok: boolean; delivery?: 'email' | 'in-app-notification'; code?: string; warning?: string }>(user, '/api/mfa/request', {
+  return request<{ ok: boolean; delivery?: 'email' | 'telegram' | 'in-app-notification'; code?: string; warning?: string }>(user, '/api/mfa/request', {
     method: 'POST',
     body: JSON.stringify({
       caregiverId: user.uid,

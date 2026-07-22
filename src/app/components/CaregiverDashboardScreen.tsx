@@ -384,6 +384,7 @@ export default function CaregiverDashboardScreen({
   const [sendingReminderIds, setSendingReminderIds] = useState<string[]>([]);
   const [sosHistory, setSosHistory] = useState<SosAlertHistory[]>(() => getStoredSosHistory(caregiverEmail));
   const [showAddSenior, setShowAddSenior] = useState(false);
+  const [showSeniorLimitConfirm, setShowSeniorLimitConfirm] = useState(false);
   const [seniorPendingDelete, setSeniorPendingDelete] = useState<Senior | null>(null);
   const [deletingSeniorIds, setDeletingSeniorIds] = useState<string[]>([]);
   const [addSeniorId, setAddSeniorId] = useState('');
@@ -1040,7 +1041,11 @@ export default function CaregiverDashboardScreen({
             onOpenProfile={setSelectedSenior}
             onOpenAddSenior={() => {
               setAddSeniorError('');
-              setShowAddSenior(true);
+              if (seniors.length >= 5) {
+                setShowSeniorLimitConfirm(true);
+              } else {
+                setShowAddSenior(true);
+              }
             }}
             onSendReminder={handleSendCheckInReminder}
             onRequestDeleteSenior={setSeniorPendingDelete}
@@ -1105,6 +1110,40 @@ export default function CaregiverDashboardScreen({
           />
         )}
       </main>
+
+      {showSeniorLimitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+          <div className="w-full max-w-[360px] rounded-[28px] bg-white p-6 text-center shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
+              <User className="h-9 w-9" />
+            </div>
+            <h2 className="mt-4 text-2xl font-black text-[#151515]">Add another senior?</h2>
+            <p className="mt-3 text-base leading-6 text-[#62676f]">
+              You already have {seniors.length} seniors. Do you want to add more?
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowSeniorLimitConfirm(false)}
+                className="flex h-12 items-center justify-center rounded-xl border border-[#c7cbd1] bg-white font-bold text-[#30343a] active:scale-95"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSeniorLimitConfirm(false);
+                  setAddSeniorError('');
+                  setShowAddSenior(true);
+                }}
+                className="flex h-12 items-center justify-center rounded-xl bg-[#416642] font-bold text-white active:scale-95"
+              >
+                Add More
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAddSenior && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">

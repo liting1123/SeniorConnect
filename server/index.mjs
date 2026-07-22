@@ -93,6 +93,20 @@ function getSingaporeDateKey(value = new Date()) {
   }
 }
 
+function formatMissedCheckInAlertMessage({ seniorName, alertDate, currentWindow, lastCheckInStr, status = 'Missed' }) {
+  const formattedLastCheckIn = lastCheckInStr ? String(lastCheckInStr).replace('T', ' ').slice(0, 19) : 'N/A';
+
+  return [
+    '🚨 <b>Missed Check-In Alert</b>',
+    '',
+    `Senior: <b>${seniorName || 'Senior'}</b>`,
+    `Date: ${alertDate}`,
+    `Window: ${currentWindow}`,
+    `Last Check-in: ${formattedLastCheckIn}`,
+    `Status: ${status}`,
+  ].join('\n');
+}
+
 function pruneAndSaveAppointmentReminders() {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - 14);
@@ -397,7 +411,7 @@ async function sendLoginMfaCodeEmail(email, code) {
   });
 }
 
-async function sendCaregiverMissedCheckInEmail({ caregiverEmail, caregiverName, seniorName, windowLabel }) {
+async function sendCaregiverMissedCheckInEmail({ caregiverEmail, caregiverName, seniorName, windowLabel, lastCheckInStr }) {
   const transporter = getMfaTransporter();
   const normalizedEmail = normalizeEmail(caregiverEmail);
 
@@ -412,8 +426,13 @@ async function sendCaregiverMissedCheckInEmail({ caregiverEmail, caregiverName, 
     text: [
       `Hello ${caregiverName || 'Caregiver'},`,
       '',
-      `${seniorName || 'Your senior'} missed the ${windowLabel} check-in window.`,
-      'Please check on them and acknowledge the alert in CareConnect.',
+      `Missed Check-In Alert`,
+      `Senior: ${seniorName || 'Senior'}`,
+      `Date: ${getSingaporeDateKey()}`,
+      `Window: ${windowLabel}`,
+      `Last Check-in: ${lastCheckInStr ? String(lastCheckInStr).replace('T', ' ').slice(0, 19) : 'N/A'}`,
+      'Status: Missed',
+      'Please check in with the Senior as soon as possible.',
       '',
       `If there is no acknowledgment within ${Math.round(CAREGIVER_RESPONSIVENESS_THRESHOLD_MS / (60 * 1000))} minutes, AIC will be notified.`,
     ].join('\n'),
@@ -1078,10 +1097,13 @@ async function checkForMissedCheckIns() {
             
             const seniorName = senior.name || 'Senior';
 
-            const notificationMessage = 
-              `📲 <b>Check-In Reminder</b>\n\n` +
-              `Senior <b>${seniorName}</b> has not checked in during the ${currentWindow} window.\n\n` +
-              `Please check on them or confirm they are safe.`;
+            const notificationMessage = formatMissedCheckInAlertMessage({
+              seniorName,
+              alertDate: getSingaporeDateKey(now),
+              currentWindow,
+              lastCheckInStr,
+              status: 'Missed',
+            });
             
             console.log(`[Check-In Monitor] Senior ${seniorId} (${seniorName}) missed ${currentWindow} check-in window - notifying caregiver ${caregiverId}`);
 
@@ -1094,6 +1116,7 @@ async function checkForMissedCheckIns() {
                 caregiverName: primaryContact.caregiverName || 'Caregiver',
                 seniorName,
                 windowLabel: currentWindow,
+                lastCheckInStr,
               });
               console.log(
                 `[Check-In Monitor] ✓ Caregiver email sent to ${primaryContact.caregiverEmail} for senior ${seniorId}`,
@@ -1118,7 +1141,6 @@ async function checkForMissedCheckIns() {
               caregiverId,
               caregiverEmail: primaryContact?.caregiverEmail || '',
               lastCheckInWindow: currentWindow,
-              message: notificationMessage,
               aicAlertSent: false,
             });
             

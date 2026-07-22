@@ -95,20 +95,6 @@ function getSingaporeDateKey(value = new Date()) {
   }
 }
 
-function formatMissedCheckInAlertMessage({ seniorName, alertDate, currentWindow, lastCheckInStr, status = 'Missed' }) {
-  const formattedLastCheckIn = lastCheckInStr ? String(lastCheckInStr).replace('T', ' ').slice(0, 19) : 'N/A';
-
-  return [
-    '🚨 <b>Missed Check-In Alert</b>',
-    '',
-    `Senior: <b>${seniorName || 'Senior'}</b>`,
-    `Date: ${alertDate}`,
-    `Window: ${currentWindow}`,
-    `Last Check-in: ${formattedLastCheckIn}`,
-    `Status: ${status}`,
-  ].join('\n');
-}
-
 function pruneAndSaveAppointmentReminders() {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - 14);
@@ -1149,14 +1135,6 @@ async function checkForMissedCheckIns() {
             
             const seniorName = senior.name || 'Senior';
 
-            const notificationMessage = formatMissedCheckInAlertMessage({
-              seniorName,
-              alertDate: getSingaporeDateKey(now),
-              currentWindow,
-              lastCheckInStr,
-              status: 'Missed',
-            });
-            
             console.log(`[Check-In Monitor] Senior ${seniorId} (${seniorName}) missed ${currentWindow} check-in window - notifying caregiver ${caregiverId}`);
 
             const primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
@@ -1178,12 +1156,6 @@ async function checkForMissedCheckIns() {
             } else {
               console.log(`[Check-In Monitor] Caregiver ${primaryContact.caregiverId || primaryContact.caregiverEmail} has Telegram configured; skipping email for senior ${seniorId}.`);
             }
-
-            await sendTelegramMessageToCaregivers(
-              primaryContact ? [primaryContact] : [],
-              notificationMessage,
-              'missed check-in alert',
-            );
             
             // Record the missed check-in alert and track caregiver notification
             missedCheckInAlerts.set(seniorId, {

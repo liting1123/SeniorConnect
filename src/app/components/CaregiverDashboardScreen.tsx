@@ -24,6 +24,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Send,
   ShieldAlert,
   Shield,
   Sofa,
@@ -383,6 +384,7 @@ export default function CaregiverDashboardScreen({
   const [sendingReminderIds, setSendingReminderIds] = useState<string[]>([]);
   const [sosHistory, setSosHistory] = useState<SosAlertHistory[]>(() => getStoredSosHistory(caregiverEmail));
   const [showAddSenior, setShowAddSenior] = useState(false);
+  const [showSeniorLimitConfirm, setShowSeniorLimitConfirm] = useState(false);
   const [seniorPendingDelete, setSeniorPendingDelete] = useState<Senior | null>(null);
   const [deletingSeniorIds, setDeletingSeniorIds] = useState<string[]>([]);
   const [addSeniorId, setAddSeniorId] = useState('');
@@ -1039,7 +1041,11 @@ export default function CaregiverDashboardScreen({
             onOpenProfile={setSelectedSenior}
             onOpenAddSenior={() => {
               setAddSeniorError('');
-              setShowAddSenior(true);
+              if (seniors.length >= 5) {
+                setShowSeniorLimitConfirm(true);
+              } else {
+                setShowAddSenior(true);
+              }
             }}
             onSendReminder={handleSendCheckInReminder}
             onRequestDeleteSenior={setSeniorPendingDelete}
@@ -1104,6 +1110,40 @@ export default function CaregiverDashboardScreen({
           />
         )}
       </main>
+
+      {showSeniorLimitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
+          <div className="w-full max-w-[360px] rounded-[28px] bg-white p-6 text-center shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#e7f3e8] text-[#416642]">
+              <User className="h-9 w-9" />
+            </div>
+            <h2 className="mt-4 text-2xl font-black text-[#151515]">Add another senior?</h2>
+            <p className="mt-3 text-base leading-6 text-[#62676f]">
+              You already have {seniors.length} seniors. Do you want to add more?
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowSeniorLimitConfirm(false)}
+                className="flex h-12 items-center justify-center rounded-xl border border-[#c7cbd1] bg-white font-bold text-[#30343a] active:scale-95"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSeniorLimitConfirm(false);
+                  setAddSeniorError('');
+                  setShowAddSenior(true);
+                }}
+                className="flex h-12 items-center justify-center rounded-xl bg-[#416642] font-bold text-white active:scale-95"
+              >
+                Add More
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAddSenior && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
@@ -1201,7 +1241,7 @@ export default function CaregiverDashboardScreen({
         </div>
       )}
 
-      <nav className={`absolute bottom-0 left-0 right-0 z-20 flex min-h-24 items-center justify-around ${dashboardSurfaceClass} pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_20px_rgba(0,0,0,0.04)]`}>
+      <nav className={`absolute bottom-0 left-0 right-0 z-20 grid h-24 grid-cols-5 items-center gap-1 px-2 ${dashboardSurfaceClass} pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_20px_rgba(0,0,0,0.04)]`}>
         <DashboardNavItem
           active={activeTab === 'dashboard'}
           icon={<LayoutDashboard className="h-6 w-6" />}
@@ -4063,14 +4103,28 @@ function CaregiverProfile({
             title={t('personalInfo')}
             onClick={() => setShowPersonalInfo(true)}
           />
-          <SettingsItem
-            icon={<Bell className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
-            isAdminMode={isAdminMode}
-            title="Telegram Bot Setup"
+          <button
+            type="button"
             onClick={() => setShowTelegramSetup(true)}
-          />
-          <div className="px-5 pb-4 pt-1 text-sm text-gray-500 min-[390px]:px-8">
-            {telegramId.trim() ? 'Telegram bot connected' : 'No Telegram bot connected yet'}
+            className="flex w-full items-center gap-4 border-b border-gray-100 px-5 py-5 text-left active:bg-blue-50"
+          >
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#2da8e8] text-white min-[390px]:h-14 min-[390px]:w-14">
+              <Send className="h-7 w-7 fill-white min-[390px]:h-8 min-[390px]:w-8" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-lg font-bold leading-6 text-gray-900">Telegram Notifications</span>
+              <span className="mt-1 block text-sm leading-5 text-gray-500">Receive missed check-in alerts on Telegram</span>
+              <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${telegramId.trim() ? 'bg-[#eaf9ef] text-[#15964d]' : 'bg-gray-100 text-gray-500'}`}>
+                {telegramId.trim() ? 'Connected' : 'Not connected'}
+              </span>
+            </span>
+            <ChevronRight className="h-6 w-6 shrink-0 text-gray-500" />
+          </button>
+          <div className="flex min-h-14 w-full cursor-default items-center gap-3 border-b border-gray-100 px-5 text-left">
+            <span className="rounded-lg bg-[#eef3ff] px-2 py-1 text-xs font-bold text-[#4e6eb8]">ID</span>
+            <span className="min-w-0 flex-1 truncate text-sm text-gray-500 min-[390px]:text-base">
+              Your Chat ID: <strong className="text-[#3168cc]">{telegramId.trim() || 'Not set'}</strong>
+            </span>
           </div>
           <SettingsItem
             icon={<Languages className="h-7 w-7 min-[390px]:h-8 min-[390px]:w-8" />}
@@ -4980,7 +5034,7 @@ function DashboardNavItem({
     <button
       type="button"
       onClick={onClick}
-      className={`relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden rounded-[18px] px-1 py-3 transition-transform active:scale-95 ${
+      className={`relative flex h-20 min-w-0 w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-[18px] px-1 transition-transform active:scale-95 ${
         active ? activeClass : inactiveClass
       }`}
     >

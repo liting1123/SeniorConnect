@@ -9,6 +9,7 @@ import {
   addCheckInPoints,
   addGamePoint,
   createCaregiverConnection,
+  createMissedCheckInRecord,
   createAppointmentForCaregiver,
   deleteCaregiverConnection,
   deleteAppointmentForCaregiver,
@@ -30,6 +31,7 @@ import {
   getVitalsHistory,
   getUserById,
   loginWithServiceNow,
+  markCheckInNotificationSent,
   redeemUserPoints,
   registerWithServiceNow,
   resetPasswordWithServiceNow,
@@ -1033,6 +1035,37 @@ function getCurrentCheckInWindow() {
   return null;
 }
 
+function getExpiredCheckInWindows() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: CHECK_IN_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(now).map((part) => [part.type, part.value]));
+  const todayKey = `${parts.year}-${parts.month}-${parts.day}`;
+  const currentMinutes = Number(parts.hour) * 60 + Number(parts.minute);
+  const morningEnd = parseTimeHHMM(CHECK_IN_MORNING_END);
+  const eveningEnd = parseTimeHHMM(CHECK_IN_EVENING_END);
+  const morningEndMinutes = morningEnd.hours * 60 + morningEnd.minutes;
+  const eveningEndMinutes = eveningEnd.hours * 60 + eveningEnd.minutes;
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const expiredWindows = [{ dateKey: getSingaporeDateKey(yesterday), windowId: 'evening' }];
+
+  if (currentMinutes >= morningEndMinutes) {
+    expiredWindows.push({ dateKey: todayKey, windowId: 'morning' });
+  }
+  if (currentMinutes >= eveningEndMinutes) {
+    expiredWindows.push({ dateKey: todayKey, windowId: 'evening' });
+  }
+
+  return expiredWindows;
+}
+
 function getCheckInWindowStatus(lastCheckInStr) {
   if (!lastCheckInStr) return null;
   
@@ -1065,6 +1098,25 @@ async function checkForMissedCheckIns() {
     }
     
     console.log(`[Check-In Monitor] Checking ${seniors.length} seniors for missed check-ins`);
+
+    const expiredWindows = getExpiredCheckInWindows();
+    for (const senior of seniors) {
+      for (const expiredWindow of expiredWindows) {
+        try {
+          await createMissedCheckInRecord({
+            seniorProfileId: senior.id,
+            dateKey: expiredWindow.dateKey,
+            windowId: expiredWindow.windowId,
+            lastCheckInAt: senior.lastCheckInAt || '',
+          });
+        } catch (error) {
+          console.error(
+            `[Check-In Monitor] Unable to save missed ${expiredWindow.windowId} record for ${senior.id}:`,
+            error.message,
+          );
+        }
+      }
+    }
     
     const currentWindow = getCurrentCheckInWindow();
     if (!currentWindow) {
@@ -1898,6 +1950,19 @@ export async function handleRequest(request, response) {
       });
     } catch (error) {
       console.error('[Check-In Reminder] Failed to send reminder email:', error.message);
+    }
+
+    const reminderWindow = getCurrentCheckInWindow();
+    if (reminderWindow && body.seniorProfileId) {
+      try {
+        await markCheckInNotificationSent({
+          seniorProfileId: body.seniorProfileId,
+          dateKey: getSingaporeDateKey(),
+          windowId: reminderWindow,
+        });
+      } catch (error) {
+        console.error('[Check-In Reminder] Failed to update notification status:', error.message);
+      }
     }
 
     sendJson(response, 200, { reminder });

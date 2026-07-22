@@ -75,6 +75,7 @@ const APPOINTMENT_TABLE = process.env.SERVICE_NOW_APPOINTMENT_TABLE || 'appointm
 const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregiver_profiles';
 const MEDICINE_TABLE = process.env.SERVICE_NOW_MEDICINE_TABLE || 'u_medicine';
 const FAMILY_VERIFICATION_TABLE = process.env.SERVICE_NOW_FAMILY_VERIFICATION_TABLE || 'u_family_verification_code';
+const CHECK_IN_TABLE = process.env.SERVICE_NOW_CHECK_IN_TABLE || 'u_check_in';
 const SENIOR_DISPLAY_ID_LENGTH = Number(process.env.SENIOR_DISPLAY_ID_LENGTH) || 8;
 
 // Populated by the Senior_stuff Raspberry Pi system's route_engine.queue_activity_log()
@@ -142,6 +143,15 @@ const FAMILY_VERIFICATION_FIELD_MAP = {
   status: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_STATUS || 'u_status',
   verifiedAt: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_VERIFIED_AT || 'u_verified_at',
   familyUser: process.env.SERVICE_NOW_FAMILY_VERIFICATION_FIELD_FAMILY_USER || 'u_family_user_id',
+};
+
+const CHECK_IN_FIELD_MAP = {
+  senior: process.env.SERVICE_NOW_CHECK_IN_FIELD_SENIOR || 'u_senior',
+  status: process.env.SERVICE_NOW_CHECK_IN_FIELD_STATUS || 'u_status',
+  lastCheckIn: process.env.SERVICE_NOW_CHECK_IN_FIELD_LAST_CHECK_IN || 'u_last_check_in',
+  window: process.env.SERVICE_NOW_CHECK_IN_FIELD_WINDOW || 'u_check_in_window',
+  date: process.env.SERVICE_NOW_CHECK_IN_FIELD_DATE || 'u_check_in_date',
+  notificationSent: process.env.SERVICE_NOW_CHECK_IN_FIELD_NOTIFICATION_SENT || 'u_notification_sent',
 };
 
 const SENSOR_ACTIVITY_FIELD_MAP = {
@@ -609,6 +619,41 @@ export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 })
     }),
   });
 
+  const checkInQuery = new URLSearchParams({
+    sysparm_query: [
+      `${CHECK_IN_FIELD_MAP.senior}=${profile.sysId}`,
+      `${CHECK_IN_FIELD_MAP.date}=${currentWindow.dateKey}`,
+      `${CHECK_IN_FIELD_MAP.window}=${currentWindow.id}`,
+    ].join('^'),
+    sysparm_limit: '1',
+  });
+  const existingCheckInData = await serviceNowFetch(
+    getNamedTablePath(CHECK_IN_TABLE, `?${checkInQuery.toString()}`),
+  );
+  const existingCheckIn = Array.isArray(existingCheckInData?.result)
+    ? existingCheckInData.result[0]
+    : null;
+  const checkInPayload = {
+    [CHECK_IN_FIELD_MAP.senior]: profile.sysId,
+    [CHECK_IN_FIELD_MAP.status]: 1,
+    [CHECK_IN_FIELD_MAP.lastCheckIn]: checkInAt,
+    [CHECK_IN_FIELD_MAP.window]: currentWindow.id,
+    [CHECK_IN_FIELD_MAP.date]: currentWindow.dateKey,
+    [CHECK_IN_FIELD_MAP.notificationSent]: false,
+  };
+
+  if (existingCheckIn?.sys_id) {
+    await serviceNowFetch(
+      getNamedTablePath(CHECK_IN_TABLE, `/${encodeURIComponent(existingCheckIn.sys_id)}`),
+      { method: 'PATCH', body: JSON.stringify(checkInPayload) },
+    );
+  } else {
+    await serviceNowFetch(getNamedTablePath(CHECK_IN_TABLE), {
+      method: 'POST',
+      body: JSON.stringify(checkInPayload),
+    });
+  }
+
   try {
     await updateLoginCheckInTimestamp({ userId, email, name, checkInAt });
   } catch (error) {
@@ -616,6 +661,89 @@ export async function addCheckInPoints({ userId, email, name, pointsToAdd = 5 })
   }
 
   return toUserRecord(data.result);
+}
+
+export async function createMissedCheckInRecord({ seniorProfileId, dateKey, windowId, lastCheckInAt = '' }) {
+  const normalizedSeniorId = String(seniorProfileId || '').trim();
+  const normalizedDateKey = String(dateKey || '').trim();
+  const normalizedWindowId = String(windowId || '').trim().toLowerCase();
+
+  if (!normalizedSeniorId || !normalizedDateKey || !['morning', 'evening'].includes(normalizedWindowId)) {
+    throw Object.assign(new Error('Senior, date, and check-in window are required for a missed check-in record.'), {
+      status: 400,
+    });
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: [
+      `${CHECK_IN_FIELD_MAP.senior}=${normalizedSeniorId}`,
+      `${CHECK_IN_FIELD_MAP.date}=${normalizedDateKey}`,
+      `${CHECK_IN_FIELD_MAP.window}=${normalizedWindowId}`,
+    ].join('^'),
+    sysparm_fields: 'sys_id',
+    sysparm_limit: '1',
+  });
+  const existingData = await serviceNowFetch(getNamedTablePath(CHECK_IN_TABLE, `?${params.toString()}`));
+  const existingRecord = Array.isArray(existingData?.result) ? existingData.result[0] : null;
+
+  if (existingRecord?.sys_id) {
+    return { created: false, sysId: existingRecord.sys_id };
+  }
+
+  const payload = {
+    [CHECK_IN_FIELD_MAP.senior]: normalizedSeniorId,
+    [CHECK_IN_FIELD_MAP.status]: 0,
+    [CHECK_IN_FIELD_MAP.window]: normalizedWindowId,
+    [CHECK_IN_FIELD_MAP.date]: normalizedDateKey,
+    [CHECK_IN_FIELD_MAP.notificationSent]: false,
+  };
+
+  if (lastCheckInAt) {
+    payload[CHECK_IN_FIELD_MAP.lastCheckIn] = lastCheckInAt;
+  }
+
+  const data = await serviceNowFetch(getNamedTablePath(CHECK_IN_TABLE), {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return { created: true, sysId: data?.result?.sys_id || '' };
+}
+
+export async function markCheckInNotificationSent({ seniorProfileId, dateKey, windowId }) {
+  const normalizedSeniorId = String(seniorProfileId || '').trim();
+  const normalizedDateKey = String(dateKey || '').trim();
+  const normalizedWindowId = String(windowId || '').trim().toLowerCase();
+
+  if (!normalizedSeniorId || !normalizedDateKey || !normalizedWindowId) {
+    return { updated: false };
+  }
+
+  const params = new URLSearchParams({
+    sysparm_query: [
+      `${CHECK_IN_FIELD_MAP.senior}=${normalizedSeniorId}`,
+      `${CHECK_IN_FIELD_MAP.date}=${normalizedDateKey}`,
+      `${CHECK_IN_FIELD_MAP.window}=${normalizedWindowId}`,
+    ].join('^'),
+    sysparm_fields: 'sys_id',
+    sysparm_limit: '1',
+  });
+  const existingData = await serviceNowFetch(getNamedTablePath(CHECK_IN_TABLE, `?${params.toString()}`));
+  const existingRecord = Array.isArray(existingData?.result) ? existingData.result[0] : null;
+
+  if (!existingRecord?.sys_id) {
+    return { updated: false };
+  }
+
+  await serviceNowFetch(
+    getNamedTablePath(CHECK_IN_TABLE, `/${encodeURIComponent(existingRecord.sys_id)}`),
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ [CHECK_IN_FIELD_MAP.notificationSent]: true }),
+    },
+  );
+
+  return { updated: true, sysId: existingRecord.sys_id };
 }
 
 function toLoginUser(record = {}) {
@@ -689,19 +817,10 @@ function isSeniorRole(role = '') {
 }
 
 function getServiceNowDateTime(value = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Singapore',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(value);
-  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-
-  return `${partMap.year}-${partMap.month}-${partMap.day} ${partMap.hour}:${partMap.minute}:${partMap.second}`;
+  // ServiceNow Date/Time fields accept UTC values and apply the viewing user's
+  // configured timezone. Sending Singapore wall-clock time here causes an
+  // additional +8-hour conversion in a Singapore-configured instance.
+  return getServiceNowUtcDateTime(value);
 }
 
 function getServiceNowUtcDateTime(value = new Date()) {
@@ -1936,6 +2055,7 @@ function toSeniorSearchRecord(record = {}) {
     name: record[FIELD_MAP.name] || 'Senior',
     phone: record[FIELD_MAP.phone] || '',
     email: record[FIELD_MAP.email] || '',
+    lastCheckInAt: record[FIELD_MAP.lastCheckInAt] || null,
   };
 }
 
@@ -1952,14 +2072,10 @@ export async function searchSeniorProfiles({ searchName, phone }) {
     queryParts.push(`${FIELD_MAP.phone}LIKE${normalizedPhone}`);
   }
 
-  if (queryParts.length === 0) {
-    return [];
+  const params = new URLSearchParams({ sysparm_limit: '100' });
+  if (queryParts.length > 0) {
+    params.set('sysparm_query', queryParts.join('^OR'));
   }
-
-  const params = new URLSearchParams({
-    sysparm_query: queryParts.join('^OR'),
-    sysparm_limit: '20',
-  });
   const data = await serviceNowFetch(getTablePath(`?${params.toString()}`));
 
   return (data?.result || []).map(toSeniorSearchRecord);

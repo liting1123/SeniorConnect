@@ -223,7 +223,7 @@ function getCurrentCheckInWindowId(value = new Date()): CheckInWindowId | null {
     return 'morning';
   }
 
-  if (totalMinutes >= 13 * 60 && totalMinutes <= 23 * 60 + 59) {
+  if (totalMinutes >= 12 * 60 && totalMinutes <= 23 * 60 + 59) {
     return 'evening';
   }
 

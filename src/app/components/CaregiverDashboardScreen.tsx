@@ -69,7 +69,6 @@ const CAREGIVER_PERSONAL_INFO_KEY = 'careconnect.caregiverPersonalInfo';
 const CAREGIVER_PROFILE_IMAGE_KEY = 'careconnect.caregiverProfileImage';
 const CAREGIVER_APPOINTMENT_REMINDER_ACK_KEY = 'careconnect.caregiverAppointmentReminderAck';
 const CAREGIVER_TELEGRAM_ID_KEY = 'careconnect.caregiverTelegramId';
-const CAREGIVER_TELEGRAM_AUTO_OPEN_KEY = 'careconnect.telegramAutoOpen';
 const CAREGIVER_DASHBOARD_REFRESH_MS = 5000;
 
 type SosAlertHistory = {
@@ -527,67 +526,6 @@ export default function CaregiverDashboardScreen({
     }
 
     loadAppointments();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [caregiverEmail, caregiverId]);
-
-  useEffect(() => {
-    if (!caregiverEmail && !caregiverId) {
-      return;
-    }
-
-    const identityKey = String(caregiverId || caregiverEmail || '').trim().toLowerCase();
-    const todayKey = getSingaporeDateKey(new Date());
-    const autoOpenKey = `${CAREGIVER_TELEGRAM_AUTO_OPEN_KEY}.${identityKey}`;
-
-    if (!identityKey || !todayKey) {
-      return;
-    }
-
-    if (sessionStorage.getItem(autoOpenKey) === todayKey) {
-      return;
-    }
-
-    let isMounted = true;
-
-    const tryAutoOpenTelegram = async () => {
-      try {
-        const params = new URLSearchParams();
-
-        if (caregiverId) {
-          params.set('caregiverId', caregiverId);
-        }
-
-        if (caregiverEmail) {
-          params.set('caregiverEmail', caregiverEmail);
-        }
-
-        const telegramIdResponse = await fetch(`/api/caregiver/telegram-id?${params.toString()}`);
-        const telegramIdData = await telegramIdResponse.json().catch(() => null);
-
-        if (!isMounted || !telegramIdResponse.ok || !telegramIdData?.telegramId) {
-          return;
-        }
-
-        const openLinkResponse = await fetch(`/api/caregiver/telegram-open-link?${params.toString()}`);
-        const openLinkData = await openLinkResponse.json().catch(() => null);
-
-        if (!isMounted || !openLinkResponse.ok || !openLinkData?.openUrl) {
-          return;
-        }
-
-        sessionStorage.setItem(autoOpenKey, todayKey);
-        const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent || '');
-        const targetUrl = isMobile && openLinkData.deepLink ? openLinkData.deepLink : openLinkData.openUrl;
-        window.open(targetUrl, '_blank', 'noopener,noreferrer');
-      } catch (error) {
-        console.warn('Unable to auto-open Telegram bot link:', error);
-      }
-    };
-
-    void tryAutoOpenTelegram();
 
     return () => {
       isMounted = false;

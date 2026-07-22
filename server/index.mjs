@@ -1,5 +1,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import nodemailer from 'nodemailer';
 import { loadEnv } from './env.mjs';
@@ -46,7 +48,8 @@ loadEnv();
 const PORT = Number(process.env.API_PORT) || 3001;
 const checkInReminders = [];
 const loginMfaCodes = new Map();
-const appointmentReminders = new Set(); // Track appointment IDs that have sent 24-hour reminders
+const APPOINTMENT_REMINDER_STATE_PATH = resolve(process.cwd(), '.careconnect-appointment-reminders.json');
+const appointmentReminders = new Set(); // Track `${appointmentId}:${yyyy-mm-dd}` reminders sent per day
 const escalatedSosAlerts = new Map(); // Track SOS alerts that have already escalated to AIC
 const pendingTelegramSetupLinks = new Map(); // token -> { caregiverId, caregiverEmail, expiresAt }
 const caregiverTelegramChatIdCache = new Map(); // caregiver id/email -> telegram chat id
@@ -74,6 +77,66 @@ const CHECK_IN_MORNING_END = String(process.env.CHECK_IN_MORNING_END || '09:00')
 const CHECK_IN_EVENING_START = String(process.env.CHECK_IN_EVENING_START || '17:00').trim();
 const CHECK_IN_EVENING_END = String(process.env.CHECK_IN_EVENING_END || '23:59').trim();
 const CAREGIVER_RESPONSIVENESS_THRESHOLD_MS = (Number(process.env.CAREGIVER_RESPONSIVENESS_THRESHOLD_MINUTES || '5')) * 60 * 1000;
+
+function getSingaporeDateKey(value = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: CHECK_IN_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(value);
+    const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${map.year}-${map.month}-${map.day}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function pruneAndSaveAppointmentReminders() {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - 14);
+  const cutoffKey = getSingaporeDateKey(cutoffDate);
+
+  for (const key of [...appointmentReminders]) {
+    const [appointmentId, dateKey] = String(key || '').split(':');
+    if (!appointmentId || !dateKey || dateKey < cutoffKey) {
+      appointmentReminders.delete(key);
+    }
+  }
+
+  try {
+    writeFileSync(
+      APPOINTMENT_REMINDER_STATE_PATH,
+      JSON.stringify({ sent: [...appointmentReminders] }, null, 2),
+      'utf8',
+    );
+  } catch (error) {
+    console.warn('[Appointment Reminder] Unable to persist reminder state:', error instanceof Error ? error.message : error);
+  }
+}
+
+function loadAppointmentReminderState() {
+  try {
+    if (!existsSync(APPOINTMENT_REMINDER_STATE_PATH)) {
+      return;
+    }
+
+    const raw = readFileSync(APPOINTMENT_REMINDER_STATE_PATH, 'utf8');
+    const parsed = JSON.parse(raw || '{}');
+    const entries = Array.isArray(parsed?.sent) ? parsed.sent : [];
+
+    for (const entry of entries) {
+      if (typeof entry === 'string' && entry.includes(':')) {
+        appointmentReminders.add(entry);
+      }
+    }
+
+    pruneAndSaveAppointmentReminders();
+  } catch (error) {
+    console.warn('[Appointment Reminder] Unable to load reminder state:', error instanceof Error ? error.message : error);
+  }
+}
 
 let mfaMailer = null;
 const missedCheckInAlerts = new Map(); // Track missed check-ins: seniorId -> { notifiedAt, seniorName, caregiverId, lastCheckInWindow }
@@ -1141,10 +1204,12 @@ async function checkAndSend24HourAppointmentReminders() {
     for (const appointment of appointments) {
       try {
         const appointmentId = appointment.id;
+        const reminderDateKey = getSingaporeDateKey(now);
+        const reminderKey = `${appointmentId}:${reminderDateKey}`;
         
         // Skip if already reminded
-        if (appointmentReminders.has(appointmentId)) {
-          console.log(`[Appointment Reminder] Skipping ${appointmentId} - already sent reminder`);
+        if (appointmentReminders.has(reminderKey)) {
+          console.log(`[Appointment Reminder] Skipping ${appointmentId} - already sent reminder for ${reminderDateKey}`);
           continue;
         }
         
@@ -1212,7 +1277,8 @@ async function checkAndSend24HourAppointmentReminders() {
           }
 
           // Mark as reminded
-          appointmentReminders.add(appointmentId);
+          appointmentReminders.add(reminderKey);
+          pruneAndSaveAppointmentReminders();
           console.log(`[Appointment Reminder] ✓ Successfully sent reminder for appointment ${appointmentId}`);
         }
       } catch (appointmentError) {
@@ -1765,46 +1831,6 @@ export async function handleRequest(request, response) {
     }
   }
 
-  if (url.pathname === '/api/caregiver/telegram-open-link' && request.method === 'GET') {
-    const caregiverId = String(url.searchParams.get('caregiverId') || '').trim();
-    const caregiverEmail = String(url.searchParams.get('caregiverEmail') || '').trim();
-
-    if (!caregiverId && !caregiverEmail) {
-      sendJson(response, 400, { error: 'Missing caregiverId or caregiverEmail' });
-      return;
-    }
-
-    try {
-      const connections = await getCaregiverSeniorConnections({ caregiverId, caregiverEmail });
-      const telegramId = connections && connections.length > 0 ? String(connections[0].telegramChatId || '').trim() : '';
-
-      if (!telegramId) {
-        sendJson(response, 404, { error: 'No Telegram chat ID configured for this caregiver.' });
-        return;
-      }
-
-      const botUsername = await getTelegramBotUsername();
-
-      if (!botUsername) {
-        sendJson(response, 503, { error: 'Telegram bot username is not configured.' });
-        return;
-      }
-
-      sendJson(response, 200, {
-        success: true,
-        openUrl: `https://t.me/${botUsername}`,
-        deepLink: `tg://resolve?domain=${botUsername}`,
-      });
-      return;
-    } catch (error) {
-      sendJson(response, 500, {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to build Telegram open link',
-      });
-      return;
-    }
-  }
-
   if (url.pathname === '/api/caregiver/telegram-test' && request.method === 'POST') {
     const body = await readJson(request);
     const caregiverId = String(body.caregiverId || '').trim();
@@ -2250,6 +2276,8 @@ export function handleRequestWithErrors(request, response) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const server = http.createServer(handleRequestWithErrors);
+
+  loadAppointmentReminderState();
 
   server.listen(PORT, () => {
     console.log(`ServiceNow API server running at http://localhost:${PORT}`);

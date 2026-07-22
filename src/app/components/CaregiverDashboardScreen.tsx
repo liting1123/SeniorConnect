@@ -3894,7 +3894,7 @@ function CaregiverProfile({
               <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
                 <p className="mb-2 text-sm font-medium text-blue-900">How to set up the bot:</p>
                 <ol className="list-inside list-decimal space-y-1 text-sm text-blue-800">
-                  <li>Open Telegram and start a chat with your CareConnect bot.</li>
+                  <li>Open Telegram and start a chat with <strong>@CareConnectCaregiverBot</strong>.</li>
                   <li>Get your chat ID using a helper bot such as <strong>@userinfobot</strong>.</li>
                   <li>Paste the chat ID below and press <strong>Save Chat ID</strong>.</li>
                 </ol>

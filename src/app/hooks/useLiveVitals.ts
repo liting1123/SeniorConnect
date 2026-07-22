@@ -36,6 +36,10 @@ export type LiveVitals = {
   connected: boolean;
   hr: number | null;
   br: number | null;
+  // True when the latest HR/BR carried the sensor's "simulated" label
+  // (bedroom_mmWave.py's demo fallback). The UI must show these as sim, not
+  // real clinical readings.
+  vitalsSimulated: boolean;
   hrSeries: VitalPoint[];
   brSeries: VitalPoint[];
   lastMessageAt: number | null;
@@ -54,6 +58,7 @@ const EMPTY_STATE: LiveVitals = {
   connected: false,
   hr: null,
   br: null,
+  vitalsSimulated: false,
   hrSeries: [],
   brSeries: [],
   lastMessageAt: null,
@@ -67,6 +72,12 @@ const EMPTY_STATE: LiveVitals = {
 const WINDOW_MS = 60_000; // 60-second rolling sparkline window
 const MAX_BACKOFF_MS = 10_000;
 const MAX_EVENTS = 10;
+// A sensor that stops publishing must stop looking "live" — without this
+// sweep, the last HR/BR reading stayed on screen as live forever (an open
+// WebSocket with dead MQTT behind it produces no new frames, and nothing
+// ever cleared the old values). Past this age, live vitals reset to null
+// and consumers fall back to the ServiceNow snapshot on the fly.
+const VITALS_STALE_MS = 30_000;
 
 function resolveWsUrl() {
   const configured = (import.meta.env?.VITE_LIVE_WS_URL as string | undefined)?.trim();
@@ -149,6 +160,39 @@ export function useLiveVitals(enabled: boolean): LiveVitals {
   const [state, setState] = useState<LiveVitals>(EMPTY_STATE);
   const backoffRef = useRef(1000);
 
+  // Staleness sweep: expire live HR/BR when the stream goes quiet, so
+  // "sensor went offline" is reflected on the fly instead of freezing the
+  // last reading on screen as live.
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setState((prev) => {
+        const now = Date.now();
+        const hrLast = prev.hrSeries[prev.hrSeries.length - 1]?.t ?? 0;
+        const brLast = prev.brSeries[prev.brSeries.length - 1]?.t ?? 0;
+        const hrStale = prev.hr !== null && now - hrLast > VITALS_STALE_MS;
+        const brStale = prev.br !== null && now - brLast > VITALS_STALE_MS;
+
+        if (!hrStale && !brStale) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          hr: hrStale ? null : prev.hr,
+          br: brStale ? null : prev.br,
+          hrSeries: hrStale ? [] : prev.hrSeries,
+          brSeries: brStale ? [] : prev.brSeries,
+        };
+      });
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [enabled]);
+
   useEffect(() => {
     if (!enabled) {
       return;
@@ -190,6 +234,9 @@ export function useLiveVitals(enabled: boolean): LiveVitals {
         const location = String(payload.location ?? '');
         const hr = Number(payload.heart_rate ?? payload.hr);
         const br = Number(payload.breath_rate ?? payload.br ?? payload.respiration_rate);
+        const simulated =
+          String(payload.vitals_source ?? '') === 'simulated' ||
+          String(payload.status ?? '').toLowerCase() === 'simulated';
 
         setState((prev) => {
           const next: LiveVitals = {
@@ -201,11 +248,13 @@ export function useLiveVitals(enabled: boolean): LiveVitals {
           if (Number.isFinite(hr) && hr > 0) {
             next.hr = hr;
             next.hrSeries = prune([...prev.hrSeries, { t: now, value: hr }], now);
+            next.vitalsSimulated = simulated;
           }
 
           if (Number.isFinite(br) && br > 0) {
             next.br = br;
             next.brSeries = prune([...prev.brSeries, { t: now, value: br }], now);
+            next.vitalsSimulated = simulated;
           }
 
           // Camera frames carry a heavy base64 image — node freshness only.

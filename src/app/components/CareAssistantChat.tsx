@@ -1,19 +1,24 @@
-import { Bot, Send, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Bot, CalendarPlus, Send, ShieldAlert, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { getMedicines, getStoredUser, type AppUser, type Medicine } from '../services/backend';
 import { getVitalsHistory, type VitalsHistory } from '../services/serviceNow';
-import { askCareAssistant, type AssistantChatMessage } from '../services/careAssistant';
+import {
+  askCareAssistant,
+  type AssistantChatMessage,
+  type AssistantToolCall,
+} from '../services/careAssistant';
 
 // ── Care Assistant — floating chatbot for caregiver / family accounts ──────
-// Answers questions about the seniors linked to this account: past vitals
-// history, daily check-ins, medicine labels & prescriptions, and the
-// HealthBuddy appointment schedule. Everything it needs is assembled HERE,
-// on-device, and cached in localStorage — the assistant works from the last
-// good snapshot even when ServiceNow is slow or unreachable. Medical records
-// (medicines, prescriptions, conditions, vitals) are only included when the
-// caregiver flips the explicit opt-in toggle; check-ins and appointments are
-// always available. The OpenAI key never reaches this code — the API server
-// proxies the conversation (see server/index.mjs askCareAssistant).
+// Answers questions about the seniors linked to this account (vitals
+// history, check-ins, medicine labels & prescriptions, HealthBuddy
+// schedule) and can ACT: it books HealthBuddy appointments through the same
+// validated path as the manual form, any number of times per session.
+// Everything is local-first: care data, chat transcript, session logs and
+// learned preferences all live in localStorage. Guardrails live on BOTH
+// sides — the server pins scope/injection/emergency rules and rate-limits,
+// while this component validates every action before executing it and
+// renders a deterministic SOS banner whenever the server flags an
+// emergency (never left to the model's wording).
 
 type AssistantSenior = {
   name: string;
@@ -38,6 +43,27 @@ type AssistantAppointment = {
   status: string;
 };
 
+export type AssistantAppointmentRequest = {
+  seniorName: string;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  notes: string;
+};
+
+type FeedItem =
+  | { kind: 'user'; text: string }
+  | { kind: 'assistant'; text: string }
+  | { kind: 'action'; text: string }
+  | { kind: 'emergency' };
+
+type SessionLog = {
+  id: string;
+  startedAt: string;
+  feed: FeedItem[];
+};
+
 type CachedCareData = {
   ts: number;
   medicinesBySenior: Record<string, Medicine[]>;
@@ -45,30 +71,30 @@ type CachedCareData = {
 };
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const MAX_STORED_MESSAGES = 40;
+const MAX_TRANSCRIPT = 40;
+const MAX_SESSIONS = 10;
+const MAX_PREFS = 20;
+const MAX_TOOL_ROUNDS = 3;
 
 const SUGGESTIONS = [
   'Has everyone checked in today?',
   'What medicine is due today?',
   'Summarise the latest vitals',
-  'What appointments are coming up?',
+  'Book a physio appointment for next Monday 10am',
 ];
 
 function storageIdentity(email: string) {
   return (email || 'unknown').trim().toLowerCase();
 }
 
-function optInKey(email: string) {
-  return `careconnect.assistant.medicalOptIn.${storageIdentity(email)}`;
-}
-
-function cacheKey(email: string) {
-  return `careconnect.assistant.cache.${storageIdentity(email)}`;
-}
-
-function historyKey(email: string) {
-  return `careconnect.assistant.history.${storageIdentity(email)}`;
-}
+const keyOf = {
+  optIn: (email: string) => `careconnect.assistant.medicalOptIn.${storageIdentity(email)}`,
+  cache: (email: string) => `careconnect.assistant.cache.${storageIdentity(email)}`,
+  transcript: (email: string) => `careconnect.assistant.transcript.${storageIdentity(email)}`,
+  feed: (email: string) => `careconnect.assistant.history.${storageIdentity(email)}`,
+  sessions: (email: string) => `careconnect.assistant.sessions.${storageIdentity(email)}`,
+  prefs: (email: string) => `careconnect.assistant.prefs.${storageIdentity(email)}`,
+};
 
 function readStoredJson<T>(key: string): T | null {
   try {
@@ -77,6 +103,14 @@ function readStoredJson<T>(key: string): T | null {
   } catch {
     localStorage.removeItem(key);
     return null;
+  }
+}
+
+function writeStoredJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage full — personalization is best-effort, never fatal.
   }
 }
 
@@ -109,15 +143,87 @@ function summariseVitals(vitals: VitalsHistory | null) {
   ].join('\n');
 }
 
+// Personalization: learned preferences (stored via the remember_preference
+// tool) plus lightweight stats derived from past session logs — which
+// seniors and topics this caregiver asks about most. Plain derived text,
+// computed on-device; nothing is sent anywhere except inside the context
+// block of the caregiver's own assistant calls.
+function buildProfileLines(email: string, seniors: AssistantSenior[]): string[] {
+  const lines: string[] = [];
+  const prefs = readStoredJson<string[]>(keyOf.prefs(email)) || [];
+  const sessions = readStoredJson<SessionLog[]>(keyOf.sessions(email)) || [];
+
+  if (prefs.length > 0) {
+    lines.push('Stated preferences (from earlier sessions):');
+    for (const pref of prefs.slice(-MAX_PREFS)) {
+      lines.push(`- ${pref}`);
+    }
+  }
+
+  const pastUserTexts = sessions
+    .flatMap((session) => session.feed)
+    .filter((item): item is Extract<FeedItem, { kind: 'user' }> => item.kind === 'user')
+    .map((item) => item.text.toLowerCase());
+
+  if (pastUserTexts.length > 0) {
+    const topics: Array<[string, RegExp]> = [
+      ['medicine & prescriptions', /medicin|prescription|dose|pill|tablet/],
+      ['vitals', /vital|heart|breath|hr\b|bpm/],
+      ['check-ins', /check[\s-]?in/],
+      ['appointments', /appointment|schedule|book/],
+    ];
+    const topTopics = topics
+      .map(([label, re]) => [label, pastUserTexts.filter((text) => re.test(text)).length] as const)
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([label]) => label);
+
+    const seniorCounts = seniors
+      .map((senior) => {
+        const first = senior.name.split(' ')[0].toLowerCase();
+        return [senior.name, pastUserTexts.filter((text) => text.includes(first)).length] as const;
+      })
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1]);
+
+    lines.push(`History: ${sessions.length} previous assistant session(s).`);
+    if (topTopics.length > 0) {
+      lines.push(`Frequently asks about: ${topTopics.join(', ')}.`);
+    }
+    if (seniorCounts.length > 0) {
+      lines.push(`Most asked-about senior: ${seniorCounts[0][0]}.`);
+    }
+  }
+
+  return lines;
+}
+
 function buildContext(
+  email: string,
   seniors: AssistantSenior[],
   appointments: AssistantAppointment[],
   medicalOptIn: boolean,
   cached: CachedCareData | null,
+  isAdmin: boolean,
 ) {
   const lines: string[] = [];
-  const today = new Date().toISOString().slice(0, 10);
-  lines.push(`Today's date: ${today}.`);
+  const now = new Date();
+  lines.push(`Today's date: ${now.toISOString().slice(0, 10)} (${now.toLocaleDateString('en-SG', { weekday: 'long' })}).`);
+  if (isAdmin) {
+    lines.push(
+      '',
+      'You are assisting an ADMINISTRATOR overseeing the whole SeniorConnect',
+      'fleet — not a single family caregiver. Answer at fleet scope: compare',
+      'residents, surface who needs attention, summarise across everyone below.',
+      'The same safety rules apply (no diagnosis; direct emergencies to SOS/995).',
+    );
+  }
+
+  const profile = buildProfileLines(email, seniors);
+  if (profile.length > 0) {
+    lines.push('', 'Caregiver profile (for personalising tone and focus only):', ...profile);
+  }
 
   lines.push('', `Linked seniors (${seniors.length}):`);
   for (const senior of seniors) {
@@ -170,44 +276,135 @@ function buildContext(
   return lines.join('\n');
 }
 
+// The transcript window must never start mid tool-exchange (a tool result
+// without its assistant tool_calls message is an OpenAI 400) — cut at a
+// user-message boundary instead of a raw count.
+function takeRecentTranscript(transcript: AssistantChatMessage[], max = 14) {
+  const tail = transcript.slice(-max);
+  const firstUser = tail.findIndex((message) => message.role === 'user');
+  return firstUser > 0 ? tail.slice(firstUser) : tail;
+}
+
 export function CareAssistantChat({
   caregiverEmail,
   seniors,
   appointments,
+  onCreateAppointment,
+  isAdmin = false,
 }: {
   caregiverEmail: string;
   seniors: AssistantSenior[];
   appointments: AssistantAppointment[];
+  onCreateAppointment: (input: AssistantAppointmentRequest) => { ok: boolean; message: string };
+  // Admin-role users share the caregiver dashboard; when true the assistant
+  // presents as a fleet/admin assistant (title + context framing) rather
+  // than a single-caregiver one. Same data + tools, wider framing.
+  isAdmin?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<AssistantChatMessage[]>(
-    () => readStoredJson<AssistantChatMessage[]>(historyKey(caregiverEmail)) || [],
-  );
+  const [feed, setFeed] = useState<FeedItem[]>(() => readStoredJson<FeedItem[]>(keyOf.feed(caregiverEmail)) || []);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState('');
-  const [medicalOptIn, setMedicalOptIn] = useState(() => localStorage.getItem(optInKey(caregiverEmail)) === '1');
+  const [medicalOptIn, setMedicalOptIn] = useState(() => localStorage.getItem(keyOf.optIn(caregiverEmail)) === '1');
+  const transcriptRef = useRef<AssistantChatMessage[]>(
+    readStoredJson<AssistantChatMessage[]>(keyOf.transcript(caregiverEmail)) || [],
+  );
+  const sessionRef = useRef<SessionLog>({
+    id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    startedAt: new Date().toISOString(),
+    feed: [],
+  });
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    localStorage.setItem(historyKey(caregiverEmail), JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)));
-  }, [messages, caregiverEmail]);
+    writeStoredJson(keyOf.feed(caregiverEmail), feed.slice(-MAX_TRANSCRIPT));
+  }, [feed, caregiverEmail]);
 
   useEffect(() => {
-    localStorage.setItem(optInKey(caregiverEmail), medicalOptIn ? '1' : '0');
+    localStorage.setItem(keyOf.optIn(caregiverEmail), medicalOptIn ? '1' : '0');
   }, [medicalOptIn, caregiverEmail]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isThinking, isOpen]);
+  }, [feed, isThinking, isOpen]);
+
+  function pushFeed(...items: FeedItem[]) {
+    setFeed((current) => [...current, ...items].slice(-MAX_TRANSCRIPT));
+    // Session log mirrors the visible feed — one entry per session in
+    // localStorage, used to personalise future sessions.
+    sessionRef.current.feed.push(...items);
+    const sessions = (readStoredJson<SessionLog[]>(keyOf.sessions(caregiverEmail)) || []).filter(
+      (session) => session.id !== sessionRef.current.id,
+    );
+    sessions.push(sessionRef.current);
+    writeStoredJson(keyOf.sessions(caregiverEmail), sessions.slice(-MAX_SESSIONS));
+  }
+
+  function persistTranscript() {
+    writeStoredJson(keyOf.transcript(caregiverEmail), transcriptRef.current.slice(-MAX_TRANSCRIPT));
+  }
+
+  function rememberPreference(note: string) {
+    const clean = note.trim().slice(0, 160);
+    if (!clean) {
+      return 'FAILED: empty note.';
+    }
+    const prefs = readStoredJson<string[]>(keyOf.prefs(caregiverEmail)) || [];
+    if (!prefs.some((existing) => existing.toLowerCase() === clean.toLowerCase())) {
+      prefs.push(clean);
+      writeStoredJson(keyOf.prefs(caregiverEmail), prefs.slice(-MAX_PREFS));
+    }
+    return `OK: preference saved — "${clean}"`;
+  }
+
+  // Executes one model-requested action LOCALLY, with validation — the
+  // server never touches appointments or preferences. Returns the tool
+  // result string that goes back into the transcript.
+  function executeToolCall(call: AssistantToolCall): { result: string; display: FeedItem | null } {
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(call.arguments || '{}');
+    } catch {
+      return { result: 'FAILED: arguments were not valid JSON.', display: null };
+    }
+
+    if (call.name === 'remember_preference') {
+      const result = rememberPreference(String(args.note || ''));
+      return {
+        result,
+        display: result.startsWith('OK') ? { kind: 'action', text: `Saved preference: ${String(args.note || '').trim()}` } : null,
+      };
+    }
+
+    if (call.name === 'create_appointment') {
+      const request: AssistantAppointmentRequest = {
+        seniorName: String(args.senior_name || '').trim(),
+        title: String(args.title || '').trim(),
+        date: String(args.date || '').trim(),
+        time: String(args.time || '').trim(),
+        location: String(args.location || '').trim(),
+        notes: String(args.notes || '').trim(),
+      };
+      const outcome = onCreateAppointment(request);
+      return {
+        result: outcome.ok ? `OK: ${outcome.message}` : `FAILED: ${outcome.message}`,
+        display: outcome.ok
+          ? { kind: 'action', text: `Appointment booked: ${request.seniorName} — "${request.title}" on ${request.date} ${request.time}` }
+          : null,
+      };
+    }
+
+    return { result: `FAILED: unknown action "${call.name}".`, display: null };
+  }
 
   // Local-first care-data snapshot: serve from the localStorage cache while
-  // fresh; refresh in the background past the TTL; and if the network is
-  // down, keep answering from the last good snapshot instead of failing.
+  // fresh; refresh past the TTL; if the network is down, keep answering
+  // from the last good snapshot instead of failing.
   async function getCareData(user: AppUser): Promise<CachedCareData | null> {
-    const cached = readStoredJson<CachedCareData>(cacheKey(caregiverEmail));
+    const cached = readStoredJson<CachedCareData>(keyOf.cache(caregiverEmail));
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       return cached;
     }
@@ -216,14 +413,12 @@ export function CareAssistantChat({
       const medicinesBySenior: Record<string, Medicine[]> = {};
       for (const senior of seniors) {
         if (senior.userId) {
-          // Caregiver token, senior uid — same trust model the medication
-          // panel already uses for linked residents.
           medicinesBySenior[senior.userId] = await getMedicines({ ...user, uid: senior.userId });
         }
       }
       const vitals = await getVitalsHistory().catch(() => null);
       const fresh: CachedCareData = { ts: Date.now(), medicinesBySenior, vitals };
-      localStorage.setItem(cacheKey(caregiverEmail), JSON.stringify(fresh));
+      writeStoredJson(keyOf.cache(caregiverEmail), fresh);
       return fresh;
     } catch {
       return cached; // stale beats nothing when offline
@@ -244,20 +439,79 @@ export function CareAssistantChat({
 
     setError('');
     setInput('');
-    const nextMessages: AssistantChatMessage[] = [...messages, { role: 'user', content: question }];
-    setMessages(nextMessages);
+    transcriptRef.current = [...transcriptRef.current, { role: 'user', content: question }];
+    pushFeed({ kind: 'user', text: question });
     setIsThinking(true);
 
     try {
       const careData = medicalOptIn ? await getCareData(user) : null;
-      const context = buildContext(seniors, appointments, medicalOptIn, careData);
-      const reply = await askCareAssistant(user, nextMessages.slice(-12), context);
-      setMessages((current) => [...current, { role: 'assistant', content: reply }]);
+      const context = buildContext(caregiverEmail, seniors, appointments, medicalOptIn, careData, isAdmin);
+
+      let emergencyShown = false;
+      // Tool loop: the model may request several actions, get their
+      // results, then request MORE in the next round — capped, but never
+      // limited to a single action per message or per session.
+      for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
+        const response = await askCareAssistant(user, takeRecentTranscript(transcriptRef.current), context);
+
+        if (response.emergency && !emergencyShown) {
+          emergencyShown = true;
+          pushFeed({ kind: 'emergency' });
+        }
+
+        if (response.toolCalls.length === 0 || round === MAX_TOOL_ROUNDS) {
+          const reply = response.reply || 'Done.';
+          transcriptRef.current = [...transcriptRef.current, { role: 'assistant', content: reply }];
+          pushFeed({ kind: 'assistant', text: reply });
+          break;
+        }
+
+        // Record the model's tool request, execute each call locally, then
+        // feed the results back and let it produce the final wording.
+        transcriptRef.current = [
+          ...transcriptRef.current,
+          {
+            role: 'assistant',
+            content: response.reply || null,
+            tool_calls: response.toolCalls.map((call) => ({
+              id: call.id,
+              type: 'function' as const,
+              function: { name: call.name, arguments: call.arguments },
+            })),
+          },
+        ];
+
+        for (const call of response.toolCalls) {
+          const { result, display } = executeToolCall(call);
+          transcriptRef.current = [
+            ...transcriptRef.current,
+            { role: 'tool', tool_call_id: call.id, content: result },
+          ];
+          if (display) {
+            pushFeed(display);
+          }
+        }
+      }
+
+      persistTranscript();
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : 'The assistant is unavailable right now.');
     } finally {
       setIsThinking(false);
     }
+  }
+
+  function clearConversation() {
+    setFeed([]);
+    transcriptRef.current = [];
+    persistTranscript();
+    // A clear starts a fresh session log; the finished one stays in the
+    // sessions store for personalization.
+    sessionRef.current = {
+      id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      startedAt: new Date().toISOString(),
+      feed: [],
+    };
   }
 
   if (!isOpen) {
@@ -279,15 +533,17 @@ export function CareAssistantChat({
         <div className="flex items-center gap-2">
           <Bot className="h-6 w-6" />
           <div>
-            <p className="text-base font-black leading-5">Care Assistant</p>
-            <p className="text-[11px] font-semibold text-white/80">Vitals · check-ins · medicine · schedule</p>
+            <p className="text-base font-black leading-5">{isAdmin ? 'Admin Assistant' : 'Care Assistant'}</p>
+            <p className="text-[11px] font-semibold text-white/80">
+              {isAdmin ? 'fleet overview · vitals · alerts · appointments' : 'Vitals · check-ins · medicine · books appointments'}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
             aria-label="Clear conversation"
-            onClick={() => setMessages([])}
+            onClick={clearConversation}
             className="flex h-9 w-9 items-center justify-center rounded-full text-white/85 active:bg-white/15"
           >
             <Trash2 className="h-5 w-5" />
@@ -317,11 +573,12 @@ export function CareAssistantChat({
       </label>
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-        {messages.length === 0 && (
+        {feed.length === 0 && (
           <div className="space-y-2">
             <p className="text-sm font-semibold text-[#71717a]">
-              Ask about your seniors — check-ins and the HealthBuddy schedule are always available;
-              flip the toggle above to include medicine and vitals.
+              Ask about your seniors, or tell me to book a HealthBuddy appointment.
+              Check-ins and the schedule are always available; flip the toggle above
+              to include medicine and vitals.
             </p>
             <div className="flex flex-wrap gap-2">
               {SUGGESTIONS.map((suggestion) => (
@@ -337,18 +594,45 @@ export function CareAssistantChat({
             </div>
           </div>
         )}
-        {messages.map((message, index) => (
-          <div
-            key={`${message.role}-${index}`}
-            className={`max-w-[85%] whitespace-pre-wrap rounded-[16px] px-3 py-2 text-sm font-semibold leading-5 ${
-              message.role === 'user'
-                ? 'ml-auto bg-[#416642] text-white'
-                : 'mr-auto bg-[#f0f2f5] text-[#151515]'
-            }`}
-          >
-            {message.content}
-          </div>
-        ))}
+        {feed.map((item, index) => {
+          if (item.kind === 'emergency') {
+            return (
+              <div
+                key={`feed-${index}`}
+                className="flex items-start gap-2 rounded-[16px] border-2 border-[#dc2626] bg-red-50 px-3 py-2"
+              >
+                <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-[#dc2626]" />
+                <p className="text-sm font-bold leading-5 text-[#b91c1c]">
+                  This sounds urgent. Use the SOS flow in the app or call 995 now —
+                  don't wait for the assistant.
+                </p>
+              </div>
+            );
+          }
+          if (item.kind === 'action') {
+            return (
+              <div
+                key={`feed-${index}`}
+                className="mr-auto flex items-center gap-2 rounded-full bg-[#e9f6ed] px-3 py-1.5"
+              >
+                <CalendarPlus className="h-4 w-4 shrink-0 text-[#18833b]" />
+                <span className="text-xs font-bold text-[#18833b]">{item.text}</span>
+              </div>
+            );
+          }
+          return (
+            <div
+              key={`feed-${index}`}
+              className={`max-w-[85%] whitespace-pre-wrap rounded-[16px] px-3 py-2 text-sm font-semibold leading-5 ${
+                item.kind === 'user'
+                  ? 'ml-auto bg-[#416642] text-white'
+                  : 'mr-auto bg-[#f0f2f5] text-[#151515]'
+              }`}
+            >
+              {item.text}
+            </div>
+          );
+        })}
         {isThinking && (
           <div className="mr-auto rounded-[16px] bg-[#f0f2f5] px-3 py-2 text-sm font-bold text-[#71717a]">
             Thinking…
@@ -369,7 +653,7 @@ export function CareAssistantChat({
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask the Care Assistant…"
+          placeholder="Ask, or say “book an appointment…”"
           className="h-11 min-w-0 flex-1 rounded-full bg-[#f0f2f5] px-4 text-sm font-semibold text-[#151515] outline-none placeholder:text-[#94a3b8]"
         />
         <button

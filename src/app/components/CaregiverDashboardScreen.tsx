@@ -48,7 +48,7 @@ import {
   YAxis,
 } from 'recharts';
 import { getStoredUser } from '../services/backend';
-import { CareAssistantChat } from './CareAssistantChat';
+import { CareAssistantChat, type AssistantAppointmentRequest } from './CareAssistantChat';
 import { useLiveVitals, type LiveRoomState, type VitalPoint } from '../hooks/useLiveVitals';
 import {
   createCaregiverAppointment,
@@ -377,6 +377,10 @@ export default function CaregiverDashboardScreen({
   const caregiverName = currentUser?.displayName || currentUser?.email?.split('@')[0] || t('caregiver');
   const caregiverId = currentUser?.uid || '';
   const caregiverEmail = currentUser?.email || '';
+  // Admin-role users share this dashboard (the standalone admin screen was
+  // removed upstream). Detect it so the Care Assistant can present as an
+  // admin/fleet assistant rather than a single-caregiver one.
+  const isAdminUser = String(currentUser?.role || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '') === 'admin';
   const [seniors, setSeniors] = useState<Senior[]>([]);
   const [isLoadingSeniors, setIsLoadingSeniors] = useState(false);
   const [seniorError, setSeniorError] = useState('');
@@ -759,6 +763,55 @@ export default function CaregiverDashboardScreen({
     });
     setAppointmentError('');
     setShowAppointmentForm(true);
+  };
+
+  // Care Assistant's appointment path: same shape and persistence as the
+  // manual HealthBuddy form, but with its own validation since the input
+  // comes from an LLM tool call rather than a form the UI constrained.
+  // Callable any number of times per chat session. NOTE (merge 2026-07-23):
+  // main added its own server-backed handleUpdateAppointmentStatus /
+  // handleDeleteAppointment above (async, calling updateCaregiverAppointment/
+  // deleteCaregiverAppointment) — this function's local-only counterparts of
+  // those two were dropped as stale duplicates; only this creator survives.
+  const handleAssistantCreateAppointment = (input: AssistantAppointmentRequest): { ok: boolean; message: string } => {
+    const seniorName = input.seniorName.trim();
+    const matchingSenior = seniors.find((senior) => senior.name.trim().toLowerCase() === seniorName.toLowerCase());
+
+    if (!matchingSenior) {
+      const names = seniors.map((senior) => senior.name).join(', ') || 'none linked';
+      return { ok: false, message: `No linked senior named "${seniorName}". Linked seniors: ${names}.` };
+    }
+    if (!input.title.trim()) {
+      return { ok: false, message: 'An appointment title is required.' };
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || Number.isNaN(new Date(`${input.date}T00:00:00`).getTime())) {
+      return { ok: false, message: `"${input.date}" is not a valid date (expected YYYY-MM-DD).` };
+    }
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.time)) {
+      return { ok: false, message: `"${input.time}" is not a valid 24h time (expected HH:MM).` };
+    }
+    if (new Date(`${input.date}T${input.time}:00`).getTime() < Date.now() - 60 * 1000) {
+      return { ok: false, message: `${input.date} ${input.time} is in the past — appointments must be upcoming.` };
+    }
+
+    const nextAppointment: HealthBuddyAppointment = {
+      id: `appt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      seniorId: matchingSenior.userId || matchingSenior.id || matchingSenior.connectionId || '',
+      seniorName: matchingSenior.name,
+      title: input.title.trim(),
+      date: input.date,
+      time: input.time,
+      location: input.location.trim(),
+      notes: input.notes.trim(),
+      status: 'scheduled',
+      createdAt: new Date().toISOString(),
+    };
+
+    setAppointments((currentAppointments) => [nextAppointment, ...currentAppointments]);
+    return {
+      ok: true,
+      message: `Appointment "${nextAppointment.title}" for ${nextAppointment.seniorName} created on ${nextAppointment.date} at ${nextAppointment.time}. It is visible in the HealthBuddy tab.`,
+    };
   };
 
   const handleUpdateSeniorDetails = async (senior: Senior, details: SeniorDetailsInput) => {
@@ -1303,6 +1356,8 @@ export default function CaregiverDashboardScreen({
         caregiverEmail={caregiverEmail}
         seniors={seniors}
         appointments={appointments}
+        onCreateAppointment={handleAssistantCreateAppointment}
+        isAdmin={isAdminUser}
       />
     </div>
   );
@@ -1844,6 +1899,10 @@ function DashboardVitalsStrip({ onOpenLive }: { onOpenLive: () => void }) {
 
   const hr = live.hr ?? status?.vitals.hr ?? null;
   const br = live.br ?? status?.vitals.br ?? null;
+  // "…" instead of a bare "–" while the radar has confirmed someone is in
+  // bed but hasn't locked a reading yet — see LiveVitalCard's warmingUp
+  // for why this can't be faster (the sensor's own onboard DSP lock time).
+  const warmingUp = live.rooms.bedroom?.occupied === true;
 
   // No deployment signal from either source: stay invisible.
   if (!status && live.lastMessageAt === null) {
@@ -1897,14 +1956,14 @@ function DashboardVitalsStrip({ onOpenLive }: { onOpenLive: () => void }) {
           <span className="flex items-center gap-1.5">
             <Heart className="h-4 w-4 text-[#dc2626]" />
             <span className={`text-xl font-extrabold ${vitalClass(hr, 60, 100)}`}>
-              {hr ?? '–'}
+              {hr ?? (warmingUp ? '…' : '–')}
             </span>
             <span className="text-[10px] font-bold uppercase text-[#71717a]">bpm</span>
           </span>
           <span className="flex items-center gap-1.5">
             <Wind className="h-4 w-4 text-[#2563eb]" />
             <span className={`text-xl font-extrabold ${vitalClass(br, 12, 20)}`}>
-              {br ?? '–'}
+              {br ?? (warmingUp ? '…' : '–')}
             </span>
             <span className="text-[10px] font-bold uppercase text-[#71717a]">brpm</span>
           </span>
@@ -2866,6 +2925,7 @@ function LiveSensorStatus({ seniorKey }: { seniorKey: string }) {
                 fallbackTrend={status.vitals.hrTrend}
                 normalLow={60}
                 normalHigh={100}
+                warmingUp={live.rooms.bedroom?.occupied === true}
               />
               <LiveVitalCard
                 icon={<Wind className="h-6 w-6" />}
@@ -2877,6 +2937,7 @@ function LiveSensorStatus({ seniorKey }: { seniorKey: string }) {
                 fallbackTrend={status.vitals.brTrend}
                 normalLow={12}
                 normalHigh={20}
+                warmingUp={live.rooms.bedroom?.occupied === true}
               />
             </div>
           ) : (
@@ -2940,6 +3001,7 @@ function LiveVitalCard({
   fallbackTrend,
   normalLow,
   normalHigh,
+  warmingUp = false,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -2950,11 +3012,20 @@ function LiveVitalCard({
   fallbackTrend: SensorTrendPoint[];
   normalLow: number;
   normalHigh: number;
+  // True while the radar has confirmed someone is in bed but hasn't yet
+  // locked a stable reading. This is the sensor's OWN onboard signal
+  // processing (extracting a heartbeat from radar micro-motion needs a
+  // stretch of clean, still data) — not something the app or the sensor
+  // script can skip. Without this flag "–" is indistinguishable from a
+  // dead sensor; with it, a caregiver sees "reading…" and knows to wait
+  // rather than assuming something's broken.
+  warmingUp?: boolean;
 }) {
   const tone = vitalTone(value, normalLow, normalHigh);
   // 60-second rolling live sparkline; before the first live tick arrives,
   // fall back to the last synced ServiceNow trend so the card is never blank.
   const chartData: Array<{ value: number }> = series.length > 1 ? series : fallbackTrend;
+  const showWarmingUp = value === null && warmingUp;
 
   return (
     <div className="rounded-[14px] bg-[#f0f2f5] p-4">
@@ -2962,12 +3033,20 @@ function LiveVitalCard({
         <div style={{ color: tone }}>{icon}</div>
         <p className="text-sm font-semibold text-[#71717a]">{label}</p>
       </div>
-      <p className="mt-1 text-4xl font-extrabold leading-none" style={{ color: tone }}>
-        {value !== null ? value : '–'}
-        <span className="ml-1 text-sm font-bold text-[#71717a]">{unit}</span>
-      </p>
+      {showWarmingUp ? (
+        <p className="mt-1 text-2xl font-extrabold leading-none text-[#94a3b8]">
+          reading…
+        </p>
+      ) : (
+        <p className="mt-1 text-4xl font-extrabold leading-none" style={{ color: tone }}>
+          {value !== null ? value : '–'}
+          <span className="ml-1 text-sm font-bold text-[#71717a]">{unit}</span>
+        </p>
+      )}
       <p className="mt-1 text-[11px] font-semibold text-[#94a3b8]">
-        Normal {normalLow}–{normalHigh} · {isLive ? 'live · 60s window' : 'last synced'}
+        {showWarmingUp
+          ? 'in bed · locking a stable reading, ~20–30s'
+          : `Normal ${normalLow}–${normalHigh} · ${isLive ? 'live · 60s window' : 'last synced'}`}
       </p>
       {chartData.length > 1 && (
         <div className="mt-2 h-12 w-full">
@@ -3387,6 +3466,16 @@ function LiveMonitorTab() {
         </div>
         {vitalsTab === 'live' ? (
           <>
+            {live.vitalsSimulated && (
+              <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-[#fff4e5] px-2.5 py-1.5">
+                <span className="text-xs font-black uppercase tracking-wide text-[#b45309]">
+                  ⚠ Simulated
+                </span>
+                <span className="text-[11px] font-semibold text-[#b45309]">
+                  demo values — sensor not producing a real reading
+                </span>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <LiveVitalCard
                 icon={<Heart className="h-6 w-6" />}
@@ -3398,6 +3487,7 @@ function LiveMonitorTab() {
                 fallbackTrend={status?.vitals.hrTrend ?? []}
                 normalLow={60}
                 normalHigh={100}
+                warmingUp={live.rooms.bedroom?.occupied === true}
               />
               <LiveVitalCard
                 icon={<Wind className="h-6 w-6" />}
@@ -3409,6 +3499,7 @@ function LiveMonitorTab() {
                 fallbackTrend={status?.vitals.brTrend ?? []}
                 normalLow={12}
                 normalHigh={20}
+                warmingUp={live.rooms.bedroom?.occupied === true}
               />
             </div>
             {!live.connected && status?.lastUpdated && (

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, Calendar, Clock, Gamepad2, Home, User, Trophy, Pill } from 'lucide-react';
+import { Bell, Calendar, CalendarCheck, Clock, Gift, Home, User, Pill } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { LANGUAGE_STORAGE_KEY } from '../i18n';
@@ -8,7 +8,6 @@ import LanguageSelectionScreen from './components/LanguageSelectionScreen';
 import HomePage from './components/HomePage';
 import SOSConfirmationScreen from './components/SOSConfirmation';
 import ProfileScreen, { PERSONAL_INFO_KEY } from './components/ProfileScreen';
-import PointsScreen from './components/PointsScreen';
 import MedicationScreen, { getCurrentMinutes, getMinutesFromTimeLabel } from './components/MedicationScreen';
 import CarePortalScreen from './components/CarePortalScreen';
 import CaregiverDashboardScreen from './components/CaregiverDashboardScreen';
@@ -357,6 +356,7 @@ export default function App() {
   const [isSendingSOS, setIsSendingSOS] = useState(false);
   const isSendingSOSRef = useRef(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [earnedPointsPopup, setEarnedPointsPopup] = useState<number | null>(null);
   const isCheckingInRef = useRef(false);
   const [completedCheckIn, setCompletedCheckIn] = useState<CompletedCheckInStatus | null>(() => getSavedCompletedCheckIn(getStoredUser()));
   const [takenMedicineIds, setTakenMedicineIds] = useState<string[]>([]);
@@ -398,6 +398,23 @@ export default function App() {
 
     return () => {
       window.removeEventListener('storage', handleStorageUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
+    let dismissTimer: number | undefined;
+    const handlePointsEarned = (event: Event) => {
+      const amount = Number((event as CustomEvent<{ amount?: number }>).detail?.amount);
+      if (!Number.isFinite(amount) || amount <= 0) return;
+      setEarnedPointsPopup(amount);
+      window.clearTimeout(dismissTimer);
+      dismissTimer = window.setTimeout(() => setEarnedPointsPopup(null), 3000);
+    };
+
+    window.addEventListener('careconnect-points-earned', handlePointsEarned);
+    return () => {
+      window.removeEventListener('careconnect-points-earned', handlePointsEarned);
+      window.clearTimeout(dismissTimer);
     };
   }, []);
 
@@ -753,10 +770,10 @@ export default function App() {
   };
 
   const handleCheckIn = async ({
-    redirectToPoints = true,
+    redirectToGame = true,
     suppressWindowCompletedAlert = false,
   }: {
-    redirectToPoints?: boolean;
+    redirectToGame?: boolean;
     suppressWindowCompletedAlert?: boolean;
   } = {}) => {
     if (isCheckingInRef.current) {
@@ -788,8 +805,9 @@ export default function App() {
           detail: { uid: user.uid, points: nextPoints },
         }),
       );
-      if (redirectToPoints) {
-        setCurrentScreen('points');
+      window.dispatchEvent(new CustomEvent('careconnect-points-earned', { detail: { amount: 5 } }));
+      if (redirectToGame) {
+        setCurrentScreen('game');
       }
     } catch (error) {
       console.error('Check-in failed:', error);
@@ -882,8 +900,6 @@ export default function App() {
             onToggleHighContrast={() => setHighContrast((value) => !value)}
           />
         );
-      case 'points':
-        return <PointsScreen highContrast={highContrast} />;
       case 'medication':
         return (
           <MedicationScreen
@@ -900,7 +916,7 @@ export default function App() {
           <GameScreen
             highContrast={highContrast}
             onToggleHighContrast={() => setHighContrast((value) => !value)}
-            onGamePlayCheckIn={() => handleCheckIn({ redirectToPoints: true, suppressWindowCompletedAlert: true })}
+            onGamePlayCheckIn={() => handleCheckIn({ redirectToGame: true, suppressWindowCompletedAlert: true })}
           />
         );
       case 'carePortal':
@@ -974,15 +990,8 @@ export default function App() {
               onClick={() => setCurrentScreen('medication')}
             />
             <NavButton
-              icon={<Trophy className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
-              label={t('points')}
-              active={currentScreen === 'points'}
-              highContrast={highContrast}
-              onClick={() => setCurrentScreen('points')}
-            />
-            <NavButton
-              icon={<Gamepad2 className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
-              label={t('game')}
+              icon={<Gift className="h-7 w-7 min-[390px]:h-9 min-[390px]:w-9" />}
+              label={t('Rewards')}
               active={currentScreen === 'game'}
               highContrast={highContrast}
               onClick={() => setCurrentScreen('game')}
@@ -1005,6 +1014,26 @@ export default function App() {
               isSending={isSendingSOS}
             />
           </div>
+        )}
+
+        {earnedPointsPopup !== null && (
+          <button
+            type="button"
+            onClick={() => setEarnedPointsPopup(null)}
+            className="absolute inset-x-4 top-4 z-[70] flex items-center justify-between rounded-[22px] border-2 border-[#cfe0c6] bg-[#fbfcf8] px-5 py-4 text-left shadow-2xl"
+            aria-label={t('closeRewardPopup')}
+          >
+            <div className="flex items-center gap-4 text-[#34733b]">
+              <CalendarCheck className="h-10 w-10 stroke-[2]" />
+              <div>
+                <h2 className="text-lg font-black text-[#242424]">{t('pointEarned')}</h2>
+                <p className="mt-1 text-sm text-[#555]">{t('pointsAddedMessage')}</p>
+              </div>
+            </div>
+            <div className="rounded-[16px] bg-[#4d9654] px-6 py-3 text-xl font-black text-white">
+              +{earnedPointsPopup}
+            </div>
+          </button>
         )}
 
         {currentScreen === 'medication' && activeMedicineReminder && !showSOSConfirmation && (

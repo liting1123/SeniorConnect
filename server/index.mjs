@@ -1765,6 +1765,46 @@ export async function handleRequest(request, response) {
     }
   }
 
+  if (url.pathname === '/api/caregiver/telegram-open-link' && request.method === 'GET') {
+    const caregiverId = String(url.searchParams.get('caregiverId') || '').trim();
+    const caregiverEmail = String(url.searchParams.get('caregiverEmail') || '').trim();
+
+    if (!caregiverId && !caregiverEmail) {
+      sendJson(response, 400, { error: 'Missing caregiverId or caregiverEmail' });
+      return;
+    }
+
+    try {
+      const connections = await getCaregiverSeniorConnections({ caregiverId, caregiverEmail });
+      const telegramId = connections && connections.length > 0 ? String(connections[0].telegramChatId || '').trim() : '';
+
+      if (!telegramId) {
+        sendJson(response, 404, { error: 'No Telegram chat ID configured for this caregiver.' });
+        return;
+      }
+
+      const botUsername = await getTelegramBotUsername();
+
+      if (!botUsername) {
+        sendJson(response, 503, { error: 'Telegram bot username is not configured.' });
+        return;
+      }
+
+      sendJson(response, 200, {
+        success: true,
+        openUrl: `https://t.me/${botUsername}`,
+        deepLink: `tg://resolve?domain=${botUsername}`,
+      });
+      return;
+    } catch (error) {
+      sendJson(response, 500, {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to build Telegram open link',
+      });
+      return;
+    }
+  }
+
   if (url.pathname === '/api/caregiver/telegram-test' && request.method === 'POST') {
     const body = await readJson(request);
     const caregiverId = String(body.caregiverId || '').trim();

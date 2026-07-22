@@ -2279,6 +2279,36 @@ export async function createCaregiverConnection(data) {
     throw Object.assign(new Error('Senior profile was not found.'), { status: 404 });
   }
 
+  const existingConnectionParams = new URLSearchParams({
+    sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.senior}=${seniorProfile.sys_id}`,
+    sysparm_limit: '20',
+  });
+  const existingConnectionData = await serviceNowFetch(
+    getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${existingConnectionParams.toString()}`),
+  );
+  const existingConnections = existingConnectionData?.result || [];
+
+  const existingForSameCaregiver = existingConnections.find((connection) => {
+    const existingCaregiverId = getReferenceValue(connection?.[CAREGIVER_CONNECTION_FIELD_MAP.user]);
+    return existingCaregiverId && existingCaregiverId === caregiverUser.sys_id;
+  });
+
+  if (existingForSameCaregiver) {
+    return { result: existingForSameCaregiver, reused: true };
+  }
+
+  const existingForDifferentCaregiver = existingConnections.find((connection) => {
+    const existingCaregiverId = getReferenceValue(connection?.[CAREGIVER_CONNECTION_FIELD_MAP.user]);
+    return existingCaregiverId && existingCaregiverId !== caregiverUser.sys_id;
+  });
+
+  if (existingForDifferentCaregiver) {
+    throw Object.assign(
+      new Error('This senior is already linked to another caregiver. Each senior can only have one caregiver.'),
+      { status: 409 },
+    );
+  }
+
   const response = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE), {
     method: 'POST',
     body: JSON.stringify({

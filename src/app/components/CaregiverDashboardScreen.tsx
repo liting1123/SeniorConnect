@@ -172,6 +172,10 @@ function getAppointmentReminderAckKey(caregiverIdentity: string, reminderDate: s
   return `${CAREGIVER_APPOINTMENT_REMINDER_ACK_KEY}.${caregiverIdentity.trim().toLowerCase() || 'unknown'}.${reminderDate}`;
 }
 
+function getCaregiverTelegramStorageKey(caregiverIdentity: string) {
+  return `${CAREGIVER_TELEGRAM_ID_KEY}.${String(caregiverIdentity || '').trim().toLowerCase() || 'unknown'}`;
+}
+
 function getAppointmentDateTime(appointment: Pick<HealthBuddyAppointment, 'date' | 'time'>) {
   if (!appointment.date) {
     return null;
@@ -3720,7 +3724,7 @@ function CaregiverProfile({
   const [personalEmail, setPersonalEmail] = useState(caregiverEmail);
   const [address, setAddress] = useState('Block 123 Woodlands');
   const [profileImage, setProfileImage] = useState(() => localStorage.getItem(CAREGIVER_PROFILE_IMAGE_KEY) || '');
-  const [telegramId, setTelegramId] = useState(() => localStorage.getItem(CAREGIVER_TELEGRAM_ID_KEY) || '');
+  const [telegramId, setTelegramId] = useState('');
   const [loadingTelegramId, setLoadingTelegramId] = useState(false);
   const [telegramMessage, setTelegramMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [userData, setUserData] = useState<any>(null);
@@ -3752,19 +3756,39 @@ function CaregiverProfile({
     const user = getStoredUser();
     setUserData(user);
 
-    if (user?.uid) {
-      loadTelegramId(user.uid);
-    }
-  }, []);
+    const identityKey = String(user?.uid || user?.email || '').trim();
+    const localTelegramId = identityKey ? localStorage.getItem(getCaregiverTelegramStorageKey(identityKey)) || '' : '';
+    setTelegramId(localTelegramId);
 
-  const loadTelegramId = async (caregiverId: string) => {
+    if (user?.uid || user?.email) {
+      loadTelegramId(String(user?.uid || ''), String(user?.email || ''));
+      return;
+    }
+
+    setTelegramId('');
+  }, [caregiverEmail]);
+
+  const loadTelegramId = async (caregiverId: string, caregiverAccountEmail = '') => {
     try {
-      const response = await fetch(`/api/caregiver/telegram-id?caregiverId=${caregiverId}`);
+      const params = new URLSearchParams();
+      if (caregiverId) params.set('caregiverId', caregiverId);
+      if (caregiverAccountEmail) params.set('caregiverEmail', caregiverAccountEmail);
+
+      const response = await fetch(`/api/caregiver/telegram-id?${params.toString()}`);
       const data = await response.json();
+
+      const identityKey = String(caregiverId || caregiverAccountEmail || '').trim();
 
       if (data.telegramId) {
         setTelegramId(data.telegramId);
-        localStorage.setItem(CAREGIVER_TELEGRAM_ID_KEY, data.telegramId);
+        if (identityKey) {
+          localStorage.setItem(getCaregiverTelegramStorageKey(identityKey), data.telegramId);
+        }
+      } else {
+        setTelegramId('');
+        if (identityKey) {
+          localStorage.removeItem(getCaregiverTelegramStorageKey(identityKey));
+        }
       }
     } catch (error) {
       console.error('Error loading Telegram ID:', error);
@@ -3795,9 +3819,12 @@ function CaregiverProfile({
 
       const savedTelegramId = telegramId.trim();
       setTelegramId(savedTelegramId);
-      localStorage.setItem(CAREGIVER_TELEGRAM_ID_KEY, savedTelegramId);
+      const identityKey = String(userData?.uid || userData?.email || '').trim();
+      if (identityKey) {
+        localStorage.setItem(getCaregiverTelegramStorageKey(identityKey), savedTelegramId);
+      }
       setTelegramMessage({ type: 'success', text: 'Telegram Chat ID saved successfully!' });
-      window.setTimeout(() => loadTelegramId(String(userData?.uid || '')), 500);
+      window.setTimeout(() => loadTelegramId(String(userData?.uid || ''), String(userData?.email || '')), 500);
       window.setTimeout(() => setTelegramMessage(null), 3000);
     } catch (error: any) {
       setTelegramMessage({ type: 'error', text: error.message || 'Failed to save Telegram ID' });

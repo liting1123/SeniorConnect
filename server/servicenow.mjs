@@ -96,6 +96,7 @@ const LOGIN_FIELD_MAP = {
 };
 
 const SOS_ALERT_FIELD_MAP = {
+  senior: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR || 'u_senior',
   location: process.env.SERVICE_NOW_SOS_ALERT_FIELD_LOCATION || 'u_location',
   message: process.env.SERVICE_NOW_SOS_ALERT_FIELD_MESSAGE || 'u_message',
   seniorName: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR_NAME || 'u_senior_name',
@@ -1057,7 +1058,7 @@ async function findSeniorLoginUser(normalizedIdentifier, rawPassword, rawIdentif
   const trimmedRawIdentifier = String(rawIdentifier || '').trim();
   const queryValues = Array.from(new Set([trimmedRawIdentifier, normalizedIdentifier].filter(Boolean)));
   const query = queryValues
-    .map((value) => `${LOGIN_FIELD_MAP.email}=${value}^OR${LOGIN_FIELD_MAP.username}=${value}`)
+    .map((value) => `${LOGIN_FIELD_MAP.email}=${value}`)
     .join('^OR');
   const params = new URLSearchParams({
     sysparm_query: query,
@@ -1066,11 +1067,10 @@ async function findSeniorLoginUser(normalizedIdentifier, rawPassword, rawIdentif
   const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${params.toString()}`));
   const record = data?.result?.find((user) => {
     const email = normalizeLoginValue(getDisplayValue(user[LOGIN_FIELD_MAP.email]));
-    const username = normalizeLoginValue(getDisplayValue(user[LOGIN_FIELD_MAP.username]));
     const password = getDisplayValue(user[LOGIN_FIELD_MAP.password]);
 
     return (
-      (email === normalizedIdentifier || username === normalizedIdentifier) &&
+      email === normalizedIdentifier &&
       String(password || '') === String(rawPassword)
     );
   });
@@ -1110,6 +1110,19 @@ async function findLoginRecordByIdentifier(normalizedIdentifier, rawIdentifier =
   }) || null;
 }
 
+async function findLoginRecordByEmail(normalizedEmail, rawEmail = normalizedEmail) {
+  const queryValues = Array.from(new Set([String(rawEmail || '').trim(), normalizedEmail].filter(Boolean)));
+  const params = new URLSearchParams({
+    sysparm_query: queryValues.map((value) => `${LOGIN_FIELD_MAP.email}=${value}`).join('^OR'),
+    sysparm_limit: '10',
+  });
+  const data = await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `?${params.toString()}`));
+
+  return (data?.result || []).find((user) => {
+    return normalizeLoginValue(getDisplayValue(user[LOGIN_FIELD_MAP.email])) === normalizedEmail;
+  }) || null;
+}
+
 export async function resetPasswordWithServiceNow({ identifier, password, loginType = 'senior' }) {
   const normalizedIdentifier = String(identifier || '').trim();
   const comparableIdentifier = normalizeLoginValue(normalizedIdentifier);
@@ -1117,14 +1130,18 @@ export async function resetPasswordWithServiceNow({ identifier, password, loginT
   const normalizedLoginType = String(loginType || 'senior').trim().toLowerCase();
 
   if (!normalizedIdentifier || !rawPassword) {
-    throw Object.assign(new Error('Username/email and new password are required.'), { status: 400 });
+    throw Object.assign(new Error('Email and new password are required.'), { status: 400 });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedIdentifier)) {
+    throw Object.assign(new Error('Please enter a valid email address.'), { status: 400 });
   }
 
   if (rawPassword.length < 4) {
     throw Object.assign(new Error('New password must be at least 4 characters.'), { status: 400 });
   }
 
-  const record = await findLoginRecordByIdentifier(comparableIdentifier, normalizedIdentifier);
+  const record = await findLoginRecordByEmail(comparableIdentifier, normalizedIdentifier);
 
   if (!record?.sys_id) {
     throw Object.assign(new Error('Account was not found.'), { status: 404 });
@@ -1157,7 +1174,11 @@ export async function loginWithServiceNow({ identifier, email, password, loginTy
   const normalizedLoginType = String(loginType || 'senior').trim().toLowerCase();
 
   if (!normalizedIdentifier || !rawPassword) {
-    throw Object.assign(new Error('Email/username and password are required.'), { status: 400 });
+    throw Object.assign(new Error('Email and password are required.'), { status: 400 });
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedIdentifier)) {
+    throw Object.assign(new Error('Please enter a valid email address.'), { status: 400 });
   }
 
   const seniorUser = await findSeniorLoginUser(comparableIdentifier, rawPassword, normalizedIdentifier);
@@ -1185,7 +1206,7 @@ export async function loginWithServiceNow({ identifier, email, password, loginTy
   }
 
   throw Object.assign(
-    new Error('Email/username or password is incorrect.'),
+    new Error('Email or password is incorrect.'),
     { status: 401 },
   );
 }
@@ -1232,8 +1253,9 @@ export async function registerWithServiceNow({ email, password, name, role = 'ca
   return toLoginUser(data?.result || {});
 }
 
-export async function createSosAlert({ location, message, seniorName, seniorPhone, status }) {
+export async function createSosAlert({ seniorProfileId, location, message, seniorName, seniorPhone, status }) {
   const payload = {
+    [SOS_ALERT_FIELD_MAP.senior]: seniorProfileId || '',
     [SOS_ALERT_FIELD_MAP.location]: location || '',
     [SOS_ALERT_FIELD_MAP.message]: message || 'SOS alert triggered',
     [SOS_ALERT_FIELD_MAP.seniorName]: seniorName || '',
@@ -2280,10 +2302,14 @@ function getDisplayValue(value) {
 }
 
 function toActiveSosAlert(record = {}) {
-  const status = getDisplayValue(record[SOS_ALERT_FIELD_MAP.status]) || 'New';
+  const status = getDisplayValue(record[SOS_ALERT_FIELD_MAP.status]);
   const message = getDisplayValue(record[SOS_ALERT_FIELD_MAP.message]);
 
-  if (/resolved|closed|cancelled|canceled|reminder/i.test(status) || /check[-\s]?in/i.test(message)) {
+  if (
+    !status ||
+    /resolved|closed|cancelled|canceled|completed|false alarm|reminder/i.test(status) ||
+    /check[-\s]?in/i.test(message)
+  ) {
     return null;
   }
 
@@ -2297,24 +2323,25 @@ function toActiveSosAlert(record = {}) {
 }
 
 export async function getLatestActiveSosAlertForSenior(senior = {}) {
-  const queryParts = [];
+  const seniorProfileId = String(senior.id || senior.sysId || '').trim();
   const seniorName = String(senior.name || '').trim();
   const seniorPhone = String(senior.phone || '').trim();
+  let query = '';
 
-  if (seniorPhone) {
-    queryParts.push(`${SOS_ALERT_FIELD_MAP.seniorPhone}=${seniorPhone}`);
+  if (seniorProfileId) {
+    query = `${SOS_ALERT_FIELD_MAP.senior}=${seniorProfileId}`;
+  } else if (seniorName && seniorPhone) {
+    // Compatibility fallback for callers without a profile ID. Requiring both
+    // values prevents a shared name or reused phone number from matching alone.
+    query = `${SOS_ALERT_FIELD_MAP.seniorName}=${seniorName}^${SOS_ALERT_FIELD_MAP.seniorPhone}=${seniorPhone}`;
   }
 
-  if (seniorName) {
-    queryParts.push(`${SOS_ALERT_FIELD_MAP.seniorName}=${seniorName}`);
-  }
-
-  if (queryParts.length === 0) {
+  if (!query) {
     return null;
   }
 
   const params = new URLSearchParams({
-    sysparm_query: `${queryParts.join('^OR')}^ORDERBYDESCsys_created_on`,
+    sysparm_query: `${query}^ORDERBYDESCsys_created_on`,
     sysparm_limit: '5',
   });
   const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE, `?${params.toString()}`));

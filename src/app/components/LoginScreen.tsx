@@ -61,6 +61,12 @@ export default function LoginScreen({
     event.preventDefault();
     setError('');
     setNotice('');
+
+    if (!identifier.trim()) {
+      setError(t('pleaseEnterUsernameOrEmail'));
+      return;
+    }
+
     setIsLoggingIn(true);
 
     try {
@@ -380,7 +386,9 @@ export default function LoginScreen({
                   value={identifier}
                   onChange={(event) => setIdentifier(event.target.value)}
                   placeholder={t('enterUsernameOrEmail')}
-                  autoComplete="username"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
                   className={fieldInputClass}
                 />
               </div>

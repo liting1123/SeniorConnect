@@ -2808,23 +2808,34 @@ function LiveSensorStatus({ seniorKey }: { seniorKey: string }) {
 
     let isMounted = true;
 
-    getVitalsHistory()
-      .then((result) => {
-        if (isMounted) {
-          setHistory(result);
-          setHistoryError('');
-        }
-      })
-      .catch((loadError) => {
-        if (isMounted) {
-          setHistoryError(
-            loadError instanceof Error ? loadError.message : 'Unable to load vitals history.',
-          );
-        }
-      });
+    // Re-fetch on an interval (2026-07-23) — was a one-shot fetch on
+    // tab-switch, so the history graph froze on its first load and never
+    // showed new buckets while you watched it ("vitals history not
+    // updating"). Now it refreshes every LIVE_TAB_REFRESH_MS like the live
+    // tab does.
+    const load = () => {
+      getVitalsHistory()
+        .then((result) => {
+          if (isMounted) {
+            setHistory(result);
+            setHistoryError('');
+          }
+        })
+        .catch((loadError) => {
+          if (isMounted) {
+            setHistoryError(
+              loadError instanceof Error ? loadError.message : 'Unable to load vitals history.',
+            );
+          }
+        });
+    };
+
+    load();
+    const timer = window.setInterval(load, LIVE_TAB_REFRESH_MS);
 
     return () => {
       isMounted = false;
+      window.clearInterval(timer);
     };
   }, [vitalsTab, seniorKey]);
 
@@ -3369,21 +3380,29 @@ function LiveMonitorTab() {
 
     let isMounted = true;
 
-    getVitalsHistory()
-      .then((result) => {
-        if (isMounted) {
-          setHistory(result);
-          setHistoryError('');
-        }
-      })
-      .catch((loadError) => {
-        if (isMounted) {
-          setHistoryError(loadError instanceof Error ? loadError.message : 'Unable to load history.');
-        }
-      });
+    // Auto-refresh while the history tab is open (2026-07-23) — see the
+    // caregiver LiveMonitorTab note: was a one-shot fetch that froze the graph.
+    const load = () => {
+      getVitalsHistory()
+        .then((result) => {
+          if (isMounted) {
+            setHistory(result);
+            setHistoryError('');
+          }
+        })
+        .catch((loadError) => {
+          if (isMounted) {
+            setHistoryError(loadError instanceof Error ? loadError.message : 'Unable to load history.');
+          }
+        });
+    };
+
+    load();
+    const timer = window.setInterval(load, LIVE_TAB_REFRESH_MS);
 
     return () => {
       isMounted = false;
+      window.clearInterval(timer);
     };
   }, [vitalsTab]);
 

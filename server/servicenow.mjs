@@ -2440,18 +2440,6 @@ export async function createCaregiverConnection(data) {
     return { result: existingForSameCaregiver, reused: true };
   }
 
-  const existingForDifferentCaregiver = existingConnections.find((connection) => {
-    const existingCaregiverId = getReferenceValue(connection?.[CAREGIVER_CONNECTION_FIELD_MAP.user]);
-    return existingCaregiverId && existingCaregiverId !== caregiverUser.sys_id;
-  });
-
-  if (existingForDifferentCaregiver) {
-    throw Object.assign(
-      new Error('This senior is already linked to another caregiver. Each senior can only have one caregiver.'),
-      { status: 409 },
-    );
-  }
-
   const response = await serviceNowFetch(getNamedTablePath(CAREGIVER_CONNECTION_TABLE), {
     method: 'POST',
     body: JSON.stringify({

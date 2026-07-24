@@ -1557,14 +1557,40 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
     throw Object.assign(new Error('Caregiver ID or email is required.'), { status: 400 });
   }
 
-  const queryParts = [];
+  const queryParts = new Set();
 
   if (normalizedCaregiverId) {
-    queryParts.push(`${APPOINTMENT_FIELD_MAP.caregiver}=${normalizedCaregiverId}`);
+    queryParts.add(`${APPOINTMENT_FIELD_MAP.caregiver}=${normalizedCaregiverId}`);
   }
 
   if (normalizedCaregiverEmail) {
-    queryParts.push(`${APPOINTMENT_FIELD_MAP.caregiver}=${normalizedCaregiverEmail}`);
+    queryParts.add(`${APPOINTMENT_FIELD_MAP.caregiver}=${normalizedCaregiverEmail}`);
+  }
+
+  // Appointments in this instance are linked to caregiver profile rows
+  // (u_caregiver_profiles.sys_id). Include those IDs in the query so
+  // caregiver dashboards resolve records reliably.
+  const caregiverUserId = normalizedCaregiverId || (normalizedCaregiverEmail
+    ? (await findLoginRecordByIdentifier(normalizedCaregiverEmail))?.sys_id
+    : '');
+
+  if (caregiverUserId) {
+    const caregiverProfileParams = new URLSearchParams({
+      sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.user}=${caregiverUserId}`,
+      sysparm_fields: 'sys_id',
+      sysparm_limit: '100',
+    });
+    const caregiverProfileData = await serviceNowFetch(
+      getNamedTablePath(CAREGIVER_CONNECTION_TABLE, `?${caregiverProfileParams.toString()}`),
+    );
+
+    for (const profile of caregiverProfileData?.result || []) {
+      const caregiverProfileId = String(profile?.sys_id || '').trim();
+
+      if (caregiverProfileId) {
+        queryParts.add(`${APPOINTMENT_FIELD_MAP.caregiver}=${caregiverProfileId}`);
+      }
+    }
   }
 
   const normalizedLimit = Math.max(1, Math.min(Number(limit) || 100, 200));
@@ -1584,7 +1610,7 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
   ].filter(Boolean);
 
   const params = new URLSearchParams({
-    sysparm_query: `${queryParts.join('^OR')}^ORDERBYDESCsys_created_on`,
+    sysparm_query: `${Array.from(queryParts).join('^OR')}^ORDERBYDESCsys_created_on`,
     sysparm_limit: String(normalizedLimit),
     sysparm_fields: fieldsToReturn.join(','),
   });

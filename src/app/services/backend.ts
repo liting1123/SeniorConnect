@@ -53,6 +53,40 @@ export type MedicineInput = Partial<Medicine> & {
   name: string;
 };
 
+type SosAlertInput = {
+  location: string;
+  message: string;
+  seniorProfileId?: string;
+  seniorName: string;
+  seniorPhone: string;
+  status: string;
+};
+
+type CaregiverAppointment = {
+  id: string;
+  seniorId: string;
+  seniorName: string;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  notes: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  createdAt: string;
+};
+
+type CaregiverAppointmentInput = {
+  caregiverId: string;
+  caregiverEmail: string;
+  seniorId: string;
+  title: string;
+  date: string;
+  time: string;
+  location: string;
+  notes: string;
+  status?: 'scheduled' | 'completed' | 'cancelled';
+};
+
 export type FamilyVerification = {
   id: string;
   seniorId: string;
@@ -404,6 +438,121 @@ export async function addGamePoint(user: AppUser) {
   });
 
   return Number(data.points) || 0;
+}
+
+export async function createSosAlert(input: SosAlertInput) {
+  const response = await fetch('/api/app/sos-alert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.alert;
+}
+
+export async function getCaregiverAppointments(caregiverId: string, caregiverEmail: string): Promise<CaregiverAppointment[]> {
+  const params = new URLSearchParams();
+
+  if (caregiverId) {
+    params.set('caregiverId', caregiverId);
+  }
+
+  if (caregiverEmail) {
+    params.set('caregiverEmail', caregiverEmail);
+  }
+
+  const response = await fetch(`/api/app/appointments?${params.toString()}`);
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointments || [];
+}
+
+export async function getSeniorAppointments(seniorUserId: string, seniorEmail?: string): Promise<CaregiverAppointment[]> {
+  const params = new URLSearchParams();
+
+  if (seniorUserId) {
+    params.set('seniorUserId', seniorUserId);
+  }
+
+  if (seniorEmail) {
+    params.set('seniorEmail', seniorEmail);
+  }
+
+  const response = await fetch(`/api/app/appointments?${params.toString()}`);
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointments || [];
+}
+
+export async function createCaregiverAppointment(input: CaregiverAppointmentInput): Promise<CaregiverAppointment> {
+  const response = await fetch('/api/app/appointments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointment;
+}
+
+export async function updateCaregiverAppointment(
+  appointmentId: string,
+  input: Partial<Omit<CaregiverAppointmentInput, 'caregiverId' | 'caregiverEmail'>> & {
+    caregiverId: string;
+    caregiverEmail: string;
+  },
+): Promise<CaregiverAppointment> {
+  const response = await fetch('/api/app/appointments', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      appointmentId,
+      ...input,
+    }),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointment;
+}
+
+export async function deleteCaregiverAppointment(
+  appointmentId: string,
+  caregiverId: string,
+  caregiverEmail: string,
+): Promise<{ id: string }> {
+  const response = await fetch('/api/app/appointments', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ appointmentId, caregiverId, caregiverEmail }),
+  });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.error || response.statusText || `Request failed with status ${response.status}`);
+  }
+
+  return data?.appointment || { id: appointmentId };
 }
 
 export async function syncProfile(user: AppUser) {

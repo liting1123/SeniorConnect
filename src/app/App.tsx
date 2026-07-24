@@ -28,12 +28,10 @@ import {
   saveMedicine,
   setCachedUserPoints,
   updateSeniorProfile,
-} from './services/backend';
-import {
   createSosAlert,
   getSeniorAppointments,
-  type CaregiverAppointment,
-} from './services/serviceNow';
+} from './services/backend';
+import { type CaregiverAppointment } from './services/serviceNow';
 
 type Screen = 'welcome' | 'language' | 'home' | 'appointments' | 'profile' | 'points' | 'medication' | 'game' | 'carePortal' | 'caregiverDashboard';
 type LanguageReturnScreen = 'home' | 'caregiverDashboard';

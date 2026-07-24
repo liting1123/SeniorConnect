@@ -47,22 +47,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { getStoredUser } from '../services/backend';
+import { getStoredUser, createCaregiverAppointment, deleteCaregiverAppointment, getCaregiverAppointments, updateCaregiverAppointment } from '../services/backend';
 import { useLiveVitals, type LiveRoomState, type VitalPoint } from '../hooks/useLiveVitals';
-import {
-  createCaregiverAppointment,
-  deleteCaregiverAppointment,
-  getCaregiverAppointments,
-  getSensorStatus,
-  updateCaregiverAppointment,
-  getVitalsHistory,
-  type CaregiverAppointmentInput,
-  type CaregiverAppointment,
-  type RoomOccupancy,
-  type SensorStatus,
-  type SensorTrendPoint,
-  type VitalsHistory,
-} from '../services/serviceNow';
+import { getSensorStatus, getVitalsHistory, type CaregiverAppointmentInput, type CaregiverAppointment, type RoomOccupancy, type SensorStatus, type SensorTrendPoint, type VitalsHistory } from '../services/serviceNow';
 
 const SENSOR_STATUS_REFRESH_MS = 30000;
 

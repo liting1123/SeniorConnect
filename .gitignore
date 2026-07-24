@@ -4,3 +4,5 @@ node_modules
 .vercel
 .expo
 .expo-shared
+.careconnect-notification-dedupe.json
+logs/

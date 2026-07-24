@@ -4,3 +4,6 @@ node_modules
 .vercel
 .expo
 .expo-shared
+.careconnect-local.sqlite
+.careconnect-local.sqlite-shm
+.careconnect-local.sqlite-wal

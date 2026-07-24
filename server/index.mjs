@@ -51,7 +51,12 @@ const PORT = Number(process.env.API_PORT) || 3001;
 const checkInReminders = [];
 const loginMfaCodes = new Map();
 const APPOINTMENT_REMINDER_STATE_PATH = resolve(process.cwd(), '.careconnect-appointment-reminders.json');
+const NOTIFICATION_DEDUPE_STATE_PATH = resolve(process.cwd(), '.careconnect-notification-dedupe.json');
 const appointmentReminders = new Set(); // Track `${appointmentId}:${yyyy-mm-dd}` reminders sent per day
+const caregiverMissedCheckInNotified = new Set(); // Track `${yyyy-mm-dd}:${seniorId}:${window}:${caregiver}` sent notifications
+const aicMissedCheckInEscalations = new Set(); // Track `${yyyy-mm-dd}:${seniorId}:${window}` sent escalations
+const missedCheckInMessageSignatures = new Set(); // Track exact-content signature: `${seniorId}:${window}:${lastCheckIn}`
+const aicMissedCheckInMessageSignatures = new Set(); // Track exact escalation-content signature
 const escalatedSosAlerts = new Map(); // Track SOS alerts that have already escalated to AIC
 const pendingTelegramSetupLinks = new Map(); // token -> { caregiverId, caregiverEmail, expiresAt }
 const caregiverTelegramChatIdCache = new Map(); // caregiver id/email -> telegram chat id
@@ -93,6 +98,10 @@ function getSingaporeDateKey(value = new Date()) {
   } catch {
     return new Date().toISOString().slice(0, 10);
   }
+}
+
+function normalizeCheckInSignatureValue(value = '') {
+  return String(value || '').trim().replace(/\s+/g, ' ');
 }
 
 function pruneAndSaveAppointmentReminders() {
@@ -137,6 +146,96 @@ function loadAppointmentReminderState() {
     pruneAndSaveAppointmentReminders();
   } catch (error) {
     console.warn('[Appointment Reminder] Unable to load reminder state:', error instanceof Error ? error.message : error);
+  }
+}
+
+function pruneAndSaveNotificationDedupeState() {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - 14);
+  const cutoffKey = getSingaporeDateKey(cutoffDate);
+
+  for (const key of [...caregiverMissedCheckInNotified]) {
+    const [dateKey] = String(key || '').split(':');
+    if (!dateKey || dateKey < cutoffKey) {
+      caregiverMissedCheckInNotified.delete(key);
+    }
+  }
+
+  for (const key of [...aicMissedCheckInEscalations]) {
+    const [dateKey] = String(key || '').split(':');
+    if (!dateKey || dateKey < cutoffKey) {
+      aicMissedCheckInEscalations.delete(key);
+    }
+  }
+
+  while (missedCheckInMessageSignatures.size > 5000) {
+    const first = missedCheckInMessageSignatures.values().next().value;
+    if (!first) break;
+    missedCheckInMessageSignatures.delete(first);
+  }
+
+  while (aicMissedCheckInMessageSignatures.size > 5000) {
+    const first = aicMissedCheckInMessageSignatures.values().next().value;
+    if (!first) break;
+    aicMissedCheckInMessageSignatures.delete(first);
+  }
+
+  try {
+    writeFileSync(
+      NOTIFICATION_DEDUPE_STATE_PATH,
+      JSON.stringify({
+        caregiverMissedCheckIn: [...caregiverMissedCheckInNotified],
+        aicMissedCheckIn: [...aicMissedCheckInEscalations],
+        missedCheckInSignatures: [...missedCheckInMessageSignatures],
+        aicMissedCheckInSignatures: [...aicMissedCheckInMessageSignatures],
+      }, null, 2),
+      'utf8',
+    );
+  } catch (error) {
+    console.warn('[Notification Dedupe] Unable to persist state:', error instanceof Error ? error.message : error);
+  }
+}
+
+function loadNotificationDedupeState() {
+  try {
+    if (!existsSync(NOTIFICATION_DEDUPE_STATE_PATH)) {
+      return;
+    }
+
+    const raw = readFileSync(NOTIFICATION_DEDUPE_STATE_PATH, 'utf8');
+    const parsed = JSON.parse(raw || '{}');
+    const caregiverEntries = Array.isArray(parsed?.caregiverMissedCheckIn) ? parsed.caregiverMissedCheckIn : [];
+    const aicEntries = Array.isArray(parsed?.aicMissedCheckIn) ? parsed.aicMissedCheckIn : [];
+    const missedCheckInSignatures = Array.isArray(parsed?.missedCheckInSignatures) ? parsed.missedCheckInSignatures : [];
+    const aicSignatures = Array.isArray(parsed?.aicMissedCheckInSignatures) ? parsed.aicMissedCheckInSignatures : [];
+
+    for (const entry of caregiverEntries) {
+      if (typeof entry === 'string' && entry.includes(':')) {
+        caregiverMissedCheckInNotified.add(entry);
+      }
+    }
+
+    for (const entry of aicEntries) {
+      if (typeof entry === 'string' && entry.includes(':')) {
+        aicMissedCheckInEscalations.add(entry);
+      }
+    }
+
+    for (const entry of missedCheckInSignatures) {
+      if (typeof entry === 'string' && entry.includes(':')) {
+        missedCheckInMessageSignatures.add(entry);
+      }
+    }
+
+    for (const entry of aicSignatures) {
+      if (typeof entry === 'string' && entry.includes(':')) {
+        aicMissedCheckInMessageSignatures.add(entry);
+      }
+    }
+
+    pruneAndSaveNotificationDedupeState();
+  } catch (error) {
+    console.warn('[Notification Dedupe] Unable to load state:', error instanceof Error ? error.message : error);
   }
 }
 
@@ -788,8 +887,8 @@ async function sendTelegramMessageToCaregivers(caregiverContacts, text, label = 
   );
 }
 
-function selectPrimaryCaregiverContact(caregiverContacts = []) {
-  const uniqueContacts = Array.from(
+function getUniqueCaregiverContacts(caregiverContacts = []) {
+  return Array.from(
     new Map(
       (caregiverContacts || [])
         .map((contact) => {
@@ -801,19 +900,41 @@ function selectPrimaryCaregiverContact(caregiverContacts = []) {
         .filter(([key]) => Boolean(key)),
     ).values(),
   );
+}
+
+function selectPrimaryCaregiverContact(caregiverContacts = []) {
+  const uniqueContacts = getUniqueCaregiverContacts(caregiverContacts);
 
   if (uniqueContacts.length === 0) {
     return null;
   }
 
-  // Prefer a contact with a Telegram chat ID, then one with email.
-  const withTelegram = uniqueContacts.find((contact) => String(contact?.telegramChatId || '').trim());
+  // The assigned next-of-kin is the primary caregiver. Notification-channel
+  // availability must not cause a different caregiver to own the SOS record.
+  const primaryContacts = uniqueContacts.filter((contact) => contact?.isNok === true);
+  const eligibleContacts = primaryContacts.length > 0 ? primaryContacts : uniqueContacts;
+
+  // Within the primary-caregiver group, prefer Telegram and then email.
+  const withTelegram = eligibleContacts.find((contact) => String(contact?.telegramChatId || '').trim());
   if (withTelegram) {
     return withTelegram;
   }
 
-  const withEmail = uniqueContacts.find((contact) => normalizeEmail(contact?.caregiverEmail || ''));
-  return withEmail || uniqueContacts[0];
+  const withEmail = eligibleContacts.find((contact) => normalizeEmail(contact?.caregiverEmail || ''));
+  return withEmail || eligibleContacts[0];
+}
+
+async function getCaregiverEmailTargets(caregiverContacts = []) {
+  const targets = [];
+
+  for (const contact of getUniqueCaregiverContacts(caregiverContacts)) {
+    const caregiverEmail = normalizeEmail(contact?.caregiverEmail || '');
+    if (caregiverEmail && !(await caregiverHasTelegramConfigured(contact))) {
+      targets.push(contact);
+    }
+  }
+
+  return targets;
 }
 
 function hasTelegramChatId(contact = {}) {
@@ -1344,6 +1465,7 @@ async function checkForMissedCheckIns() {
         // If senior missed today's check-in (haven't checked in today during any window)
         if (checkInStatus === 'missed-today') {
           const alertRecord = missedCheckInAlerts.get(seniorId);
+          const todayDateKey = getSingaporeDateKey();
           
           // Check if this is a new missed check-in for this window
           if (!alertRecord || alertRecord.lastCheckInWindow !== currentWindow) {
@@ -1358,8 +1480,38 @@ async function checkForMissedCheckIns() {
 
             const primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
             const primaryHasTelegram = await caregiverHasTelegramConfigured(primaryContact);
+            const caregiverNotifyIdentity = String(
+              primaryContact?.caregiverId ||
+              primaryContact?.caregiverEmail ||
+              caregiverId ||
+              'unknown',
+            ).trim().toLowerCase();
+            const caregiverNotificationKey = `${todayDateKey}:${seniorId}:${currentWindow}:${caregiverNotifyIdentity}`;
+            const missedCheckInSignature = `${seniorId}:${currentWindow}:${normalizeCheckInSignatureValue(lastCheckInStr)}`;
 
-            if (primaryContact?.caregiverEmail && !primaryHasTelegram) {
+            if (primaryHasTelegram && !caregiverMissedCheckInNotified.has(caregiverNotificationKey) && !missedCheckInMessageSignatures.has(missedCheckInSignature)) {
+              const missedCheckInTelegramMessage =
+                `⚠️ <b>Missed Check-In Alert</b>\n\n` +
+                `Senior <b>${seniorName}</b> missed the <b>${currentWindow}</b> check-in window.\n` +
+                `Last check-in: ${lastCheckInStr ? String(lastCheckInStr).replace('T', ' ').slice(0, 19) : 'N/A'}\n\n` +
+                `Please open CareConnect and acknowledge this alert.`;
+
+              await sendTelegramMessageToCaregivers(
+                primaryContact ? [primaryContact] : caregiverContacts,
+                missedCheckInTelegramMessage,
+                'missed check-in',
+              );
+              caregiverMissedCheckInNotified.add(caregiverNotificationKey);
+              missedCheckInMessageSignatures.add(missedCheckInSignature);
+              pruneAndSaveNotificationDedupeState();
+              console.log(
+                `[Check-In Monitor] ✓ Caregiver Telegram sent to ${primaryContact?.caregiverId || primaryContact?.caregiverEmail || 'unknown'} for senior ${seniorId}`,
+              );
+            } else if (primaryHasTelegram) {
+              console.log(`[Check-In Monitor] Duplicate caregiver Telegram suppressed for key ${caregiverNotificationKey} or signature ${missedCheckInSignature}`);
+            }
+
+            if (primaryContact?.caregiverEmail && !primaryHasTelegram && !caregiverMissedCheckInNotified.has(caregiverNotificationKey) && !missedCheckInMessageSignatures.has(missedCheckInSignature)) {
               await sendCaregiverMissedCheckInEmail({
                 caregiverEmail: primaryContact.caregiverEmail,
                 caregiverName: primaryContact.caregiverName || 'Caregiver',
@@ -1367,15 +1519,34 @@ async function checkForMissedCheckIns() {
                 windowLabel: currentWindow,
                 lastCheckInStr,
               });
+              caregiverMissedCheckInNotified.add(caregiverNotificationKey);
+              missedCheckInMessageSignatures.add(missedCheckInSignature);
+              pruneAndSaveNotificationDedupeState();
               console.log(
                 `[Check-In Monitor] ✓ Caregiver email sent to ${primaryContact.caregiverEmail} for senior ${seniorId}`,
               );
+            } else if (primaryContact?.caregiverEmail && !primaryHasTelegram) {
+              console.log(`[Check-In Monitor] Duplicate caregiver email suppressed for key ${caregiverNotificationKey} or signature ${missedCheckInSignature}`);
             } else if (!primaryContact?.caregiverEmail) {
               console.warn(`[Check-In Monitor] No caregiver email found for senior ${seniorId}; skipping caregiver email notification.`);
             } else {
               console.log(`[Check-In Monitor] Caregiver ${primaryContact.caregiverId || primaryContact.caregiverEmail} has Telegram configured; skipping email for senior ${seniorId}.`);
             }
-            
+            const additionalEmailTargets = (await getCaregiverEmailTargets(caregiverContacts))
+              .filter((contact) => contact !== primaryContact);
+
+            await Promise.all(additionalEmailTargets.map((contact) =>
+              sendCaregiverMissedCheckInEmail({
+                caregiverEmail: contact.caregiverEmail,
+                caregiverName: contact.caregiverName || 'Caregiver',
+                seniorName,
+                windowLabel: currentWindow,
+                lastCheckInStr,
+              }).catch((error) => {
+                console.error(`[Check-In Monitor] Failed to email ${contact.caregiverEmail}:`, error.message);
+              }),
+            ));
+
             // Record the missed check-in alert and track caregiver notification
             missedCheckInAlerts.set(seniorId, {
               notifiedAt: now,
@@ -1395,10 +1566,18 @@ async function checkForMissedCheckIns() {
             const timeSinceNotification = now - alertRecord.notifiedAt;
             
             // If caregiver hasn't viewed AND threshold passed, alert AIC
-            if (!viewed && !alertRecord.aicAlertSent && timeSinceNotification > CAREGIVER_RESPONSIVENESS_THRESHOLD_MS) {
+            if (!viewed && !alertRecord.aicAlertSent && timeSinceNotification >= CAREGIVER_RESPONSIVENESS_THRESHOLD_MS) {
               const seniorName = alertRecord.seniorName;
               const caregiverId = alertRecord.caregiverId;
               const minutesUnresponsive = Math.round(timeSinceNotification / (60 * 1000));
+              const aicEscalationKey = `${todayDateKey}:${seniorId}:${alertRecord.lastCheckInWindow}`;
+              const aicEscalationSignature = `${seniorId}:${alertRecord.lastCheckInWindow}:${normalizeCheckInSignatureValue(lastCheckInStr)}`;
+
+              if (aicMissedCheckInEscalations.has(aicEscalationKey) || aicMissedCheckInMessageSignatures.has(aicEscalationSignature)) {
+                missedCheckInAlerts.get(seniorId).aicAlertSent = true;
+                console.log(`[Check-In Monitor] Duplicate AIC escalation suppressed for key ${aicEscalationKey} or signature ${aicEscalationSignature}`);
+                continue;
+              }
               
               const aicAlertMessage = 
                 `⚠️ <b>UNRESPONSIVE CAREGIVER ALERT</b>\n\n` +
@@ -1414,6 +1593,9 @@ async function checkForMissedCheckIns() {
                   console.log(`[Check-In Monitor] ✓ AIC alert sent for unresponsive caregiver ${caregiverId} (senior ${seniorId})`);
                   // Mark that we've sent the AIC alert so we don't spam
                   missedCheckInAlerts.get(seniorId).aicAlertSent = true;
+                  aicMissedCheckInEscalations.add(aicEscalationKey);
+                  aicMissedCheckInMessageSignatures.add(aicEscalationSignature);
+                  pruneAndSaveNotificationDedupeState();
                 })
                 .catch(err => {
                   console.error(`[Check-In Monitor] Failed to send AIC alert:`, err.message);
@@ -1492,29 +1674,10 @@ async function checkAndSend24HourAppointmentReminders() {
           const formattedTime = formatTimeWith12Hour(appointment.time);
 
           const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: appointment.seniorId }).catch(() => []);
-          const ownerCaregiverId = String(appointment.caregiverId || '').trim();
-          const ownerCaregiverEmail = normalizeEmail(appointment.caregiverEmail || '');
-          const ownerOnlyContacts = caregiverContacts.filter((contact) => {
-            const contactCaregiverId = String(contact?.caregiverId || '').trim();
-            const contactCaregiverEmail = normalizeEmail(contact?.caregiverEmail || '');
-
-            if (ownerCaregiverId && contactCaregiverId) {
-              return contactCaregiverId === ownerCaregiverId;
-            }
-
-            if (ownerCaregiverEmail && contactCaregiverEmail) {
-              return contactCaregiverEmail === ownerCaregiverEmail;
-            }
-
-            return false;
-          });
-
-          const ownerPrimaryContact = selectPrimaryCaregiverContact(ownerOnlyContacts);
-          const ownerHasTelegram = await caregiverHasTelegramConfigured(ownerPrimaryContact, {
-            caregiverId: ownerCaregiverId,
-            caregiverEmail: appointment.caregiverEmail,
-          });
-          const caregiverEmailForReminder = ownerHasTelegram ? '' : appointment.caregiverEmail;
+          const caregiverEmailForReminder = (await getCaregiverEmailTargets(caregiverContacts))
+            .map((contact) => normalizeEmail(contact.caregiverEmail))
+            .filter(Boolean)
+            .join(',');
 
           if (caregiverEmailForReminder || appointment.seniorEmail) {
             await sendAppointmentReminderEmail(caregiverEmailForReminder, appointment.seniorEmail || '', {
@@ -1527,7 +1690,7 @@ async function checkAndSend24HourAppointmentReminders() {
           }
 
           await sendTelegramMessageToCaregivers(
-            ownerOnlyContacts,
+            caregiverContacts,
             `⏰ <b>Appointment Reminder — Tomorrow</b>\n\n` +
               `👤 Senior: ${seniorName}\n` +
               `📋 Title: ${appointment.title}\n` +
@@ -1536,10 +1699,6 @@ async function checkAndSend24HourAppointmentReminders() {
               (appointment.location ? `\n📍 Location: ${appointment.location}` : ''),
             'appointment reminder',
           );
-
-          if (ownerHasTelegram) {
-            console.log(`[Appointment Reminder] Caregiver ${ownerPrimaryContact.caregiverId || ownerPrimaryContact.caregiverEmail} has Telegram configured; skipped caregiver email.`);
-          }
 
           // Mark as reminded
           appointmentReminders.add(reminderKey);
@@ -1904,8 +2063,20 @@ export async function handleRequest(request, response) {
     return;
   }
 
-  if (url.pathname === '/api/servicenow/sos-alert' && request.method === 'POST') {
+  if ((url.pathname === '/api/servicenow/sos-alert' || url.pathname === '/api/app/sos-alert') && request.method === 'POST') {
     const body = await readJson(request);
+    let caregiverContacts = [];
+    let primaryContact = null;
+
+    if (body.seniorProfileId) {
+      try {
+        caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: body.seniorProfileId });
+        primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
+      } catch (error) {
+        console.error('[SOS Alert] Unable to resolve the primary caregiver:', error.message);
+      }
+    }
+
     const alert = await createSosAlert({
       seniorProfileId: body.seniorProfileId,
       location: body.location,
@@ -1913,28 +2084,27 @@ export async function handleRequest(request, response) {
       seniorName: body.seniorName,
       seniorPhone: body.seniorPhone,
       status: body.status,
+      caregiverConnectionId: primaryContact?.connectionId || '',
     });
 
     if (body.seniorProfileId) {
       try {
-        const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: body.seniorProfileId });
-        const primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
-        const primaryHasTelegram = await caregiverHasTelegramConfigured(primaryContact);
+        const emailTargets = await getCaregiverEmailTargets(caregiverContacts);
 
-        if (primaryContact?.caregiverEmail && !primaryHasTelegram) {
-          await sendSosAlertEmail({
-            caregiverEmail: primaryContact.caregiverEmail,
-            caregiverName: primaryContact.caregiverName || 'Caregiver',
+        await Promise.all(emailTargets.map((contact) =>
+          sendSosAlertEmail({
+            caregiverEmail: contact.caregiverEmail,
+            caregiverName: contact.caregiverName || 'Caregiver',
             seniorName: body.seniorName,
             location: body.location,
             message: body.message,
-          });
-        } else if (primaryHasTelegram) {
-          console.log(`[SOS Alert] Caregiver ${primaryContact.caregiverId || primaryContact.caregiverEmail} has Telegram configured; skipping email.`);
-        }
+          }).catch((error) => {
+            console.error(`[SOS Alert] Failed to email ${contact.caregiverEmail}:`, error.message);
+          }),
+        ));
 
         await sendTelegramMessageToCaregivers(
-          primaryContact ? [primaryContact] : [],
+          caregiverContacts,
           `🚨 <b>SOS Alert</b>\n\n` +
             `Senior <b>${body.seniorName || 'Senior'}</b> triggered an SOS alert.\n\n` +
             `${body.location ? `📍 Location: ${body.location}\n` : ''}` +
@@ -1951,11 +2121,35 @@ export async function handleRequest(request, response) {
     return;
   }
 
-  if (url.pathname === '/api/servicenow/sos-alert' && request.method === 'PATCH') {
+  if ((url.pathname === '/api/servicenow/sos-alert' || url.pathname === '/api/app/sos-alert') && request.method === 'PATCH') {
     const body = await readJson(request);
+    const caregiverContacts = await getCaregiverContactsForSenior({
+      seniorProfileId: body.seniorProfileId,
+    });
+    const normalizedCaregiverId = String(body.caregiverId || '').trim();
+    const normalizedCaregiverEmail = normalizeEmail(body.caregiverEmail || '');
+    const resolvingCaregiver = caregiverContacts.find((contact) => {
+      const contactId = String(contact?.caregiverId || '').trim();
+      const contactEmail = normalizeEmail(contact?.caregiverEmail || '');
+
+      return (
+        (normalizedCaregiverId && contactId === normalizedCaregiverId) ||
+        (normalizedCaregiverEmail && contactEmail === normalizedCaregiverEmail)
+      );
+    });
+
+    if (!resolvingCaregiver?.connectionId) {
+      sendJson(response, 403, {
+        error: 'Only a caregiver connected to this senior can resolve this SOS alert.',
+      });
+      return;
+    }
+
     const alert = await updateSosAlertStatus({
       alertId: body.alertId,
+      seniorProfileId: body.seniorProfileId,
       status: body.status,
+      caregiverConnectionId: resolvingCaregiver.connectionId,
     });
 
     if (alert?.id) {
@@ -2234,7 +2428,7 @@ export async function handleRequest(request, response) {
     return;
   }
 
-  if (url.pathname === '/api/servicenow/appointments' && request.method === 'GET') {
+  if ((url.pathname === '/api/servicenow/appointments' || url.pathname === '/api/app/appointments') && request.method === 'GET') {
     const seniorUserId = url.searchParams.get('seniorUserId');
     const appointments = seniorUserId
       ? await getAppointmentsForSenior({
@@ -2252,7 +2446,7 @@ export async function handleRequest(request, response) {
     return;
   }
 
-  if (url.pathname === '/api/servicenow/appointments' && request.method === 'POST') {
+  if ((url.pathname === '/api/servicenow/appointments' || url.pathname === '/api/app/appointments') && request.method === 'POST') {
     const body = await readJson(request);
     const appointment = await createAppointmentForCaregiver({
       caregiverId: body.caregiverId,
@@ -2319,7 +2513,7 @@ export async function handleRequest(request, response) {
     return;
   }
 
-  if (url.pathname === '/api/servicenow/appointments' && request.method === 'PATCH') {
+  if ((url.pathname === '/api/servicenow/appointments' || url.pathname === '/api/app/appointments') && request.method === 'PATCH') {
     const body = await readJson(request);
     const appointment = await updateAppointmentForCaregiver({
       appointmentId: body.appointmentId,
@@ -2338,7 +2532,7 @@ export async function handleRequest(request, response) {
     return;
   }
 
-  if (url.pathname === '/api/servicenow/appointments' && request.method === 'DELETE') {
+  if ((url.pathname === '/api/servicenow/appointments' || url.pathname === '/api/app/appointments') && request.method === 'DELETE') {
     const body = await readJson(request);
     const appointment = await deleteAppointmentForCaregiver({
       appointmentId: body.appointmentId,
@@ -2566,6 +2760,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const server = http.createServer(handleRequestWithErrors);
 
   loadAppointmentReminderState();
+  loadNotificationDedupeState();
 
   server.listen(PORT, () => {
     console.log(`ServiceNow API server running at http://localhost:${PORT}`);

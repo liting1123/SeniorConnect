@@ -10,7 +10,9 @@
     "dev:expo": "expo start",
     "dev:ios": "expo start --ios",
     "dev:web": "vite",
-    "dev:api": "node server/index.mjs"
+    "dev:api": "node server/index.mjs",
+    "db:seed": "node scripts/seed-local-db.mjs",
+    "db:migrate:mysql": "node scripts/migrate-sqlite-to-mysql.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
@@ -58,6 +60,7 @@
     "input-otp": "1.4.2",
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
+    "mysql2": "^3.23.1",
     "next-themes": "0.4.6",
     "nodemailer": "^9.0.3",
     "react": "19.1.0",

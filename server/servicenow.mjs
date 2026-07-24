@@ -1,8 +1,10 @@
 import { loadEnv } from './env.mjs';
 import nodemailer from 'nodemailer';
+import { getMySqlServiceNowInfo, mysqlServiceNowFetch } from './mysql-servicenow.mjs';
 
 loadEnv();
 
+const DATABASE_MODE = String(process.env.DATABASE_MODE || 'servicenow').trim().toLowerCase();
 const REQUIRED_FIELDS = [
   'SERVICE_NOW_INSTANCE_URL',
   'SERVICE_NOW_TABLE',
@@ -96,12 +98,14 @@ const LOGIN_FIELD_MAP = {
 };
 
 const SOS_ALERT_FIELD_MAP = {
-  senior: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR || 'u_senior',
+  senior: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR || 'u_senior_id',
   location: process.env.SERVICE_NOW_SOS_ALERT_FIELD_LOCATION || 'u_location',
   message: process.env.SERVICE_NOW_SOS_ALERT_FIELD_MESSAGE || 'u_message',
   seniorName: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR_NAME || 'u_senior_name',
   seniorPhone: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR_PHONE || 'u_senior_phone',
   status: process.env.SERVICE_NOW_SOS_ALERT_FIELD_STATUS || 'u_status',
+  caregiverName: process.env.SERVICE_NOW_SOS_ALERT_FIELD_CAREGIVER_NAME || 'u_caregiver_name',
+  alertTime: process.env.SERVICE_NOW_SOS_ALERT_FIELD_ALERT_TIME || 'u_alert_time',
 };
 
 const APPOINTMENT_FIELD_MAP = {
@@ -174,6 +178,15 @@ const MFA_EMAIL_FROM = String(process.env.MFA_EMAIL_FROM || '').trim();
 let mfaMailer = null;
 
 function getConfig() {
+  if (DATABASE_MODE === 'local' || DATABASE_MODE === 'mysql') {
+    return {
+      instanceUrl: DATABASE_MODE === 'mysql' ? 'local://mysql' : 'local://sqlite',
+      table: process.env.SERVICE_NOW_TABLE || 'u_senior_profiles',
+      username: '',
+      password: '',
+    };
+  }
+
   const missing = REQUIRED_FIELDS.filter((key) => !process.env[key]);
 
   if (missing.length > 0) {
@@ -256,6 +269,15 @@ function parseServiceNowJson(text, response) {
 }
 
 async function serviceNowFetch(path, options = {}) {
+  if (DATABASE_MODE === 'local') {
+    const { localServiceNowFetch } = await import('./local-servicenow.mjs');
+    return localServiceNowFetch(path, options);
+  }
+
+  if (DATABASE_MODE === 'mysql') {
+    return mysqlServiceNowFetch(path, options);
+  }
+
   const config = getConfig();
   let response;
 
@@ -1253,14 +1275,39 @@ export async function registerWithServiceNow({ email, password, name, role = 'ca
   return toLoginUser(data?.result || {});
 }
 
-export async function createSosAlert({ seniorProfileId, location, message, seniorName, seniorPhone, status }) {
+export async function createSosAlert({
+  seniorProfileId,
+  location,
+  message,
+  seniorName,
+  seniorPhone,
+  status,
+  caregiverConnectionId,
+}) {
+  const normalizedSeniorProfileId = String(seniorProfileId || '').trim();
+
+  if (!normalizedSeniorProfileId) {
+    throw Object.assign(new Error('A senior profile ID is required to create an SOS alert.'), { status: 400 });
+  }
+
+  const seniorProfile = await findSeniorProfileByIdOrUserId(normalizedSeniorProfileId);
+
+  if (!seniorProfile?.sys_id) {
+    throw Object.assign(new Error('The senior profile for this SOS alert was not found.'), { status: 404 });
+  }
+
   const payload = {
-    [SOS_ALERT_FIELD_MAP.senior]: seniorProfileId || '',
+    // Always persist the canonical senior-profile sys_id. A login-table sys_id,
+    // short display ID, or empty value makes one alert appear to belong to
+    // several seniors when ServiceNow drops an invalid query condition.
+    [SOS_ALERT_FIELD_MAP.senior]: seniorProfile.sys_id,
     [SOS_ALERT_FIELD_MAP.location]: location || '',
     [SOS_ALERT_FIELD_MAP.message]: message || 'SOS alert triggered',
     [SOS_ALERT_FIELD_MAP.seniorName]: seniorName || '',
     [SOS_ALERT_FIELD_MAP.seniorPhone]: seniorPhone || '',
     [SOS_ALERT_FIELD_MAP.status]: status || 'New',
+    [SOS_ALERT_FIELD_MAP.caregiverName]: caregiverConnectionId || '',
+    [SOS_ALERT_FIELD_MAP.alertTime]: getServiceNowDateTime(),
   };
 
   const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE), {
@@ -1271,8 +1318,9 @@ export async function createSosAlert({ seniorProfileId, location, message, senio
   return data?.result || data;
 }
 
-export async function updateSosAlertStatus({ alertId, status }) {
+export async function updateSosAlertStatus({ alertId, seniorProfileId, status, caregiverConnectionId }) {
   const normalizedAlertId = String(alertId || '').trim();
+  const normalizedSeniorProfileId = String(seniorProfileId || '').trim();
   const normalizedStatus = String(status || '').trim();
 
   if (!normalizedAlertId) {
@@ -1283,10 +1331,25 @@ export async function updateSosAlertStatus({ alertId, status }) {
     throw Object.assign(new Error('SOS alert status is required.'), { status: 400 });
   }
 
+  if (!normalizedSeniorProfileId) {
+    throw Object.assign(new Error('Senior profile ID is required to resolve an SOS alert.'), { status: 400 });
+  }
+
+  const currentData = await serviceNowFetch(
+    getNamedTablePath(SOS_ALERT_TABLE, `/${encodeURIComponent(normalizedAlertId)}`),
+  );
+  const currentAlert = currentData?.result || {};
+  const alertSeniorId = getReferenceValue(currentAlert[SOS_ALERT_FIELD_MAP.senior]).trim();
+
+  if (!alertSeniorId || alertSeniorId.toLowerCase() !== normalizedSeniorProfileId.toLowerCase()) {
+    throw Object.assign(new Error('This SOS alert does not belong to the selected senior.'), { status: 409 });
+  }
+
   const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE, `/${encodeURIComponent(normalizedAlertId)}`), {
     method: 'PATCH',
     body: JSON.stringify({
       [SOS_ALERT_FIELD_MAP.status]: normalizedStatus,
+      [SOS_ALERT_FIELD_MAP.caregiverName]: String(caregiverConnectionId || '').trim(),
     }),
   });
 
@@ -2372,6 +2435,13 @@ export async function getLatestActiveSosAlertForSenior(senior = {}) {
   });
   const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE, `?${params.toString()}`));
   const activeAlert = (data?.result || [])
+    // ServiceNow may drop an invalid encoded-query condition and return rows
+    // for every senior. Never trust the server-side filter without checking
+    // the stored owner again.
+    .filter((record) => {
+      const recordSeniorId = getReferenceValue(record[SOS_ALERT_FIELD_MAP.senior]).trim();
+      return Boolean(recordSeniorId) && recordSeniorId.toLowerCase() === seniorProfileId.toLowerCase();
+    })
     .map(toActiveSosAlert)
     .find(Boolean);
 
@@ -2552,6 +2622,9 @@ export async function getCaregiverContactsForSenior({ seniorProfileId } = {}) {
       caregiverEmail: getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.email]) || '',
       telegramChatId: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.telegramChatId]) || '',
       relationship: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.relationship]) || '',
+      isNok: ['true', '1', 'yes'].includes(
+        getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.isNok]).trim().toLowerCase(),
+      ),
     };
   }));
 }
@@ -3177,6 +3250,9 @@ export async function getVitalsHistory() {
 
 export function getServiceNowLoginConfig() {
   return {
+    databaseMode: DATABASE_MODE,
+    localDatabase: DATABASE_MODE === 'local' ? { mode: 'local', path: '.careconnect-local.sqlite' } : undefined,
+    mysqlDatabase: DATABASE_MODE === 'mysql' ? getMySqlServiceNowInfo() : undefined,
     table: LOGIN_TABLE,
     usernameField: LOGIN_FIELD_MAP.username,
     emailField: LOGIN_FIELD_MAP.email,

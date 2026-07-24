@@ -815,7 +815,10 @@ export default function CaregiverDashboardScreen({
         },
         body: JSON.stringify({
           alertId: senior.alertId,
+          seniorProfileId: senior.id,
           status: 'Resolved',
+          caregiverId,
+          caregiverEmail,
         }),
       });
       const data = await response.json().catch(() => null);
@@ -3521,6 +3524,10 @@ function ResidentProfileDetails({
   const allergies = getSeniorDetailValue(senior.allergies);
   const medicalConditions = getSeniorDetailValue(senior.medicalConditions);
   const currentMedication = getSeniorDetailValue(senior.currentMedication);
+  const medicationTaken = /^taken$/i.test(senior.medicationStatus || '');
+  const medicationStatus = medicationTaken
+    ? [t('taken'), senior.medicationTakenAt].filter(Boolean).join(' · ')
+    : t('untaken');
 
   useEffect(() => {
     setFormValues({
@@ -3639,6 +3646,11 @@ function ResidentProfileDetails({
               <SeniorDetailRow icon={<Shield className="h-6 w-6" />} label={t('allergies')} value={allergies} />
               <SeniorDetailRow icon={<Activity className="h-6 w-6" />} label={t('medicalConditions')} value={medicalConditions} />
               <SeniorDetailRow icon={<Pill className="h-6 w-6" />} label={t('currentMedication')} value={currentMedication} />
+              <SeniorDetailRow
+                icon={<Clock className="h-6 w-6" />}
+                label={`${t('medication')} ${t('status')}`}
+                value={medicationStatus}
+              />
             </SeniorDetailSection>
 
             <LiveSensorStatus seniorKey={senior.userId || senior.id} />

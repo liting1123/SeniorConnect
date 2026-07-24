@@ -1688,6 +1688,7 @@ export async function handleRequest(request, response) {
   if (url.pathname === '/api/servicenow/sos-alert' && request.method === 'POST') {
     const body = await readJson(request);
     const alert = await createSosAlert({
+      seniorProfileId: body.seniorProfileId,
       location: body.location,
       message: body.message,
       seniorName: body.seniorName,

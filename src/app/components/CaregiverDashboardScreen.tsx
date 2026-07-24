@@ -1958,14 +1958,14 @@ function DashboardVitalsStrip({ onOpenLive }: { onOpenLive: () => void }) {
             <span className={`text-xl font-extrabold ${vitalClass(hr, 60, 100)}`}>
               {hr ?? (warmingUp ? '…' : '–')}
             </span>
-            <span className="text-[10px] font-bold uppercase text-[#71717a]">bpm</span>
+            <span className="text-[10px] font-bold text-[#71717a]">beats/min</span>
           </span>
           <span className="flex items-center gap-1.5">
             <Wind className="h-4 w-4 text-[#2563eb]" />
             <span className={`text-xl font-extrabold ${vitalClass(br, 12, 20)}`}>
               {br ?? (warmingUp ? '…' : '–')}
             </span>
-            <span className="text-[10px] font-bold uppercase text-[#71717a]">brpm</span>
+            <span className="text-[10px] font-bold text-[#71717a]">breaths/min</span>
           </span>
         </span>
       </span>
@@ -2929,7 +2929,7 @@ function LiveSensorStatus({ seniorKey }: { seniorKey: string }) {
               <LiveVitalCard
                 icon={<Heart className="h-6 w-6" />}
                 label="Heart Rate"
-                unit="BPM"
+                unit="beats/min"
                 value={live.hr ?? status.vitals.hr}
                 isLive={live.hr !== null}
                 series={live.hrSeries}
@@ -2940,8 +2940,8 @@ function LiveSensorStatus({ seniorKey }: { seniorKey: string }) {
               />
               <LiveVitalCard
                 icon={<Wind className="h-6 w-6" />}
-                label="Breath Rate"
-                unit="BRPM"
+                label="Breathing"
+                unit="breaths/min"
                 value={live.br ?? status.vitals.br}
                 isLive={live.br !== null}
                 series={live.brSeries}
@@ -2957,7 +2957,7 @@ function LiveSensorStatus({ seniorKey }: { seniorKey: string }) {
 
           {vitalsTab === 'live' && !live.connected && status.lastUpdated && (
             <p className="text-center text-xs font-semibold text-[#94a3b8]">
-              Live link offline — showing last synced ({formatDetailDateTime(status.lastUpdated)})
+              Not connected right now — showing the last update ({formatDetailDateTime(status.lastUpdated)})
             </p>
           )}
         </div>
@@ -3046,7 +3046,7 @@ function LiveVitalCard({
       </div>
       {showWarmingUp ? (
         <p className="mt-1 text-2xl font-extrabold leading-none text-[#94a3b8]">
-          reading…
+          please wait…
         </p>
       ) : (
         <p className="mt-1 text-4xl font-extrabold leading-none" style={{ color: tone }}>
@@ -3056,8 +3056,8 @@ function LiveVitalCard({
       )}
       <p className="mt-1 text-[11px] font-semibold text-[#94a3b8]">
         {showWarmingUp
-          ? 'in bed · locking a stable reading, ~20–30s'
-          : `Normal ${normalLow}–${normalHigh} · ${isLive ? 'live · 60s window' : 'last synced'}`}
+          ? 'In bed — getting the reading (about 30 seconds)'
+          : `Normal is ${normalLow}–${normalHigh} · ${isLive ? 'updating now' : 'last update'}`}
       </p>
       {chartData.length > 1 && (
         <div className="mt-2 h-12 w-full">
@@ -3092,7 +3092,7 @@ function VitalsHistoryPanel({ history, error }: { history: VitalsHistory | null;
   return (
     <div className="space-y-3">
       <HistoryTrend
-        title="Heart Rate — 15-min averages (bpm)"
+        title="Heart Rate — recent readings"
         data={history.hr}
         color="#c8171d"
         unit="bpm"
@@ -3100,7 +3100,7 @@ function VitalsHistoryPanel({ history, error }: { history: VitalsHistory | null;
         normalHigh={100}
       />
       <HistoryTrend
-        title="Breath Rate — 15-min averages (brpm)"
+        title="Breathing — recent readings"
         data={history.br}
         color="#075fc7"
         unit="brpm"
@@ -3247,6 +3247,32 @@ function nodeFreshness(value: string) {
   }
 
   return { dot: 'bg-[#c8171d]', label: 'offline', text: 'text-[#c8171d]' };
+}
+
+// Turn a raw alert message into a short, plain-English label a caregiver can
+// read at a glance. Strips the "moderate · " severity prefix (already shown in
+// the badge) and the technical specifics like "(64.0 < 70)", and rewrites the
+// verbose "NODE OFFLINE: Sensor node 'Bathroom Door' …" into "… sensor offline".
+function humanizeAlert(location: string, status: string): string {
+  let msg = String(status || '').trim();
+  // drop a leading severity word + separator ("moderate · ", "CRITICAL - ", …)
+  msg = msg.replace(/^\s*(normal|moderate|critical|warning|minimal|emergency|active|inactive)\s*[·:\-]\s*/i, '');
+  const up = msg.toUpperCase();
+  const room = String(location || '').trim();
+
+  if (up.includes('APNEA')) return 'Breathing stopped';
+  if (/\bHR\b.*LOW|HEART.*LOW/.test(up)) return 'Heart rate low';
+  if (/\bHR\b.*HIGH|HEART.*HIGH/.test(up)) return 'Heart rate high';
+  if (/\bBR\b.*LOW|BREATH.*LOW/.test(up)) return 'Breathing low';
+  if (/\bBR\b.*HIGH|BREATH.*HIGH/.test(up)) return 'Breathing fast';
+  if (up.includes('FALL_SOS') || (up.includes('FALL') && up.includes('SOS'))) return 'Fall — still down';
+  if (up.includes('FALL')) return 'Fall detected';
+  if (up.includes('RECOVER')) return 'Recovered';
+  if (up.includes('OFFLINE')) return room ? `${room} sensor offline` : 'Sensor offline';
+  if (up.includes('BATHROOM') && up.includes('MOTION')) return 'No movement in bathroom';
+  // fallback: strip any "(…)" specifics and cap the length
+  const clean = msg.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  return clean.length > 48 ? clean.slice(0, 46) + '…' : (clean || 'Alert');
 }
 
 function alertTone(value: string) {
@@ -3468,7 +3494,7 @@ function LiveMonitorTab() {
       </header>
 
       {/* ── Clinical vitals: live (WS) / history (ServiceNow 15-min avgs) ── */}
-      <LiveMonitorCard title="Clinical Vitals">
+      <LiveMonitorCard title="Vital Signs">
         <div className="mb-3 flex gap-1 rounded-full bg-[#f0f2f5] p-1">
           {(['live', 'history'] as const).map((tab) => (
             <button
@@ -3486,12 +3512,13 @@ function LiveMonitorTab() {
         {vitalsTab === 'live' ? (
           <>
             {live.vitalsSimulated && (
-              <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-[#fff4e5] px-2.5 py-1.5">
-                <span className="text-xs font-black uppercase tracking-wide text-[#b45309]">
-                  ⚠ Simulated
-                </span>
-                <span className="text-[11px] font-semibold text-[#b45309]">
-                  demo values — sensor not producing a real reading
+              // Calm, plain-English, and still honest: a caregiver whose second
+              // language is English should understand it, and it must NOT read
+              // as a genuine live sensor value (these are stand-in numbers while
+              // the bedroom sensor is unavailable).
+              <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-[#f0f2f5] px-2.5 py-1.5">
+                <span className="text-[11px] font-semibold text-[#71717a]">
+                  Showing sample numbers while we wait for the sensor.
                 </span>
               </div>
             )}
@@ -3499,7 +3526,7 @@ function LiveMonitorTab() {
               <LiveVitalCard
                 icon={<Heart className="h-6 w-6" />}
                 label="Heart Rate"
-                unit="BPM"
+                unit="beats/min"
                 value={live.hr ?? status?.vitals.hr ?? null}
                 isLive={live.hr !== null}
                 series={live.hrSeries}
@@ -3510,8 +3537,8 @@ function LiveMonitorTab() {
               />
               <LiveVitalCard
                 icon={<Wind className="h-6 w-6" />}
-                label="Breath Rate"
-                unit="BRPM"
+                label="Breathing"
+                unit="breaths/min"
                 value={live.br ?? status?.vitals.br ?? null}
                 isLive={live.br !== null}
                 series={live.brSeries}
@@ -3523,7 +3550,7 @@ function LiveMonitorTab() {
             </div>
             {!live.connected && status?.lastUpdated && (
               <p className="mt-2 text-center text-xs font-semibold text-[#94a3b8]">
-                Live link offline — showing last synced ({timeAgo(status.lastUpdated)})
+                Not connected right now — showing the last update ({timeAgo(status.lastUpdated)})
               </p>
             )}
           </>
@@ -3601,10 +3628,12 @@ function LiveMonitorTab() {
                   {alert.value || '—'}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold text-[#30343a]">
-                    {alert.location} · <span className="font-semibold text-[#71717a]">{alert.status}</span>
+                  <p className="text-sm font-bold text-[#30343a]">
+                    {humanizeAlert(alert.location, alert.status)}
                   </p>
-                  <p className="text-xs font-semibold text-[#94a3b8]">{timeAgo(alert.loggedAt)}</p>
+                  <p className="text-xs font-semibold text-[#94a3b8]">
+                    {alert.location} · {timeAgo(alert.loggedAt)}
+                  </p>
                 </div>
               </li>
             ))}

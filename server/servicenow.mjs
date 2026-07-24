@@ -71,7 +71,13 @@ const CHECK_IN_WINDOWS = [
 
 const LOGIN_TABLE = process.env.SERVICE_NOW_LOGIN_TABLE || 'u_login';
 const SOS_ALERT_TABLE = process.env.SERVICE_NOW_SOS_ALERT_TABLE || 'u_sos_alert';
-const APPOINTMENT_TABLE = process.env.SERVICE_NOW_APPOINTMENT_TABLE || 'appointments';
+// Real table on the instance is u_appointment (SINGULAR, u_ prefixed) —
+// verified 2026-07-23 against dev201489 (sys_db_object lookup + 2 live rows
+// with u_appointment_name / u_appointment_date_and_time / u_caregiver /
+// u_senior_name / u_location). The old 'appointments' default is not a valid
+// ServiceNow table name (custom tables require the u_ prefix), so every
+// appointments query failed with "Invalid table appointments".
+const APPOINTMENT_TABLE = process.env.SERVICE_NOW_APPOINTMENT_TABLE || 'u_appointment';
 const CAREGIVER_CONNECTION_TABLE = process.env.SERVICE_NOW_CAREGIVER_CONNECTION_TABLE || 'u_caregiver_profiles';
 const MEDICINE_TABLE = process.env.SERVICE_NOW_MEDICINE_TABLE || 'u_medicine';
 const FAMILY_VERIFICATION_TABLE = process.env.SERVICE_NOW_FAMILY_VERIFICATION_TABLE || 'u_family_verification_code';

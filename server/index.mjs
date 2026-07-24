@@ -1736,6 +1736,7 @@ export async function handleRequest(request, response) {
     const body = await readJson(request);
     const alert = await updateSosAlertStatus({
       alertId: body.alertId,
+      seniorProfileId: body.seniorProfileId,
       status: body.status,
     });
 

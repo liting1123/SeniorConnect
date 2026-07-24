@@ -1328,16 +1328,6 @@ async function checkForMissedCheckIns() {
               }),
             ));
 
-            await sendTelegramMessageToCaregivers(
-              caregiverContacts,
-              `<b>Missed Check-In Alert</b>\n\n` +
-                `Senior: ${seniorName}\n` +
-                `Date: ${getSingaporeDateKey()}\n` +
-                `Window: ${currentWindow}\n` +
-                `Please check in with the Senior as soon as possible.`,
-              'missed check-in alert',
-            );
-
             // Record the missed check-in alert and track caregiver notification
             missedCheckInAlerts.set(seniorId, {
               notifiedAt: now,

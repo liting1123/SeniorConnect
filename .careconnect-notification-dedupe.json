@@ -1,0 +1,12 @@
+{
+  "caregiverMissedCheckIn": [
+    "2026-07-24:acc96a3e83098310f600c260ceaad3bc:evening:d84d71d983828790f600c260ceaad32a",
+    "2026-07-24:aee7e13f83f10350f600c260ceaad3c7:evening:e1d730f3833dcf10f600c260ceaad32e"
+  ],
+  "aicMissedCheckIn": [],
+  "missedCheckInSignatures": [
+    "acc96a3e83098310f600c260ceaad3bc:evening:2026-07-22 12:09:01",
+    "aee7e13f83f10350f600c260ceaad3c7:evening:2026-07-22 04:31:26"
+  ],
+  "aicMissedCheckInSignatures": []
+}

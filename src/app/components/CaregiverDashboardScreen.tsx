@@ -830,6 +830,8 @@ export default function CaregiverDashboardScreen({
           alertId: senior.alertId,
           seniorProfileId: senior.id,
           status: 'Resolved',
+          caregiverId,
+          caregiverEmail,
         }),
       });
       const data = await response.json().catch(() => null);

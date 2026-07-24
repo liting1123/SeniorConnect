@@ -104,6 +104,8 @@ const SOS_ALERT_FIELD_MAP = {
   seniorName: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR_NAME || 'u_senior_name',
   seniorPhone: process.env.SERVICE_NOW_SOS_ALERT_FIELD_SENIOR_PHONE || 'u_senior_phone',
   status: process.env.SERVICE_NOW_SOS_ALERT_FIELD_STATUS || 'u_status',
+  caregiverName: process.env.SERVICE_NOW_SOS_ALERT_FIELD_CAREGIVER_NAME || 'u_caregiver_name',
+  alertTime: process.env.SERVICE_NOW_SOS_ALERT_FIELD_ALERT_TIME || 'u_alert_time',
 };
 
 const APPOINTMENT_FIELD_MAP = {
@@ -1273,7 +1275,15 @@ export async function registerWithServiceNow({ email, password, name, role = 'ca
   return toLoginUser(data?.result || {});
 }
 
-export async function createSosAlert({ seniorProfileId, location, message, seniorName, seniorPhone, status }) {
+export async function createSosAlert({
+  seniorProfileId,
+  location,
+  message,
+  seniorName,
+  seniorPhone,
+  status,
+  caregiverConnectionId,
+}) {
   const normalizedSeniorProfileId = String(seniorProfileId || '').trim();
 
   if (!normalizedSeniorProfileId) {
@@ -1296,6 +1306,8 @@ export async function createSosAlert({ seniorProfileId, location, message, senio
     [SOS_ALERT_FIELD_MAP.seniorName]: seniorName || '',
     [SOS_ALERT_FIELD_MAP.seniorPhone]: seniorPhone || '',
     [SOS_ALERT_FIELD_MAP.status]: status || 'New',
+    [SOS_ALERT_FIELD_MAP.caregiverName]: caregiverConnectionId || '',
+    [SOS_ALERT_FIELD_MAP.alertTime]: getServiceNowDateTime(),
   };
 
   const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE), {
@@ -1306,7 +1318,7 @@ export async function createSosAlert({ seniorProfileId, location, message, senio
   return data?.result || data;
 }
 
-export async function updateSosAlertStatus({ alertId, seniorProfileId, status }) {
+export async function updateSosAlertStatus({ alertId, seniorProfileId, status, caregiverConnectionId }) {
   const normalizedAlertId = String(alertId || '').trim();
   const normalizedSeniorProfileId = String(seniorProfileId || '').trim();
   const normalizedStatus = String(status || '').trim();
@@ -1337,6 +1349,7 @@ export async function updateSosAlertStatus({ alertId, seniorProfileId, status })
     method: 'PATCH',
     body: JSON.stringify({
       [SOS_ALERT_FIELD_MAP.status]: normalizedStatus,
+      [SOS_ALERT_FIELD_MAP.caregiverName]: String(caregiverConnectionId || '').trim(),
     }),
   });
 
@@ -2583,6 +2596,9 @@ export async function getCaregiverContactsForSenior({ seniorProfileId } = {}) {
       caregiverEmail: getDisplayValue(caregiverUser?.[LOGIN_FIELD_MAP.email]) || '',
       telegramChatId: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.telegramChatId]) || '',
       relationship: getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.relationship]) || '',
+      isNok: ['true', '1', 'yes'].includes(
+        getDisplayValue(connection[CAREGIVER_CONNECTION_FIELD_MAP.isNok]).trim().toLowerCase(),
+      ),
     };
   }));
 }

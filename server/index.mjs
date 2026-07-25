@@ -1231,7 +1231,9 @@ function getExpiredCheckInWindows() {
 function hasCheckedInForWindow(lastCheckInStr, dateKey, windowId) {
   if (!lastCheckInStr) return false;
   
-  const lastCheckIn = new Date(lastCheckInStr);
+  const normalizedLastCheckIn = String(lastCheckInStr).trim().replace(' ', 'T');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedLastCheckIn);
+  const lastCheckIn = new Date(hasTimezone ? normalizedLastCheckIn : `${normalizedLastCheckIn}Z`);
   if (Number.isNaN(lastCheckIn.getTime())) return false;
   
   const formatter = new Intl.DateTimeFormat('en-US', {

@@ -370,24 +370,12 @@ function toUserRecord(record = {}) {
 }
 
 function getSingaporeParts(value = new Date()) {
-  if (!(value instanceof Date)) {
-    const serviceNowDateTimeMatch = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::\d{2})?$/.exec(
-      String(value || '').trim(),
-    );
-
-    if (serviceNowDateTimeMatch) {
-      const [, year, month, day, hour, minute] = serviceNowDateTimeMatch;
-
-      return {
-        dateKey: `${year}-${month}-${day}`,
-        hour: Number(hour),
-        minute: Number(minute),
-        totalMinutes: Number(hour) * 60 + Number(minute),
-      };
-    }
-  }
-
-  const date = value instanceof Date ? value : new Date(value);
+  const rawValue = String(value || '').trim();
+  const normalizedValue = rawValue.replace(' ', 'T');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedValue);
+  const date = value instanceof Date
+    ? value
+    : new Date(hasTimezone ? normalizedValue : `${normalizedValue}Z`);
 
   if (Number.isNaN(date.getTime())) {
     return null;

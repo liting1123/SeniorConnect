@@ -52,7 +52,7 @@ async function ensureMySqlIsRunning() {
       `--basedir=${binary.replace(/[\\/]bin[\\/]mysqld\.exe$/i, '')}`,
       `--datadir=${dataDirectory}`,
       `--port=${Number(process.env.MYSQL_PORT) || 3306}`,
-      `--bind-address=${String(process.env.MYSQL_HOST || '127.0.0.1').trim()}`,
+      `--bind-address=${String(process.env.MYSQL_BIND_ADDRESS || '127.0.0.1').trim()}`,
     ],
     {
       detached: true,

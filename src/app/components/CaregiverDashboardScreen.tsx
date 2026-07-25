@@ -1565,7 +1565,7 @@ function parseServiceNowDate(value = '', options: { localServiceNowTime?: boolea
 }
 
 function hasCheckedInToday(value = '') {
-  const date = parseServiceNowDate(value, { localServiceNowTime: true });
+  const date = parseServiceNowDate(value);
 
   if (!date) {
     return false;
@@ -1616,7 +1616,7 @@ function formatDetailDateTime(value = '') {
     return 'Not provided';
   }
 
-  const date = parseServiceNowDate(value, { localServiceNowTime: true });
+  const date = parseServiceNowDate(value);
 
   if (!date) {
     return value;
@@ -1630,7 +1630,7 @@ function formatDetailDateTime(value = '') {
 }
 
 function formatCheckInDateTimeParts(value = '') {
-  const date = parseServiceNowDate(value, { localServiceNowTime: true });
+  const date = parseServiceNowDate(value);
 
   if (!date) {
     return {

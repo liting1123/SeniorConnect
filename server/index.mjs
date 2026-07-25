@@ -1134,9 +1134,9 @@ function getCurrentCheckInWindow() {
   const eveningEndMins = eveningEnd.hours * 60 + eveningEnd.minutes;
   
   // Only declare a missed window after its check-in deadline has passed.
-  if (currentTimeInMinutes >= eveningEndMins) {
+  if (currentTimeInMinutes > eveningEndMins) {
     return { dateKey: todayDateKey, windowId: 'evening' };
-  } else if (currentTimeInMinutes >= morningEndMins) {
+  } else if (currentTimeInMinutes > morningEndMins) {
     return { dateKey: todayDateKey, windowId: 'morning' };
   }
 
@@ -1169,10 +1169,10 @@ function getExpiredCheckInWindows() {
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const expiredWindows = [{ dateKey: getSingaporeDateKey(yesterday), windowId: 'evening' }];
 
-  if (currentMinutes >= morningEndMinutes) {
+  if (currentMinutes > morningEndMinutes) {
     expiredWindows.push({ dateKey: todayKey, windowId: 'morning' });
   }
-  if (currentMinutes >= eveningEndMinutes) {
+  if (currentMinutes > eveningEndMinutes) {
     expiredWindows.push({ dateKey: todayKey, windowId: 'evening' });
   }
 

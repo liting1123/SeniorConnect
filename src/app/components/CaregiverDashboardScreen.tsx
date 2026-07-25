@@ -486,15 +486,20 @@ export default function CaregiverDashboardScreen({
       return;
     }
 
-    const singaporeTime = new Intl.DateTimeFormat('en-CA', {
+    const singaporeTimeParts = new Intl.DateTimeFormat('en-CA', {
       hour: '2-digit',
       hour12: false,
+      minute: '2-digit',
       timeZone: 'Asia/Singapore',
-    }).format(new Date());
+    }).formatToParts(new Date());
+    const singaporeTime = Object.fromEntries(
+      singaporeTimeParts.map((part) => [part.type, part.value]),
+    );
+    const singaporeMinutes = Number(singaporeTime.hour) * 60 + Number(singaporeTime.minute);
 
     // Do not say a senior missed today's check-in before the morning
     // check-in deadline has passed.
-    if (Number(singaporeTime) < 9) {
+    if (singaporeMinutes <= 11 * 60 + 59) {
       return;
     }
 

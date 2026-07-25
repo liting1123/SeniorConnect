@@ -83,10 +83,6 @@ const CHECK_IN_MORNING_START = String(process.env.CHECK_IN_MORNING_START || '05:
 const CHECK_IN_MORNING_END = String(process.env.CHECK_IN_MORNING_END || '09:00').trim();
 const CHECK_IN_EVENING_START = String(process.env.CHECK_IN_EVENING_START || '17:00').trim();
 const CHECK_IN_EVENING_END = String(process.env.CHECK_IN_EVENING_END || '23:59').trim();
-const MISSED_CHECK_IN_ALERT_WINDOW_MINUTES = Math.max(
-  5,
-  Number(process.env.MISSED_CHECK_IN_ALERT_WINDOW_MINUTES || '90') || 90,
-);
 const CAREGIVER_RESPONSIVENESS_THRESHOLD_MS = (Number(process.env.CAREGIVER_RESPONSIVENESS_THRESHOLD_MINUTES || '5')) * 60 * 1000;
 
 function getSingaporeDateKey(value = new Date()) {
@@ -505,7 +501,6 @@ async function sendLoginMfaCodeEmail(email, code) {
 async function sendCaregiverMissedCheckInEmail({ caregiverEmail, caregiverName, seniorName, windowLabel, lastCheckInStr }) {
   const transporter = getMfaTransporter();
   const normalizedEmail = normalizeEmail(caregiverEmail);
-  const displayWindowLabel = formatCheckInWindowLabel(windowLabel);
 
   if (!normalizedEmail) {
     throw Object.assign(new Error('A valid caregiver email is required.'), { status: 400 });
@@ -514,14 +509,14 @@ async function sendCaregiverMissedCheckInEmail({ caregiverEmail, caregiverName, 
   await transporter.sendMail({
     from: MFA_EMAIL_FROM,
     to: normalizedEmail,
-    subject: `CareConnect missed ${displayWindowLabel} check-in alert`,
+    subject: `CareConnect missed ${windowLabel} check-in alert`,
     text: [
       `Hello ${caregiverName || 'Caregiver'},`,
       '',
       `Missed Check-In Alert`,
       `Senior: ${seniorName || 'Senior'}`,
       `Date: ${getSingaporeDateKey()}`,
-      `Window: ${displayWindowLabel}`,
+      `Window: ${windowLabel}`,
       `Last Check-in: ${lastCheckInStr ? String(lastCheckInStr).replace('T', ' ').slice(0, 19) : 'N/A'}`,
       'Status: Missed',
       'Please check in with the Senior as soon as possible.',
@@ -596,20 +591,6 @@ function formatTimeWith12Hour(timeStr = '') {
   }
   
   return `${hours}:${minutes} ${period}`;
-}
-
-function formatCheckInWindowLabel(windowId = '') {
-  const normalizedWindowId = String(windowId || '').trim().toLowerCase();
-
-  if (normalizedWindowId === 'morning') {
-    return 'Morning';
-  }
-
-  if (normalizedWindowId === 'evening') {
-    return 'Evening';
-  }
-
-  return normalizedWindowId ? normalizedWindowId.charAt(0).toUpperCase() + normalizedWindowId.slice(1) : 'Check-In';
 }
 
 async function sendTelegramMessage(text) {
@@ -1130,125 +1111,9 @@ function parseTimeHHMM(timeStr) {
   return { hours: hours || 0, minutes: minutes || 0 };
 }
 
-function getSingaporeTimeContext(now = new Date()) {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: CHECK_IN_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-  const parts = Object.fromEntries(formatter.formatToParts(now).map((part) => [part.type, part.value]));
-  const dateKey = `${parts.year}-${parts.month}-${parts.day}`;
-  const currentMinutes = Number(parts.hour) * 60 + Number(parts.minute);
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-  return {
-    dateKey,
-    currentMinutes,
-    yesterdayDateKey: getSingaporeDateKey(yesterday),
-  };
-}
-
-function getCheckInWindowBounds(windowId) {
-  const morning = parseTimeHHMM(CHECK_IN_MORNING_START);
-  const morningEnd = parseTimeHHMM(CHECK_IN_MORNING_END);
-  const evening = parseTimeHHMM(CHECK_IN_EVENING_START);
-  const eveningEnd = parseTimeHHMM(CHECK_IN_EVENING_END);
-
-  if (windowId === 'morning') {
-    return {
-      startMinutes: morning.hours * 60 + morning.minutes,
-      endMinutes: morningEnd.hours * 60 + morningEnd.minutes,
-    };
-  }
-
-  if (windowId === 'evening') {
-    return {
-      startMinutes: evening.hours * 60 + evening.minutes,
-      endMinutes: eveningEnd.hours * 60 + eveningEnd.minutes,
-    };
-  }
-
-  return null;
-}
-
-function hasCheckedInForWindow(lastCheckInStr, targetWindow) {
-  if (!lastCheckInStr || !targetWindow?.windowId || !targetWindow?.dateKey) {
-    return false;
-  }
-
-  const timestamp = new Date(lastCheckInStr);
-  if (Number.isNaN(timestamp.getTime())) {
-    return false;
-  }
-
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: CHECK_IN_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-  const parts = Object.fromEntries(formatter.formatToParts(timestamp).map((part) => [part.type, part.value]));
-  const lastCheckInDateKey = `${parts.year}-${parts.month}-${parts.day}`;
-
-  if (lastCheckInDateKey !== targetWindow.dateKey) {
-    return false;
-  }
-
-  const bounds = getCheckInWindowBounds(targetWindow.windowId);
-  if (!bounds) {
-    return false;
-  }
-
-  const lastCheckInMinutes = Number(parts.hour) * 60 + Number(parts.minute);
-  return lastCheckInMinutes >= bounds.startMinutes && lastCheckInMinutes <= bounds.endMinutes;
-}
-
-function getMissedCheckInNotificationWindow() {
-  const { dateKey, currentMinutes, yesterdayDateKey } = getSingaporeTimeContext();
-  const morningBounds = getCheckInWindowBounds('morning');
-  const eveningBounds = getCheckInWindowBounds('evening');
-
-  if (!morningBounds || !eveningBounds) {
-    return null;
-  }
-
-  const eveningAlertStart = morningBounds.endMinutes;
-  const eveningAlertCutoff = Math.min(
-    morningBounds.endMinutes + MISSED_CHECK_IN_ALERT_WINDOW_MINUTES,
-    eveningBounds.startMinutes,
-  );
-
-  if (currentMinutes >= eveningAlertStart && currentMinutes < eveningAlertCutoff) {
-    return { dateKey, windowId: 'morning' };
-  }
-
-  if (currentMinutes >= eveningBounds.endMinutes) {
-    const minutesSinceEveningEnd = currentMinutes - eveningBounds.endMinutes;
-    if (minutesSinceEveningEnd <= MISSED_CHECK_IN_ALERT_WINDOW_MINUTES) {
-      return { dateKey, windowId: 'evening' };
-    }
-  } else {
-    const morningBoundsStart = morningBounds.startMinutes;
-    if (currentMinutes < morningBoundsStart) {
-      const minutesSinceYesterdayEveningEnd = (24 * 60 - eveningBounds.endMinutes) + currentMinutes;
-      if (minutesSinceYesterdayEveningEnd <= MISSED_CHECK_IN_ALERT_WINDOW_MINUTES) {
-        return { dateKey: yesterdayDateKey, windowId: 'evening' };
-      }
-    }
-  }
-
-  return null;
-}
-
 function getCurrentCheckInWindow() {
   const now = new Date();
+  const todayDateKey = getSingaporeDateKey(now);
   // Convert to Singapore time
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: CHECK_IN_TIME_ZONE,
@@ -1265,17 +1130,22 @@ function getCurrentCheckInWindow() {
   const evening = parseTimeHHMM(CHECK_IN_EVENING_START);
   const eveningEnd = parseTimeHHMM(CHECK_IN_EVENING_END);
   
-  const morningStartMins = morning.hours * 60 + morning.minutes;
   const morningEndMins = morningEnd.hours * 60 + morningEnd.minutes;
-  const eveningStartMins = evening.hours * 60 + evening.minutes;
   const eveningEndMins = eveningEnd.hours * 60 + eveningEnd.minutes;
   
-  if (currentTimeInMinutes >= morningStartMins && currentTimeInMinutes < morningEndMins) {
-    return 'morning';
-  } else if (currentTimeInMinutes >= eveningStartMins && currentTimeInMinutes <= eveningEndMins) {
-    return 'evening';
+  // Only declare a missed window after its check-in deadline has passed.
+  if (currentTimeInMinutes > eveningEndMins) {
+    return { dateKey: todayDateKey, windowId: 'evening' };
+  } else if (currentTimeInMinutes > morningEndMins) {
+    return { dateKey: todayDateKey, windowId: 'morning' };
   }
-  return null;
+
+  // After midnight, process yesterday's evening deadline. This prevents the
+  // two-minute scheduler from missing a 23:59 deadline between timer ticks.
+  return {
+    dateKey: getSingaporeDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+    windowId: 'evening',
+  };
 }
 
 function getExpiredCheckInWindows() {
@@ -1299,36 +1169,43 @@ function getExpiredCheckInWindows() {
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const expiredWindows = [{ dateKey: getSingaporeDateKey(yesterday), windowId: 'evening' }];
 
-  if (currentMinutes >= morningEndMinutes) {
+  if (currentMinutes > morningEndMinutes) {
     expiredWindows.push({ dateKey: todayKey, windowId: 'morning' });
   }
-  if (currentMinutes >= eveningEndMinutes) {
+  if (currentMinutes > eveningEndMinutes) {
     expiredWindows.push({ dateKey: todayKey, windowId: 'evening' });
   }
 
   return expiredWindows;
 }
 
-function getCheckInWindowStatus(lastCheckInStr) {
-  if (!lastCheckInStr) return null;
+function hasCheckedInForWindow(lastCheckInStr, dateKey, windowId) {
+  if (!lastCheckInStr) return false;
   
   const lastCheckIn = new Date(lastCheckInStr);
-  const now = new Date();
+  if (Number.isNaN(lastCheckIn.getTime())) return false;
   
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: CHECK_IN_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
   });
   
-  const lastCheckInDate = formatter.format(lastCheckIn);
-  const todayDate = formatter.format(now);
+  const parts = Object.fromEntries(formatter.formatToParts(lastCheckIn).map((part) => [part.type, part.value]));
+  const lastCheckInDate = `${parts.year}-${parts.month}-${parts.day}`;
   
-  if (lastCheckInDate === todayDate) {
-    return 'checked-in-today';
-  }
-  return 'missed-today';
+  if (lastCheckInDate !== dateKey) return false;
+
+  const checkInMinutes = Number(parts.hour) * 60 + Number(parts.minute);
+  const start = parseTimeHHMM(windowId === 'evening' ? CHECK_IN_EVENING_START : CHECK_IN_MORNING_START);
+  const end = parseTimeHHMM(windowId === 'evening' ? CHECK_IN_EVENING_END : CHECK_IN_MORNING_END);
+
+  return checkInMinutes >= start.hours * 60 + start.minutes
+    && checkInMinutes <= end.hours * 60 + end.minutes;
 }
 
 async function checkForMissedCheckIns() {
@@ -1345,6 +1222,10 @@ async function checkForMissedCheckIns() {
     const expiredWindows = getExpiredCheckInWindows();
     for (const senior of seniors) {
       for (const expiredWindow of expiredWindows) {
+        if (hasCheckedInForWindow(senior.lastCheckInAt || '', expiredWindow.dateKey, expiredWindow.windowId)) {
+          continue;
+        }
+
         try {
           await createMissedCheckInRecord({
             seniorProfileId: senior.id,
@@ -1361,30 +1242,26 @@ async function checkForMissedCheckIns() {
       }
     }
     
-    const notificationWindow = getMissedCheckInNotificationWindow();
-    if (!notificationWindow) {
-      console.log('[Check-In Monitor] Outside missed-alert notification window - skipping notification send');
-      return;
-    }
-
+    const notificationWindow = getCurrentCheckInWindow();
     const currentWindow = notificationWindow.windowId;
-    const currentWindowDateKey = notificationWindow.dateKey;
+    const notificationDateKey = notificationWindow.dateKey;
     
     for (const senior of seniors) {
       try {
         const seniorId = senior.id;
         const lastCheckInStr = senior.lastCheckInAt || '';
         
-        if (hasCheckedInForWindow(lastCheckInStr, notificationWindow)) {
-          continue;
-        }
-
+        // A missing timestamp also means the elapsed check-in window was missed.
+        if (!hasCheckedInForWindow(lastCheckInStr, notificationDateKey, currentWindow)) {
           const alertRecord = missedCheckInAlerts.get(seniorId);
-          const todayDateKey = currentWindowDateKey;
-          const displayWindowLabel = formatCheckInWindowLabel(currentWindow);
+          const todayDateKey = notificationDateKey;
           
-          // Check if this is a new missed check-in for this exact date + window
-          if (!alertRecord || alertRecord.lastCheckInWindow !== currentWindow || alertRecord.lastCheckInDateKey !== currentWindowDateKey) {
+          // Check if this is a new missed check-in for this window
+          if (
+            !alertRecord
+            || alertRecord.lastCheckInWindow !== currentWindow
+            || alertRecord.notificationDateKey !== notificationDateKey
+          ) {
             const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: seniorId });
             const caregiver = caregiverContacts && caregiverContacts.length > 0 ? caregiverContacts[0] : null;
             const caregiverId = caregiver?.caregiverId || 'unknown';
@@ -1395,6 +1272,43 @@ async function checkForMissedCheckIns() {
             console.log(`[Check-In Monitor] Senior ${seniorId} (${seniorName}) missed ${currentWindow} check-in window - notifying caregiver ${caregiverId}`);
 
             const primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
+            let notificationDelivered = false;
+            // Telegram alerts go to every connected caregiver. The NOK selected
+            // below remains the owner of acknowledgement and AIC escalation.
+            for (const contact of getUniqueCaregiverContacts(caregiverContacts)) {
+              const contactIdentity = String(
+                contact?.caregiverId || contact?.caregiverEmail || 'unknown',
+              ).trim().toLowerCase();
+              const contactNotificationKey = `${todayDateKey}:${seniorId}:${currentWindow}:${contactIdentity}`;
+
+              if (caregiverMissedCheckInNotified.has(contactNotificationKey)) {
+                continue;
+              }
+
+              const telegramChatId = await resolveDirectCaregiverTelegramChatId({
+                caregiverId: contact?.caregiverId,
+                caregiverEmail: contact?.caregiverEmail,
+              });
+
+              if (!telegramChatId) {
+                continue;
+              }
+
+              const message =
+                `⚠️ <b>Missed Check-In Alert</b>\n\n` +
+                `Senior <b>${seniorName}</b> missed the <b>${currentWindow}</b> check-in window.\n` +
+                `Last check-in: ${lastCheckInStr ? String(lastCheckInStr).replace('T', ' ').slice(0, 19) : 'N/A'}\n\n` +
+                `Please open CareConnect and acknowledge this alert.`;
+
+              try {
+                await sendTelegramMessageToChatId(telegramChatId, message);
+                caregiverMissedCheckInNotified.add(contactNotificationKey);
+                notificationDelivered = true;
+                console.log(`[Check-In Monitor] Telegram sent to connected caregiver ${contactIdentity} for senior ${seniorId}`);
+              } catch (error) {
+                console.error(`[Check-In Monitor] Failed to notify connected caregiver ${contactIdentity}:`, error.message);
+              }
+            }
             const primaryHasTelegram = await caregiverHasTelegramConfigured(primaryContact);
             const caregiverNotifyIdentity = String(
               primaryContact?.caregiverId ||
@@ -1407,8 +1321,8 @@ async function checkForMissedCheckIns() {
 
             if (primaryHasTelegram && !caregiverMissedCheckInNotified.has(caregiverNotificationKey) && !missedCheckInMessageSignatures.has(missedCheckInSignature)) {
               const missedCheckInTelegramMessage =
-                `⚠️ <b>Missed ${displayWindowLabel} Check-In Alert</b>\n\n` +
-                `Senior <b>${seniorName}</b> missed the <b>${displayWindowLabel}</b> check-in window.\n` +
+                `⚠️ <b>Missed Check-In Alert</b>\n\n` +
+                `Senior <b>${seniorName}</b> missed the <b>${currentWindow}</b> check-in window.\n` +
                 `Last check-in: ${lastCheckInStr ? String(lastCheckInStr).replace('T', ' ').slice(0, 19) : 'N/A'}\n\n` +
                 `Please open CareConnect and acknowledge this alert.`;
 
@@ -1432,9 +1346,10 @@ async function checkForMissedCheckIns() {
                 caregiverEmail: primaryContact.caregiverEmail,
                 caregiverName: primaryContact.caregiverName || 'Caregiver',
                 seniorName,
-                windowLabel: displayWindowLabel,
+                windowLabel: currentWindow,
                 lastCheckInStr,
               });
+              notificationDelivered = true;
               caregiverMissedCheckInNotified.add(caregiverNotificationKey);
               missedCheckInMessageSignatures.add(missedCheckInSignature);
               pruneAndSaveNotificationDedupeState();
@@ -1456,12 +1371,24 @@ async function checkForMissedCheckIns() {
                 caregiverEmail: contact.caregiverEmail,
                 caregiverName: contact.caregiverName || 'Caregiver',
                 seniorName,
-                windowLabel: displayWindowLabel,
+                windowLabel: currentWindow,
                 lastCheckInStr,
+              }).then(() => {
+                notificationDelivered = true;
               }).catch((error) => {
                 console.error(`[Check-In Monitor] Failed to email ${contact.caregiverEmail}:`, error.message);
               }),
             ));
+
+            if (notificationDelivered) {
+              await markCheckInNotificationSent({
+                seniorProfileId: seniorId,
+                dateKey: todayDateKey,
+                windowId: currentWindow,
+              }).catch((error) => {
+                console.error(`[Check-In Monitor] Failed to update Notification Sent for senior ${seniorId}:`, error.message);
+              });
+            }
 
             // Record the missed check-in alert and track caregiver notification
             missedCheckInAlerts.set(seniorId, {
@@ -1470,8 +1397,8 @@ async function checkForMissedCheckIns() {
               seniorId,
               caregiverId,
               caregiverEmail: primaryContact?.caregiverEmail || '',
-              lastCheckInDateKey: currentWindowDateKey,
               lastCheckInWindow: currentWindow,
+              notificationDateKey,
               aicAlertSent: false,
             });
             
@@ -1487,8 +1414,7 @@ async function checkForMissedCheckIns() {
               const seniorName = alertRecord.seniorName;
               const caregiverId = alertRecord.caregiverId;
               const minutesUnresponsive = Math.round(timeSinceNotification / (60 * 1000));
-              const alertDateKey = alertRecord.lastCheckInDateKey || todayDateKey;
-              const aicEscalationKey = `${alertDateKey}:${seniorId}:${alertRecord.lastCheckInWindow}`;
+              const aicEscalationKey = `${todayDateKey}:${seniorId}:${alertRecord.lastCheckInWindow}`;
               const aicEscalationSignature = `${seniorId}:${alertRecord.lastCheckInWindow}:${normalizeCheckInSignatureValue(lastCheckInStr)}`;
 
               if (aicMissedCheckInEscalations.has(aicEscalationKey) || aicMissedCheckInMessageSignatures.has(aicEscalationSignature)) {
@@ -1520,11 +1446,13 @@ async function checkForMissedCheckIns() {
                 });
             }
           }
-        // Senior checked in for this window/date - clear any alerts
-        if (missedCheckInAlerts.has(seniorId) && hasCheckedInForWindow(lastCheckInStr, notificationWindow)) {
-          missedCheckInAlerts.delete(seniorId);
-          caregiverNotificationViews.delete(seniorId);
-          console.log(`[Check-In Monitor] ✓ Senior ${seniorId} checked in - alert cleared`);
+        } else {
+          // Senior checked in - clear any alerts
+          if (missedCheckInAlerts.has(seniorId)) {
+            missedCheckInAlerts.delete(seniorId);
+            caregiverNotificationViews.delete(seniorId);
+            console.log(`[Check-In Monitor] ✓ Senior ${seniorId} checked in - alert cleared`);
+          }
         }
       } catch (err) {
         console.error('[Check-In Monitor] Error checking senior:', err.message);
@@ -2392,6 +2320,55 @@ export async function handleRequest(request, response) {
       notes: body.notes,
       status: body.status,
     });
+
+    // Send appointment creation notification
+    const caregiverContacts = await getCaregiverTelegramContacts({
+      caregiverId: body.caregiverId,
+      caregiverEmail: body.caregiverEmail,
+    });
+    const primaryContact = selectPrimaryCaregiverContact(caregiverContacts);
+    const primaryHasTelegram = await caregiverHasTelegramConfigured(primaryContact, {
+      caregiverId: body.caregiverId,
+      caregiverEmail: body.caregiverEmail,
+    });
+    const caregiverEmailForNotification = primaryHasTelegram ? '' : body.caregiverEmail;
+
+    try {
+      const seniorName = body.seniorName || 'Senior';
+      if (caregiverEmailForNotification || body.seniorEmail) {
+        await sendAppointmentNotificationEmail(caregiverEmailForNotification, {
+          seniorName,
+          seniorEmail: body.seniorEmail || '',
+          title: body.title,
+          date: body.date,
+          time: body.time,
+          location: body.location,
+          action: 'created',
+        });
+        console.log('[Appointment] Notification emails sent for new appointment:', appointment.id);
+      }
+    } catch (emailError) {
+      console.error('[Appointment] Failed to send notification email:', emailError);
+    }
+
+    try {
+      const seniorName = body.seniorName || 'Senior';
+      const formattedTime = formatTimeWith12Hour(body.time);
+
+      await sendTelegramMessageToCaregivers(
+        caregiverContacts,
+        `📅 <b>New Appointment Created</b>\n\n` +
+          `👤 Senior: ${seniorName}\n` +
+          `📋 Title: ${body.title}\n` +
+          `🗓 Date: ${body.date}\n` +
+          `🕐 Time: ${formattedTime}` +
+          (body.location ? `\n📍 Location: ${body.location}` : ''),
+        'appointment created',
+      );
+      console.log('[Appointment] Telegram notification sent for new appointment:', appointment.id);
+    } catch (telegramError) {
+      console.error('[Appointment] Failed to send Telegram notification:', telegramError);
+    }
 
     sendJson(response, 200, { appointment });
     return;

@@ -545,6 +545,18 @@ export default function CaregiverDashboardScreen({
       return;
     }
 
+    const linkedSeniorIds = new Set(
+      seniors
+        .flatMap((senior) => [senior.id, senior.userId, senior.connectionId])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    );
+
+    if (linkedSeniorIds.size === 0) {
+      setAppointments([]);
+      return;
+    }
+
     let isMounted = true;
     let isRefreshing = false;
 
@@ -558,9 +570,10 @@ export default function CaregiverDashboardScreen({
 
       try {
         const rows = await getCaregiverAppointments(caregiverId, caregiverEmail);
+        const ownedRows = rows.filter((row) => linkedSeniorIds.has(String(row.seniorId || '').trim()));
 
         if (isMounted) {
-          setAppointments((currentRows) => (areAppointmentsEqual(currentRows, rows) ? currentRows : rows));
+          setAppointments((currentRows) => (areAppointmentsEqual(currentRows, ownedRows) ? currentRows : ownedRows));
         }
       } catch (error) {
         console.error('Unable to load appointments from ServiceNow:', error);
@@ -578,7 +591,7 @@ export default function CaregiverDashboardScreen({
     return () => {
       isMounted = false;
     };
-  }, [caregiverEmail, caregiverId]);
+  }, [caregiverEmail, caregiverId, seniors]);
 
   const sortedAppointments = [...appointments].sort((left, right) => {
     const leftTime = getAppointmentDateTime(left)?.getTime() || Number.MAX_SAFE_INTEGER;

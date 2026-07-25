@@ -83,6 +83,10 @@ const CHECK_IN_MORNING_START = String(process.env.CHECK_IN_MORNING_START || '05:
 const CHECK_IN_MORNING_END = String(process.env.CHECK_IN_MORNING_END || '09:00').trim();
 const CHECK_IN_EVENING_START = String(process.env.CHECK_IN_EVENING_START || '17:00').trim();
 const CHECK_IN_EVENING_END = String(process.env.CHECK_IN_EVENING_END || '23:59').trim();
+const MISSED_CHECK_IN_ALERT_WINDOW_MINUTES = Math.max(
+  5,
+  Number(process.env.MISSED_CHECK_IN_ALERT_WINDOW_MINUTES || '90') || 90,
+);
 const CAREGIVER_RESPONSIVENESS_THRESHOLD_MS = (Number(process.env.CAREGIVER_RESPONSIVENESS_THRESHOLD_MINUTES || '5')) * 60 * 1000;
 
 function getSingaporeDateKey(value = new Date()) {
@@ -1112,40 +1116,83 @@ function parseTimeHHMM(timeStr) {
 }
 
 function getCurrentCheckInWindow() {
-  const now = new Date();
-  const todayDateKey = getSingaporeDateKey(now);
-  // Convert to Singapore time
-  const formatter = new Intl.DateTimeFormat('en-US', {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: CHECK_IN_TIME_ZONE,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   });
-  const timeStr = formatter.format(now);
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  const currentTimeInMinutes = hours * 60 + minutes;
-  
+  const timeParts = Object.fromEntries(formatter.formatToParts(new Date()).map((part) => [part.type, part.value]));
+  const currentTimeInMinutes = Number(timeParts.hour) * 60 + Number(timeParts.minute);
+
   const morning = parseTimeHHMM(CHECK_IN_MORNING_START);
   const morningEnd = parseTimeHHMM(CHECK_IN_MORNING_END);
   const evening = parseTimeHHMM(CHECK_IN_EVENING_START);
   const eveningEnd = parseTimeHHMM(CHECK_IN_EVENING_END);
-  
+
+  const morningStartMins = morning.hours * 60 + morning.minutes;
   const morningEndMins = morningEnd.hours * 60 + morningEnd.minutes;
+  const eveningStartMins = evening.hours * 60 + evening.minutes;
   const eveningEndMins = eveningEnd.hours * 60 + eveningEnd.minutes;
-  
-  // Only declare a missed window after its check-in deadline has passed.
-  if (currentTimeInMinutes > eveningEndMins) {
-    return { dateKey: todayDateKey, windowId: 'evening' };
-  } else if (currentTimeInMinutes > morningEndMins) {
+
+  // Current active check-in window (used by reminder route)
+  if (currentTimeInMinutes >= morningStartMins && currentTimeInMinutes <= morningEndMins) {
+    return 'morning';
+  }
+  if (currentTimeInMinutes >= eveningStartMins && currentTimeInMinutes <= eveningEndMins) {
+    return 'evening';
+  }
+
+  return null;
+}
+
+function getMissedCheckInNotificationWindow() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: CHECK_IN_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(now).map((part) => [part.type, part.value]));
+  const todayDateKey = `${parts.year}-${parts.month}-${parts.day}`;
+  const currentMinutes = Number(parts.hour) * 60 + Number(parts.minute);
+
+  const morningStart = parseTimeHHMM(CHECK_IN_MORNING_START);
+  const morningEnd = parseTimeHHMM(CHECK_IN_MORNING_END);
+  const eveningStart = parseTimeHHMM(CHECK_IN_EVENING_START);
+  const eveningEnd = parseTimeHHMM(CHECK_IN_EVENING_END);
+
+  const morningStartMinutes = morningStart.hours * 60 + morningStart.minutes;
+  const morningEndMinutes = morningEnd.hours * 60 + morningEnd.minutes;
+  const eveningStartMinutes = eveningStart.hours * 60 + eveningStart.minutes;
+  const eveningEndMinutes = eveningEnd.hours * 60 + eveningEnd.minutes;
+
+  // Morning missed alerts: only shortly after morning window closes.
+  if (currentMinutes > morningEndMinutes && currentMinutes <= Math.min(morningEndMinutes + MISSED_CHECK_IN_ALERT_WINDOW_MINUTES, eveningStartMinutes)) {
     return { dateKey: todayDateKey, windowId: 'morning' };
   }
 
-  // After midnight, process yesterday's evening deadline. This prevents the
-  // two-minute scheduler from missing a 23:59 deadline between timer ticks.
-  return {
-    dateKey: getSingaporeDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
-    windowId: 'evening',
-  };
+  // Evening missed alerts same day when evening end is not near midnight.
+  if (eveningEndMinutes < 1439 && currentMinutes > eveningEndMinutes && currentMinutes <= eveningEndMinutes + MISSED_CHECK_IN_ALERT_WINDOW_MINUTES) {
+    return { dateKey: todayDateKey, windowId: 'evening' };
+  }
+
+  // Evening missed alerts shortly after midnight (common when end is 23:59).
+  if (currentMinutes < morningStartMinutes) {
+    const minutesSinceYesterdayEveningEnd = (24 * 60 - eveningEndMinutes) + currentMinutes;
+    if (minutesSinceYesterdayEveningEnd <= MISSED_CHECK_IN_ALERT_WINDOW_MINUTES) {
+      return {
+        dateKey: getSingaporeDateKey(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+        windowId: 'evening',
+      };
+    }
+  }
+
+  return null;
 }
 
 function getExpiredCheckInWindows() {
@@ -1242,7 +1289,12 @@ async function checkForMissedCheckIns() {
       }
     }
     
-    const notificationWindow = getCurrentCheckInWindow();
+    const notificationWindow = getMissedCheckInNotificationWindow();
+    if (!notificationWindow) {
+      console.log('[Check-In Monitor] Outside missed-alert notification window - skipping notification send');
+      return;
+    }
+
     const currentWindow = notificationWindow.windowId;
     const notificationDateKey = notificationWindow.dateKey;
     

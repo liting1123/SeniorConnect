@@ -1637,10 +1637,12 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
     ? (await findLoginRecordByIdentifier(normalizedCaregiverEmail))?.sys_id
     : '');
 
+  const linkedSeniorProfileIds = new Set();
+
   if (caregiverUserId) {
     const caregiverProfileParams = new URLSearchParams({
       sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.user}=${caregiverUserId}`,
-      sysparm_fields: 'sys_id',
+      sysparm_fields: `sys_id,${CAREGIVER_CONNECTION_FIELD_MAP.senior}`,
       sysparm_limit: '100',
     });
     const caregiverProfileData = await serviceNowFetch(
@@ -1649,9 +1651,14 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
 
     for (const profile of caregiverProfileData?.result || []) {
       const caregiverProfileId = String(profile?.sys_id || '').trim();
+      const linkedSeniorProfileId = getReferenceValue(profile?.[CAREGIVER_CONNECTION_FIELD_MAP.senior]);
 
       if (caregiverProfileId) {
         queryParts.add(`${APPOINTMENT_FIELD_MAP.caregiver}=${caregiverProfileId}`);
+      }
+
+      if (linkedSeniorProfileId) {
+        linkedSeniorProfileIds.add(linkedSeniorProfileId);
       }
     }
   }
@@ -1683,7 +1690,15 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
     records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
   );
 
-  return records.map((record) => toCaregiverAppointmentRecord(record, seniorNamesByProfileId));
+  const appointments = records.map((record) => toCaregiverAppointmentRecord(record, seniorNamesByProfileId));
+
+  // Defensive ownership filter: only return appointments for seniors linked
+  // to this caregiver, even if the caregiver reference query is broad.
+  if (linkedSeniorProfileIds.size > 0) {
+    return appointments.filter((appointment) => linkedSeniorProfileIds.has(String(appointment.seniorId || '').trim()));
+  }
+
+  return appointments;
 }
 
 export async function getAppointmentsForSenior({ seniorUserId, seniorEmail, limit = 100 } = {}) {

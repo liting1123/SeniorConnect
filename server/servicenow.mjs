@@ -2204,21 +2204,26 @@ export async function createFamilyVerification({ seniorId, familyEmail, familyUs
     throw Object.assign(new Error('Senior ID was not found.'), { status: 404 });
   }
 
-  if (!normalizedFamilyEmail || !normalizedFamilyUserId) {
-    throw Object.assign(new Error('Family member account is required.'), { status: 400 });
+  if (!normalizedFamilyEmail) {
+    throw Object.assign(new Error('Family member email is required.'), { status: 400 });
   }
 
   const expiresAt = getServiceNowUtcDateTime(new Date(Date.now() + 10 * 60 * 1000));
   const verificationCode = generateVerificationCode();
+  const verificationPayload = {
+    [FAMILY_VERIFICATION_FIELD_MAP.senior]: seniorProfile.sys_id,
+    [FAMILY_VERIFICATION_FIELD_MAP.familyEmail]: normalizedFamilyEmail,
+    [FAMILY_VERIFICATION_FIELD_MAP.code]: verificationCode,
+    [FAMILY_VERIFICATION_FIELD_MAP.expiresAt]: expiresAt,
+  };
+
+  if (normalizedFamilyUserId) {
+    verificationPayload[FAMILY_VERIFICATION_FIELD_MAP.familyUser] = normalizedFamilyUserId;
+  }
+
   const data = await serviceNowFamilyVerificationFetch('', {
     method: 'POST',
-    body: JSON.stringify({
-      [FAMILY_VERIFICATION_FIELD_MAP.senior]: seniorProfile.sys_id,
-      [FAMILY_VERIFICATION_FIELD_MAP.familyEmail]: normalizedFamilyEmail,
-      [FAMILY_VERIFICATION_FIELD_MAP.code]: verificationCode,
-      [FAMILY_VERIFICATION_FIELD_MAP.expiresAt]: expiresAt,
-      [FAMILY_VERIFICATION_FIELD_MAP.familyUser]: normalizedFamilyUserId,
-    }),
+    body: JSON.stringify(verificationPayload),
   });
   const verification = toFamilyVerificationRecord(data?.result || {});
 
@@ -2274,7 +2279,15 @@ export async function getPendingFamilyVerificationCodesForSenior(userId) {
   return activeRecords;
 }
 
-export async function verifyFamilyVerification({ verificationId, seniorId, familyEmail, familyUserId, code, relationship }) {
+export async function verifyFamilyVerification({
+  verificationId,
+  seniorId,
+  familyEmail,
+  familyUserId,
+  code,
+  relationship,
+  pendingRegistration,
+}) {
   const normalizedCode = String(code || '').trim();
   const normalizedFamilyEmail = normalizeLoginValue(familyEmail);
   const normalizedFamilyUserId = String(familyUserId || '').trim();
@@ -2307,7 +2320,10 @@ export async function verifyFamilyVerification({ verificationId, seniorId, famil
     throw Object.assign(new Error('Verification request was not found.'), { status: 404 });
   }
 
-  if (verification.familyEmail.toLowerCase() !== normalizedFamilyEmail || verification.familyUserId !== normalizedFamilyUserId) {
+  if (
+    verification.familyEmail.toLowerCase() !== normalizedFamilyEmail
+    || (verification.familyUserId && verification.familyUserId !== normalizedFamilyUserId)
+  ) {
     throw Object.assign(new Error('This verification request does not belong to this account.'), { status: 403 });
   }
 
@@ -2323,15 +2339,33 @@ export async function verifyFamilyVerification({ verificationId, seniorId, famil
     throw Object.assign(new Error('Verification code is incorrect.'), { status: 401 });
   }
 
+  let registeredUser = null;
+  let effectiveFamilyUserId = normalizedFamilyUserId;
+
+  if (pendingRegistration) {
+    registeredUser = await registerWithServiceNow({
+      email: pendingRegistration.email,
+      password: pendingRegistration.password,
+      name: pendingRegistration.name,
+      role: relationship || 'Family',
+    });
+    effectiveFamilyUserId = registeredUser.id;
+  }
+
+  if (!effectiveFamilyUserId) {
+    throw Object.assign(new Error('Family member account is required.'), { status: 400 });
+  }
+
   await serviceNowFamilyVerificationFetch(`/${encodeURIComponent(verification.id)}`, {
     method: 'PATCH',
     body: JSON.stringify({
       [FAMILY_VERIFICATION_FIELD_MAP.verifiedAt]: getServiceNowUtcDateTime(),
+      [FAMILY_VERIFICATION_FIELD_MAP.familyUser]: effectiveFamilyUserId,
     }),
   });
 
   const role = getRoleFromRelationship(relationship);
-  await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(normalizedFamilyUserId)}`), {
+  await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(effectiveFamilyUserId)}`), {
     method: 'PATCH',
     body: JSON.stringify({
       [LOGIN_FIELD_MAP.role]: role,
@@ -2339,13 +2373,17 @@ export async function verifyFamilyVerification({ verificationId, seniorId, famil
   });
 
   const connection = await createCaregiverConnection({
-    caregiverId: normalizedFamilyUserId,
+    caregiverId: effectiveFamilyUserId,
     caregiverEmail: normalizedFamilyEmail,
     seniorId: verification.seniorId,
     relationship: relationship || 'Family Member',
   });
 
-  return { verification: { ...verification, status: 'Verified', code: undefined }, connection };
+  return {
+    verification: { ...verification, status: 'Verified', code: undefined },
+    connection,
+    ...(registeredUser ? { user: registeredUser } : {}),
+  };
 }
 
 function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser = {}) {

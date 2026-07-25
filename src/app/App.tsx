@@ -869,7 +869,7 @@ export default function App() {
             highContrast={highContrast}
             onGetStarted={handleLoginSuccess}
             onFamilyRegister={(user) => {
-              setFamilyRegistrationNotice(t('familyMemberRegistered', { email: user.email || t('familyMember') }));
+              setFamilyRegistrationNotice(t('familyRegistrationPending', { email: user.email || t('familyMember') }));
               setCurrentScreen('carePortal');
             }}
           />

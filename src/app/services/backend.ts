@@ -107,15 +107,17 @@ export type AppUser = {
   role: string;
 };
 
+type LoginUser = {
+  id: string;
+  username?: string;
+  email: string;
+  name: string;
+  role?: string;
+};
+
 type LoginResponse = {
   token: string;
-  user: {
-    id: string;
-    username?: string;
-    email: string;
-    name: string;
-    role?: string;
-  };
+  user: LoginUser;
 };
 
 const SESSION_KEY = 'careconnect.user';
@@ -592,7 +594,12 @@ export async function verifyFamilyCode(
     verificationId: string;
   },
 ) {
-  const data = await request<{ verification: FamilyVerification; connection: unknown }>(
+  const data = await request<{
+    verification: FamilyVerification;
+    connection: unknown;
+    user?: LoginUser;
+    token?: string;
+  }>(
     user,
     '/api/servicenow/family-verification/verify',
     {
@@ -607,6 +614,16 @@ export async function verifyFamilyCode(
       }),
     },
   );
+
+  if (data.user && data.token) {
+    setStoredUser({
+      uid: data.user.id,
+      email: data.user.email || data.user.username || user.email,
+      displayName: data.user.name,
+      token: data.token,
+      role: data.user.role || 'Family',
+    });
+  }
 
   return data;
 }

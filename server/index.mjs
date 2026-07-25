@@ -50,6 +50,7 @@ loadEnv();
 const PORT = Number(process.env.API_PORT) || 3001;
 const checkInReminders = [];
 const loginMfaCodes = new Map();
+const pendingFamilyRegistrations = new Map();
 const APPOINTMENT_REMINDER_STATE_PATH = resolve(process.cwd(), '.careconnect-appointment-reminders.json');
 const NOTIFICATION_DEDUPE_STATE_PATH = resolve(process.cwd(), '.careconnect-notification-dedupe.json');
 const appointmentReminders = new Set(); // Track `${appointmentId}:${yyyy-mm-dd}` reminders sent per day
@@ -439,6 +440,29 @@ function requireAuth(request) {
   if (!authHeader.startsWith('Bearer ')) {
     throw Object.assign(new Error('Missing app session token'), { status: 401 });
   }
+}
+
+function getBearerToken(request) {
+  const authHeader = String(request.headers.authorization || '');
+  return authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+}
+
+function getPendingFamilyRegistration(request) {
+  const token = getBearerToken(request);
+
+  if (!token.startsWith('pending-family:')) {
+    return null;
+  }
+
+  const registrationId = token.slice('pending-family:'.length);
+  const pending = pendingFamilyRegistrations.get(registrationId);
+
+  if (!pending || pending.expiresAt <= Date.now()) {
+    pendingFamilyRegistrations.delete(registrationId);
+    throw Object.assign(new Error('Registration session expired. Please register again.'), { status: 410 });
+  }
+
+  return { registrationId, ...pending };
 }
 
 function normalizeEmail(value = '') {
@@ -1847,13 +1871,32 @@ export async function handleRequest(request, response) {
 
   if (url.pathname === '/api/register-family' && request.method === 'POST') {
     const body = await readJson(request);
-    const user = await registerWithServiceNow({
-      email: body.email,
-      password: body.password,
-      name: body.name,
-      role: 'Family',
+    const email = normalizeEmail(body.email);
+    const password = String(body.password || '');
+
+    if (!email || !password) {
+      throw Object.assign(new Error('Email and password are required.'), { status: 400 });
+    }
+
+    const registrationId = crypto.randomBytes(24).toString('hex');
+    pendingFamilyRegistrations.set(registrationId, {
+      email,
+      password,
+      name: String(body.name || '').trim(),
+      expiresAt: Date.now() + 30 * 60 * 1000,
     });
-    sendJson(response, 200, { user, token: `servicenow:${user.id}` });
+
+    sendJson(response, 200, {
+      pending: true,
+      user: {
+        id: `pending:${registrationId}`,
+        email,
+        username: email,
+        name: String(body.name || '').trim() || email.split('@')[0],
+        role: 'Family',
+      },
+      token: `pending-family:${registrationId}`,
+    });
     return;
   }
 
@@ -2307,10 +2350,11 @@ export async function handleRequest(request, response) {
   if (url.pathname === '/api/servicenow/family-verification/start' && request.method === 'POST') {
     requireAuth(request);
     const body = await readJson(request);
+    const pendingRegistration = getPendingFamilyRegistration(request);
     const result = await createFamilyVerification({
       seniorId: body.seniorId,
-      familyEmail: body.familyEmail,
-      familyUserId: body.familyUserId,
+      familyEmail: pendingRegistration?.email || body.familyEmail,
+      familyUserId: pendingRegistration ? '' : body.familyUserId,
     });
 
     sendJson(response, 200, result);
@@ -2320,16 +2364,27 @@ export async function handleRequest(request, response) {
   if (url.pathname === '/api/servicenow/family-verification/verify' && request.method === 'POST') {
     requireAuth(request);
     const body = await readJson(request);
+    const pendingRegistration = getPendingFamilyRegistration(request);
     const result = await verifyFamilyVerification({
       verificationId: body.verificationId,
       seniorId: body.seniorId,
-      familyEmail: body.familyEmail,
-      familyUserId: body.familyUserId,
+      familyEmail: pendingRegistration?.email || body.familyEmail,
+      familyUserId: pendingRegistration ? '' : body.familyUserId,
       code: body.code,
       relationship: body.relationship,
+      pendingRegistration,
     });
 
-    sendJson(response, 200, result);
+    if (pendingRegistration) {
+      pendingFamilyRegistrations.delete(pendingRegistration.registrationId);
+      sendJson(response, 200, {
+        ...result,
+        user: result.user,
+        token: `servicenow:${result.user.id}`,
+      });
+    } else {
+      sendJson(response, 200, result);
+    }
     return;
   }
 

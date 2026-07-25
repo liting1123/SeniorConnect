@@ -364,6 +364,7 @@ export default function CaregiverDashboardScreen({
   const caregiverId = currentUser?.uid || '';
   const caregiverEmail = currentUser?.email || '';
   const [seniors, setSeniors] = useState<Senior[]>([]);
+  const [missedCheckInNotice, setMissedCheckInNotice] = useState('');
   const [isLoadingSeniors, setIsLoadingSeniors] = useState(false);
   const [seniorError, setSeniorError] = useState('');
   const [selectedSenior, setSelectedSenior] = useState<Senior | null>(null);
@@ -479,6 +480,59 @@ export default function CaregiverDashboardScreen({
   useEffect(() => {
     setSosHistory(getStoredSosHistory(caregiverEmail));
   }, [caregiverEmail]);
+
+  useEffect(() => {
+    if ((!caregiverId && !caregiverEmail) || seniors.length === 0) {
+      return;
+    }
+
+    const singaporeTime = new Intl.DateTimeFormat('en-CA', {
+      hour: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Singapore',
+    }).format(new Date());
+
+    // Do not say a senior missed today's check-in before the morning
+    // check-in deadline has passed.
+    if (Number(singaporeTime) < 9) {
+      return;
+    }
+
+    const dateKey = getSingaporeDateKey(new Date());
+    const caregiverIdentity = (caregiverId || caregiverEmail).trim().toLowerCase();
+    const storageKey = `careconnect.missedCheckInPopup.${caregiverIdentity}.${dateKey}`;
+    const seenSeniorIds = new Set<string>();
+
+    try {
+      const storedIds = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      if (Array.isArray(storedIds)) {
+        storedIds.forEach((id) => seenSeniorIds.add(String(id)));
+      }
+    } catch {
+      localStorage.removeItem(storageKey);
+    }
+
+    const newlyMissed = seniors.filter(
+      (senior) => !hasCheckedInToday(senior.lastCheckIn) && !seenSeniorIds.has(senior.id),
+    );
+
+    if (newlyMissed.length === 0) {
+      return;
+    }
+
+    const names = newlyMissed.map((senior) => senior.name || 'Senior');
+    const message = names.length === 1
+      ? `${names[0]} hasn't checked in today.`
+      : `${names.slice(0, -1).join(', ')} and ${names.at(-1)} haven't checked in today.`;
+
+    setMissedCheckInNotice(message);
+    newlyMissed.forEach((senior) => seenSeniorIds.add(senior.id));
+    localStorage.setItem(storageKey, JSON.stringify([...seenSeniorIds]));
+
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      new Notification('CareConnect', { body: message });
+    }
+  }, [caregiverEmail, caregiverId, seniors]);
 
   useEffect(() => {
     if (!caregiverEmail && !caregiverId) {
@@ -1100,6 +1154,25 @@ export default function CaregiverDashboardScreen({
           />
         )}
       </main>
+
+      {missedCheckInNotice && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 px-5">
+          <div className="w-full max-w-[360px] rounded-[28px] bg-white p-6 text-center shadow-[0_20px_55px_rgba(0,0,0,0.24)]">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#fff0e8] text-[#c52d28]">
+              <Bell className="h-9 w-9" />
+            </div>
+            <h2 className="mt-4 text-2xl font-black text-[#151515]">Missed Check-In</h2>
+            <p className="mt-3 text-lg font-bold leading-7 text-[#4d535b]">{missedCheckInNotice}</p>
+            <button
+              type="button"
+              onClick={() => setMissedCheckInNotice('')}
+              className="mt-6 flex h-12 w-full items-center justify-center rounded-full bg-[#c52d28] text-base font-black text-white active:scale-95"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
       {showSeniorLimitConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">

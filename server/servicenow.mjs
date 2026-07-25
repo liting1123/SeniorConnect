@@ -2411,39 +2411,58 @@ function toActiveSosAlert(record = {}) {
   };
 }
 
-export async function getLatestActiveSosAlertForSenior(senior = {}) {
+function buildSeniorSosQuery({ seniorProfileId, seniorName, seniorPhone }) {
+  if (seniorProfileId) {
+    return `${SOS_ALERT_FIELD_MAP.senior}=${seniorProfileId}`;
+  }
+
+  if (seniorName && seniorPhone) {
+    // Compatibility fallback for callers without a profile ID. Requiring both
+    // values prevents a shared name or reused phone number from matching alone.
+    return `${SOS_ALERT_FIELD_MAP.seniorName}=${seniorName}^${SOS_ALERT_FIELD_MAP.seniorPhone}=${seniorPhone}`;
+  }
+
+  return '';
+}
+
+function isSosRecordOwnedBySenior(record = {}, { seniorProfileId }) {
+  const recordSeniorId = getReferenceValue(record[SOS_ALERT_FIELD_MAP.senior]).trim();
+
+  if (!seniorProfileId) {
+    return false;
+  }
+
+  return Boolean(recordSeniorId) && recordSeniorId.toLowerCase() === seniorProfileId.toLowerCase();
+}
+
+export async function getActiveSosAlertsForSenior(senior = {}, { limit = 20 } = {}) {
   const seniorProfileId = String(senior.id || senior.sysId || '').trim();
   const seniorName = String(senior.name || '').trim();
   const seniorPhone = String(senior.phone || '').trim();
-  let query = '';
-
-  if (seniorProfileId) {
-    query = `${SOS_ALERT_FIELD_MAP.senior}=${seniorProfileId}`;
-  } else if (seniorName && seniorPhone) {
-    // Compatibility fallback for callers without a profile ID. Requiring both
-    // values prevents a shared name or reused phone number from matching alone.
-    query = `${SOS_ALERT_FIELD_MAP.seniorName}=${seniorName}^${SOS_ALERT_FIELD_MAP.seniorPhone}=${seniorPhone}`;
-  }
+  const query = buildSeniorSosQuery({ seniorProfileId, seniorName, seniorPhone });
 
   if (!query) {
-    return null;
+    return [];
   }
 
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
   const params = new URLSearchParams({
     sysparm_query: `${query}^ORDERBYDESCsys_created_on`,
-    sysparm_limit: '5',
+    sysparm_limit: String(normalizedLimit),
   });
   const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE, `?${params.toString()}`));
-  const activeAlert = (data?.result || [])
+
+  return (data?.result || [])
     // ServiceNow may drop an invalid encoded-query condition and return rows
     // for every senior. Never trust the server-side filter without checking
     // the stored owner again.
-    .filter((record) => {
-      const recordSeniorId = getReferenceValue(record[SOS_ALERT_FIELD_MAP.senior]).trim();
-      return Boolean(recordSeniorId) && recordSeniorId.toLowerCase() === seniorProfileId.toLowerCase();
-    })
+    .filter((record) => isSosRecordOwnedBySenior(record, { seniorProfileId }))
     .map(toActiveSosAlert)
-    .find(Boolean);
+    .filter(Boolean);
+}
+
+export async function getLatestActiveSosAlertForSenior(senior = {}) {
+  const [activeAlert] = await getActiveSosAlertsForSenior(senior, { limit: 5 });
 
   return activeAlert || null;
 }

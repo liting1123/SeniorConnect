@@ -27,7 +27,7 @@ import {
   getSensorActivitySnapshot,
   getServiceNowLoginConfig,
   getSosAlertHistory,
-  getLatestActiveSosAlertForSenior,
+  getActiveSosAlertsForSenior,
   getVitalsHistory,
   getUserById,
   loginWithServiceNow,
@@ -1507,60 +1507,77 @@ async function checkForUnresponsiveSosAlerts() {
 
     for (const senior of seniors) {
       try {
-        const activeAlert = await getLatestActiveSosAlertForSenior(senior);
+        const activeAlerts = await getActiveSosAlertsForSenior(senior, { limit: 25 });
+        const activeAlertIds = new Set((activeAlerts || []).map((alert) => alert.id));
 
-        if (!activeAlert?.id) {
-          escalatedSosAlerts.delete(senior.id);
+        if (!activeAlerts || activeAlerts.length === 0) {
+          for (const [alertId, entry] of escalatedSosAlerts.entries()) {
+            if (entry?.seniorId === senior.id) {
+              escalatedSosAlerts.delete(alertId);
+            }
+          }
           continue;
         }
 
-        const createdAtMs = new Date(activeAlert.createdAt).getTime();
-
-        if (Number.isNaN(createdAtMs)) {
-          continue;
+        for (const [alertId, entry] of escalatedSosAlerts.entries()) {
+          if (entry?.seniorId === senior.id && !activeAlertIds.has(alertId)) {
+            escalatedSosAlerts.delete(alertId);
+          }
         }
 
-        const ageMs = Date.now() - createdAtMs;
+        for (const activeAlert of activeAlerts) {
+          if (!activeAlert?.id) {
+            continue;
+          }
 
-        if (ageMs < SOS_ALERT_ESCALATION_THRESHOLD_MS) {
-          continue;
-        }
+          const createdAtMs = new Date(activeAlert.createdAt).getTime();
 
-        if (escalatedSosAlerts.has(activeAlert.id)) {
-          continue;
-        }
+          if (Number.isNaN(createdAtMs)) {
+            continue;
+          }
 
-        const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: senior.id }).catch(() => []);
-        const caregiverName = caregiverContacts[0]?.caregiverName || 'Caregiver';
-        const caregiverEmail = caregiverContacts[0]?.caregiverEmail || '';
-        const minutesUnresolved = Math.round(ageMs / (60 * 1000));
-        const seniorName = senior.name || 'Senior';
+          const ageMs = Date.now() - createdAtMs;
 
-        const aicAlertMessage = [
-          '⚠️ <b>UNRESPONSIVE SOS ALERT</b>',
-          '',
-          `👤 Senior: ${seniorName}`,
-          senior.id ? `🆔 Senior ID: ${senior.id}` : '',
-          `📣 SOS message: ${activeAlert.message || 'SOS alert triggered'}`,
-          activeAlert.location ? `📍 Location: ${activeAlert.location}` : '',
-          caregiverName ? `👨‍⚕️ Primary caregiver: ${caregiverName}` : '',
-          caregiverEmail ? `📧 Caregiver email: ${caregiverEmail}` : '',
-          `⏱ Unresolved for: ${minutesUnresolved} minutes`,
-          '',
-          '<i>The SOS alert is still active and the caregiver has not responded. Please take immediate action.</i>',
-        ].filter(Boolean).join('\n');
+          if (ageMs < SOS_ALERT_ESCALATION_THRESHOLD_MS) {
+            continue;
+          }
 
-        await sendAICAlert(aicAlertMessage)
-          .then(() => {
-            escalatedSosAlerts.set(activeAlert.id, {
-              seniorId: senior.id,
-              escalatedAt: Date.now(),
+          if (escalatedSosAlerts.has(activeAlert.id)) {
+            continue;
+          }
+
+          const caregiverContacts = await getCaregiverContactsForSenior({ seniorProfileId: senior.id }).catch(() => []);
+          const caregiverName = caregiverContacts[0]?.caregiverName || 'Caregiver';
+          const caregiverEmail = caregiverContacts[0]?.caregiverEmail || '';
+          const minutesUnresolved = Math.round(ageMs / (60 * 1000));
+          const seniorName = senior.name || 'Senior';
+
+          const aicAlertMessage = [
+            '⚠️ <b>UNRESPONSIVE SOS ALERT</b>',
+            '',
+            `👤 Senior: ${seniorName}`,
+            senior.id ? `🆔 Senior ID: ${senior.id}` : '',
+            `📣 SOS message: ${activeAlert.message || 'SOS alert triggered'}`,
+            activeAlert.location ? `📍 Location: ${activeAlert.location}` : '',
+            caregiverName ? `👨‍⚕️ Primary caregiver: ${caregiverName}` : '',
+            caregiverEmail ? `📧 Caregiver email: ${caregiverEmail}` : '',
+            `⏱ Unresolved for: ${minutesUnresolved} minutes`,
+            '',
+            '<i>The SOS alert is still active and the caregiver has not responded. Please take immediate action.</i>',
+          ].filter(Boolean).join('\n');
+
+          await sendAICAlert(aicAlertMessage)
+            .then(() => {
+              escalatedSosAlerts.set(activeAlert.id, {
+                seniorId: senior.id,
+                escalatedAt: Date.now(),
+              });
+              console.log(`[SOS Monitor] ✓ AIC alert sent for unresolved SOS ${activeAlert.id} (senior ${senior.id})`);
+            })
+            .catch((err) => {
+              console.error('[SOS Monitor] Failed to send AIC alert:', err.message);
             });
-            console.log(`[SOS Monitor] ✓ AIC alert sent for unresolved SOS ${activeAlert.id} (senior ${senior.id})`);
-          })
-          .catch((err) => {
-            console.error('[SOS Monitor] Failed to send AIC alert:', err.message);
-          });
+        }
       } catch (err) {
         console.error('[SOS Monitor] Error checking senior SOS status:', err.message);
       }

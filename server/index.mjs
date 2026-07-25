@@ -657,7 +657,7 @@ async function sendTelegramMessageToCaregivers(caregiverContacts, text, label = 
 
   if (telegramTargets.length === 0) {
     console.warn(`[Telegram] No saved chat IDs found for ${label}.`);
-    return;
+    return false;
   }
 
   await Promise.all(
@@ -670,6 +670,8 @@ async function sendTelegramMessageToCaregivers(caregiverContacts, text, label = 
       }),
     ),
   );
+
+  return true;
 }
 
 function getUniqueCaregiverContacts(caregiverContacts = []) {
@@ -2406,17 +2408,32 @@ export async function handleRequest(request, response) {
     try {
       const seniorName = body.seniorName || 'Senior';
       const formattedTime = formatTimeWith12Hour(body.time);
-
-      await sendTelegramMessageToCaregivers(
-        caregiverContacts,
+      const appointmentTelegramMessage =
         `📅 <b>New Appointment Created</b>\n\n` +
-          `👤 Senior: ${seniorName}\n` +
-          `📋 Title: ${body.title}\n` +
-          `🗓 Date: ${body.date}\n` +
-          `🕐 Time: ${formattedTime}` +
-          (body.location ? `\n📍 Location: ${body.location}` : ''),
+        `👤 Senior: ${seniorName}\n` +
+        `📋 Title: ${body.title}\n` +
+        `🗓 Date: ${body.date}\n` +
+        `🕐 Time: ${formattedTime}` +
+        (body.location ? `\n📍 Location: ${body.location}` : '');
+
+      const sentToCaregiverContacts = await sendTelegramMessageToCaregivers(
+        caregiverContacts,
+        appointmentTelegramMessage,
         'appointment created',
       );
+
+      if (!sentToCaregiverContacts) {
+        const directChatId = await resolveDirectCaregiverTelegramChatId({
+          caregiverId: body.caregiverId,
+          caregiverEmail: body.caregiverEmail,
+        });
+
+        if (directChatId) {
+          await sendTelegramMessageToChatId(directChatId, appointmentTelegramMessage);
+          console.log('[Appointment] Telegram notification sent via direct chat ID for new appointment:', appointment.id);
+        }
+      }
+
       console.log('[Appointment] Telegram notification sent for new appointment:', appointment.id);
     } catch (telegramError) {
       console.error('[Appointment] Failed to send Telegram notification:', telegramError);
@@ -2488,16 +2505,30 @@ export async function handleRequest(request, response) {
       // Telegram notification
       const actionText = body.action === 'created' ? 'New Appointment Created 📅' : 'Appointment Updated 📝';
 
-      await sendTelegramMessageToCaregivers(
-        caregiverContacts,
+      const appointmentTelegramMessage =
         `<b>${actionText}</b>\n\n` +
           `👤 Senior: ${seniorName}\n` +
           `📋 Title: ${body.title}\n` +
           `🗓 Date: ${body.date}\n` +
           `🕐 Time: ${formattedTime}` +
-          (body.location ? `\n📍 Location: ${body.location}` : ''),
+          (body.location ? `\n📍 Location: ${body.location}` : '');
+
+      const sentToCaregiverContacts = await sendTelegramMessageToCaregivers(
+        caregiverContacts,
+        appointmentTelegramMessage,
         'appointment notification',
       );
+
+      if (!sentToCaregiverContacts) {
+        const directChatId = await resolveDirectCaregiverTelegramChatId({
+          caregiverId: body.caregiverId,
+          caregiverEmail: body.caregiverEmail,
+        });
+
+        if (directChatId) {
+          await sendTelegramMessageToChatId(directChatId, appointmentTelegramMessage);
+        }
+      }
 
       sendJson(response, 200, { success: true, message: 'Appointment notification sent.' });
     } catch (error) {

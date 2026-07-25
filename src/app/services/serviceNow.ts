@@ -24,6 +24,8 @@ export type CaregiverAppointmentInput = {
   caregiverId: string;
   caregiverEmail: string;
   seniorId: string;
+  seniorName?: string;
+  seniorEmail?: string;
   title: string;
   date: string;
   time: string;

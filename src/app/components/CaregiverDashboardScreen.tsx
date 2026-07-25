@@ -693,6 +693,8 @@ export default function CaregiverDashboardScreen({
       caregiverId,
       caregiverEmail,
       seniorId: appointmentForm.seniorId.trim(),
+      seniorName,
+      seniorEmail: matchingSenior?.email || '',
       title: appointmentForm.title.trim(),
       date: appointmentForm.date,
       time: appointmentForm.time,
@@ -740,27 +742,6 @@ export default function CaregiverDashboardScreen({
         const createdAppointment = await createCaregiverAppointment(payload);
         console.log('Created appointment:', createdAppointment);
         setAppointments((currentAppointments) => [createdAppointment, ...currentAppointments]);
-
-        // Send email notification for new appointment
-        try {
-          await fetch('/api/servicenow/appointments/notify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              caregiverId,
-              caregiverEmail,
-              seniorEmail: matchingSenior?.email || '',
-              seniorName,
-              title: appointmentForm.title.trim(),
-              date: appointmentForm.date,
-              time: appointmentForm.time,
-              location: appointmentForm.location.trim(),
-              action: 'created',
-            }),
-          });
-        } catch (emailError) {
-          console.warn('Failed to send email notification:', emailError);
-        }
       }
 
       setAppointmentForm({ seniorId: '', seniorName: '', title: '', date: '', time: '', location: '', notes: '' });

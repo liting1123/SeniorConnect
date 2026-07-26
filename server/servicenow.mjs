@@ -2279,6 +2279,7 @@ export async function getPendingFamilyVerificationCodesForSenior(userId) {
   return activeRecords;
 }
 
+//verify a family verification code and create a caregiver connection if valid
 export async function verifyFamilyVerification({
   verificationId,
   seniorId,

@@ -1868,7 +1868,7 @@ export async function handleRequest(request, response) {
     sendJson(response, 200, { user, token: `servicenow:${user.id}` });
     return;
   }
-
+//register family endpoint for pending family registrations
   if (url.pathname === '/api/register-family' && request.method === 'POST') {
     const body = await readJson(request);
     const email = normalizeEmail(body.email);
@@ -1899,7 +1899,7 @@ export async function handleRequest(request, response) {
     });
     return;
   }
-
+//reset password endpoint for service now users
   if (url.pathname === '/api/forgot-password' && request.method === 'POST') {
     const body = await readJson(request);
     await resetPasswordWithServiceNow({

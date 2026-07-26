@@ -3,6 +3,7 @@ type BackendUser = {
   userId: string;
   email: string;
   name: string;
+  role?: string;
   phone?: string;
   gender?: string;
   dateOfBirth?: string;
@@ -107,17 +108,15 @@ export type AppUser = {
   role: string;
 };
 
-type LoginUser = {
-  id: string;
-  username?: string;
-  email: string;
-  name: string;
-  role?: string;
-};
-
 type LoginResponse = {
   token: string;
-  user: LoginUser;
+  user: {
+    id: string;
+    username?: string;
+    email: string;
+    name: string;
+    role?: string;
+  };
 };
 
 const SESSION_KEY = 'careconnect.user';
@@ -597,7 +596,7 @@ export async function verifyFamilyCode(
   const data = await request<{
     verification: FamilyVerification;
     connection: unknown;
-    user?: LoginUser;
+    user?: BackendUser;
     token?: string;
   }>(
     user,
@@ -617,8 +616,8 @@ export async function verifyFamilyCode(
 
   if (data.user && data.token) {
     setStoredUser({
-      uid: data.user.id,
-      email: data.user.email || data.user.username || user.email,
+      uid: data.user.userId,
+      email: data.user.email || user.email,
       displayName: data.user.name,
       token: data.token,
       role: data.user.role || 'Family',

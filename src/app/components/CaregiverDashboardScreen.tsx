@@ -813,7 +813,9 @@ export default function CaregiverDashboardScreen({
   // handleDeleteAppointment above (async, calling updateCaregiverAppointment/
   // deleteCaregiverAppointment) — this function's local-only counterparts of
   // those two were dropped as stale duplicates; only this creator survives.
-  const handleAssistantCreateAppointment = (input: AssistantAppointmentRequest): { ok: boolean; message: string } => {
+  const handleAssistantCreateAppointment = async (
+    input: AssistantAppointmentRequest,
+  ): Promise<{ ok: boolean; message: string }> => {
     const seniorName = input.seniorName.trim();
     const matchingSenior = seniors.find((senior) => senior.name.trim().toLowerCase() === seniorName.toLowerCase());
 
@@ -834,24 +836,52 @@ export default function CaregiverDashboardScreen({
       return { ok: false, message: `${input.date} ${input.time} is in the past — appointments must be upcoming.` };
     }
 
-    const nextAppointment: HealthBuddyAppointment = {
-      id: `appt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      seniorId: matchingSenior.userId || matchingSenior.id || matchingSenior.connectionId || '',
+    // PERSIST through the SAME server call the manual HealthBuddy form uses.
+    // This previously only did setAppointments(...) — a local React state
+    // update — so an assistant booking looked like it worked, then vanished on
+    // the next reload because it never reached ServiceNow's u_appointment.
+    // The server rejects an empty senior id with a generic "Senior, title,
+    // date, and time are required", which is opaque coming back through the
+    // chat. Catch it here and say what actually went wrong.
+    const resolvedSeniorId =
+      matchingSenior.userId || matchingSenior.id || matchingSenior.connectionId || '';
+    if (!resolvedSeniorId) {
+      return {
+        ok: false,
+        message: `${matchingSenior.name} has no linked profile ID on this account, `
+          + 'so the appointment cannot be saved. Book it from the HealthBuddy tab instead.',
+      };
+    }
+
+    const payload: CaregiverAppointmentInput = {
+      caregiverId,
+      caregiverEmail,
+      seniorId: resolvedSeniorId,
       seniorName: matchingSenior.name,
+      seniorEmail: matchingSenior.email || '',
       title: input.title.trim(),
       date: input.date,
       time: input.time,
       location: input.location.trim(),
       notes: input.notes.trim(),
       status: 'scheduled',
-      createdAt: new Date().toISOString(),
     };
 
-    setAppointments((currentAppointments) => [nextAppointment, ...currentAppointments]);
-    return {
-      ok: true,
-      message: `Appointment "${nextAppointment.title}" for ${nextAppointment.seniorName} created on ${nextAppointment.date} at ${nextAppointment.time}. It is visible in the HealthBuddy tab.`,
-    };
+    try {
+      const created = await createCaregiverAppointment(payload);
+      setAppointments((currentAppointments) => [created, ...currentAppointments]);
+      return {
+        ok: true,
+        message: `Appointment "${payload.title}" for ${payload.seniorName} booked for `
+          + `${payload.date} at ${payload.time}. It is saved and visible in the HealthBuddy tab.`,
+      };
+    } catch (error) {
+      // Report the real reason back to the model so it can tell the caregiver
+      // the booking failed, instead of cheerfully confirming a lost record.
+      const reason = error instanceof Error ? error.message : 'unknown error';
+      console.error('Assistant appointment booking failed:', error);
+      return { ok: false, message: `Could not save the appointment: ${reason}` };
+    }
   };
 
   const handleUpdateSeniorDetails = async (senior: Senior, details: SeniorDetailsInput) => {

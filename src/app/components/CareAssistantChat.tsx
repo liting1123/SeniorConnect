@@ -295,7 +295,8 @@ export function CareAssistantChat({
   caregiverEmail: string;
   seniors: AssistantSenior[];
   appointments: AssistantAppointment[];
-  onCreateAppointment: (input: AssistantAppointmentRequest) => { ok: boolean; message: string };
+  onCreateAppointment: (input: AssistantAppointmentRequest) =>
+    Promise<{ ok: boolean; message: string }> | { ok: boolean; message: string };
   // Admin-role users share the caregiver dashboard; when true the assistant
   // presents as a fleet/admin assistant (title + context framing) rather
   // than a single-caregiver one. Same data + tools, wider framing.
@@ -360,10 +361,11 @@ export function CareAssistantChat({
     return `OK: preference saved — "${clean}"`;
   }
 
-  // Executes one model-requested action LOCALLY, with validation — the
-  // server never touches appointments or preferences. Returns the tool
-  // result string that goes back into the transcript.
-  function executeToolCall(call: AssistantToolCall): { result: string; display: FeedItem | null } {
+  // Executes one model-requested action, with validation. Preferences stay
+  // local; appointments are PERSISTED via the same server call the manual
+  // HealthBuddy form uses, so an assistant booking is a real record rather
+  // than a React state entry that disappears on the next reload.
+  async function executeToolCall(call: AssistantToolCall): Promise<{ result: string; display: FeedItem | null }> {
     let args: Record<string, unknown> = {};
     try {
       args = JSON.parse(call.arguments || '{}');
@@ -388,7 +390,7 @@ export function CareAssistantChat({
         location: String(args.location || '').trim(),
         notes: String(args.notes || '').trim(),
       };
-      const outcome = onCreateAppointment(request);
+      const outcome = await onCreateAppointment(request);
       return {
         result: outcome.ok ? `OK: ${outcome.message}` : `FAILED: ${outcome.message}`,
         display: outcome.ok
@@ -482,7 +484,7 @@ export function CareAssistantChat({
         ];
 
         for (const call of response.toolCalls) {
-          const { result, display } = executeToolCall(call);
+          const { result, display } = await executeToolCall(call);
           transcriptRef.current = [
             ...transcriptRef.current,
             { role: 'tool', tool_call_id: call.id, content: result },

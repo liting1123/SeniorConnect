@@ -369,6 +369,7 @@ export default function CaregiverDashboardScreen({
   // admin/fleet assistant rather than a single-caregiver one.
   const isAdminUser = String(currentUser?.role || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '') === 'admin';
   const [seniors, setSeniors] = useState<Senior[]>([]);
+  const [missedCheckInNotice, setMissedCheckInNotice] = useState('');
   const [isLoadingSeniors, setIsLoadingSeniors] = useState(false);
   const [seniorError, setSeniorError] = useState('');
   const [selectedSenior, setSelectedSenior] = useState<Senior | null>(null);
@@ -486,7 +487,77 @@ export default function CaregiverDashboardScreen({
   }, [caregiverEmail]);
 
   useEffect(() => {
+    if ((!caregiverId && !caregiverEmail) || seniors.length === 0) {
+      return;
+    }
+
+    const singaporeTimeParts = new Intl.DateTimeFormat('en-CA', {
+      hour: '2-digit',
+      hour12: false,
+      minute: '2-digit',
+      timeZone: 'Asia/Singapore',
+    }).formatToParts(new Date());
+    const singaporeTime = Object.fromEntries(
+      singaporeTimeParts.map((part) => [part.type, part.value]),
+    );
+    const singaporeMinutes = Number(singaporeTime.hour) * 60 + Number(singaporeTime.minute);
+
+    // Do not say a senior missed today's check-in before the morning
+    // check-in deadline has passed.
+    if (singaporeMinutes <= 11 * 60 + 59) {
+      return;
+    }
+
+    const dateKey = getSingaporeDateKey(new Date());
+    const caregiverIdentity = (caregiverId || caregiverEmail).trim().toLowerCase();
+    const storageKey = `careconnect.missedCheckInPopup.${caregiverIdentity}.${dateKey}`;
+    const seenSeniorIds = new Set<string>();
+
+    try {
+      const storedIds = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      if (Array.isArray(storedIds)) {
+        storedIds.forEach((id) => seenSeniorIds.add(String(id)));
+      }
+    } catch {
+      localStorage.removeItem(storageKey);
+    }
+
+    const newlyMissed = seniors.filter(
+      (senior) => !hasCheckedInToday(senior.lastCheckIn) && !seenSeniorIds.has(senior.id),
+    );
+
+    if (newlyMissed.length === 0) {
+      return;
+    }
+
+    const names = newlyMissed.map((senior) => senior.name || 'Senior');
+    const message = names.length === 1
+      ? `${names[0]} hasn't checked in today.`
+      : `${names.slice(0, -1).join(', ')} and ${names.at(-1)} haven't checked in today.`;
+
+    setMissedCheckInNotice(message);
+    newlyMissed.forEach((senior) => seenSeniorIds.add(senior.id));
+    localStorage.setItem(storageKey, JSON.stringify([...seenSeniorIds]));
+
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      new Notification('CareConnect', { body: message });
+    }
+  }, [caregiverEmail, caregiverId, seniors]);
+
+  useEffect(() => {
     if (!caregiverEmail && !caregiverId) {
+      setAppointments([]);
+      return;
+    }
+
+    const linkedSeniorIds = new Set(
+      seniors
+        .flatMap((senior) => [senior.id, senior.userId, senior.connectionId])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    );
+
+    if (linkedSeniorIds.size === 0) {
       setAppointments([]);
       return;
     }
@@ -504,9 +575,10 @@ export default function CaregiverDashboardScreen({
 
       try {
         const rows = await getCaregiverAppointments(caregiverId, caregiverEmail);
+        const ownedRows = rows.filter((row) => linkedSeniorIds.has(String(row.seniorId || '').trim()));
 
         if (isMounted) {
-          setAppointments((currentRows) => (areAppointmentsEqual(currentRows, rows) ? currentRows : rows));
+          setAppointments((currentRows) => (areAppointmentsEqual(currentRows, ownedRows) ? currentRows : ownedRows));
         }
       } catch (error) {
         console.error('Unable to load appointments from ServiceNow:', error);
@@ -524,7 +596,7 @@ export default function CaregiverDashboardScreen({
     return () => {
       isMounted = false;
     };
-  }, [caregiverEmail, caregiverId]);
+  }, [caregiverEmail, caregiverId, seniors]);
 
   const sortedAppointments = [...appointments].sort((left, right) => {
     const leftTime = getAppointmentDateTime(left)?.getTime() || Number.MAX_SAFE_INTEGER;
@@ -626,6 +698,8 @@ export default function CaregiverDashboardScreen({
       caregiverId,
       caregiverEmail,
       seniorId: appointmentForm.seniorId.trim(),
+      seniorName,
+      seniorEmail: matchingSenior?.email || '',
       title: appointmentForm.title.trim(),
       date: appointmentForm.date,
       time: appointmentForm.time,
@@ -673,27 +747,6 @@ export default function CaregiverDashboardScreen({
         const createdAppointment = await createCaregiverAppointment(payload);
         console.log('Created appointment:', createdAppointment);
         setAppointments((currentAppointments) => [createdAppointment, ...currentAppointments]);
-
-        // Send email notification for new appointment
-        try {
-          await fetch('/api/servicenow/appointments/notify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              caregiverId,
-              caregiverEmail,
-              seniorEmail: matchingSenior?.email || '',
-              seniorName,
-              title: appointmentForm.title.trim(),
-              date: appointmentForm.date,
-              time: appointmentForm.time,
-              location: appointmentForm.location.trim(),
-              action: 'created',
-            }),
-          });
-        } catch (emailError) {
-          console.warn('Failed to send email notification:', emailError);
-        }
       }
 
       setAppointmentForm({ seniorId: '', seniorName: '', title: '', date: '', time: '', location: '', notes: '' });
@@ -1155,6 +1208,25 @@ export default function CaregiverDashboardScreen({
         )}
       </main>
 
+      {missedCheckInNotice && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 px-5">
+          <div className="w-full max-w-[360px] rounded-[28px] bg-white p-6 text-center shadow-[0_20px_55px_rgba(0,0,0,0.24)]">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#fff0e8] text-[#c52d28]">
+              <Bell className="h-9 w-9" />
+            </div>
+            <h2 className="mt-4 text-2xl font-black text-[#151515]">Missed Check-In</h2>
+            <p className="mt-3 text-lg font-bold leading-7 text-[#4d535b]">{missedCheckInNotice}</p>
+            <button
+              type="button"
+              onClick={() => setMissedCheckInNotice('')}
+              className="mt-6 flex h-12 w-full items-center justify-center rounded-full bg-[#c52d28] text-base font-black text-white active:scale-95"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
       {showSeniorLimitConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-5">
           <div className="w-full max-w-[360px] rounded-[28px] bg-white p-6 text-center shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
@@ -1539,7 +1611,7 @@ function parseServiceNowDate(value = '', options: { localServiceNowTime?: boolea
 }
 
 function hasCheckedInToday(value = '') {
-  const date = parseServiceNowDate(value, { localServiceNowTime: true });
+  const date = parseServiceNowDate(value);
 
   if (!date) {
     return false;
@@ -1590,7 +1662,7 @@ function formatDetailDateTime(value = '') {
     return 'Not provided';
   }
 
-  const date = parseServiceNowDate(value, { localServiceNowTime: true });
+  const date = parseServiceNowDate(value);
 
   if (!date) {
     return value;
@@ -1604,7 +1676,7 @@ function formatDetailDateTime(value = '') {
 }
 
 function formatCheckInDateTimeParts(value = '') {
-  const date = parseServiceNowDate(value, { localServiceNowTime: true });
+  const date = parseServiceNowDate(value);
 
   if (!date) {
     return {

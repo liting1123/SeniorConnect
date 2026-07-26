@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bell, Camera, CheckCircle, ChevronLeft, Clock, Pill, Trash2, X } from 'lucide-react';
+import { Bell, Camera, Check, CheckCircle, ChevronLeft, Clock, GlassWater, Pill, PillBottle, Sparkles, Trash2, X } from 'lucide-react';
 import {
   getStoredUser,
   getUserStorageIdentity,
@@ -246,9 +246,34 @@ export default function MedicationScreen({
                 />
               ))
             ) : (
-              <div className="rounded-[16px] bg-white p-5 text-center shadow-sm">
-                <p className="text-xl font-bold text-[#07122e]">{t('noMedicineAdded')}</p>
-                <p className="mt-2 text-base text-gray-500">{t('yourMedicineRemindersAppearHere')}</p>
+              <div className={`rounded-[28px] border px-6 py-8 text-center shadow-[0_10px_30px_rgba(15,23,42,0.08)] ${
+                highContrast ? 'border-white bg-black text-white' : 'border-[#edf0f5] bg-white'
+              }`}>
+                <div className="relative mx-auto flex h-36 w-36 items-center justify-center rounded-full bg-[#f1f6ff]">
+                  <span className="absolute left-1 top-12 h-2 w-2 rounded-full bg-[#9fc0f7]" />
+                  <span className="absolute right-2 top-5 h-2 w-2 rounded-full bg-[#9eddd5]" />
+                  <Sparkles className="absolute right-0 top-14 h-5 w-5 text-[#9dbbf5]" />
+                  <PillBottle className="h-20 w-20 text-[#79a3ef]" strokeWidth={1.8} />
+                  <span className="absolute bottom-6 right-3 flex h-12 w-12 items-center justify-center rounded-full border-4 border-[#f1f6ff] bg-[#86d37c] text-white">
+                    <Check className="h-7 w-7" strokeWidth={3} />
+                  </span>
+                </div>
+
+                <h3 className={`mt-6 text-2xl font-black ${highContrast ? 'text-white' : 'text-[#111b35]'}`}>
+                  {t('noMedicineAdded')}
+                </h3>
+                <p className={`mx-auto mt-3 max-w-[280px] text-lg leading-7 ${highContrast ? 'text-white/80' : 'text-[#667085]'}`}>
+                  {t('noMedicationsAssignedDetail')}
+                </p>
+
+                <div className={`mx-auto mt-7 flex max-w-[300px] items-center justify-center gap-4 border-t pt-6 ${
+                  highContrast ? 'border-white/30' : 'border-[#e8edf5]'
+                }`}>
+                  <GlassWater className="h-10 w-10 shrink-0 text-[#77a6f7]" strokeWidth={1.8} />
+                  <p className={`text-left text-lg font-medium leading-7 ${highContrast ? 'text-white' : 'text-[#667085]'}`}>
+                    {t('yourMedicineRemindersAppearHere')}
+                  </p>
+                </div>
               </div>
             )}
           </div>

@@ -109,6 +109,7 @@ const en = {
   enterUsernameOrEmail: 'Enter your email',
   familyMember: 'Family member',
   familyMemberRegistered: '{{email}} has been registered.',
+  familyRegistrationPending: 'Verify a senior to finish registering {{email}}.',
   familyVerificationCode: 'Family Verification Code',
   familyVerificationCodes: 'Family Verification Codes',
   fixedMedicine: 'Fixed medicine',
@@ -181,7 +182,8 @@ const en = {
   newImage: 'New Image',
   newPassword: 'New Password',
   newPuzzleImageGenerated: 'New puzzle image generated.',
-  noMedicineAdded: 'No medicine added yet',
+  noMedicineAdded: 'No medications assigned',
+  noMedicationsAssignedDetail: "You don't have any medications assigned at the moment.",
   noPendingFamilyVerificationCode: 'No pending family verification code.',
   noPendingVerification: 'No pending verification found. Please log in again.',
   no: 'No',
@@ -386,7 +388,7 @@ const en = {
   viewRewardHistory: 'View redeemed rewards history',
   youWonIn: 'You won in {{moves}} moves and {{seconds}} seconds!',
   yes: 'Yes',
-  yourMedicineRemindersAppearHere: 'Your medicine reminders will appear here.',
+  yourMedicineRemindersAppearHere: 'Please drink more water and stay healthy!',
 };
 
 const ms = {
@@ -512,6 +514,7 @@ const ms = {
   enterUsernameOrEmail: 'Masukkan e-mel anda',
   familyMember: 'Ahli keluarga',
   familyMemberRegistered: '{{email}} telah didaftarkan.',
+  familyRegistrationPending: 'Sahkan warga emas untuk melengkapkan pendaftaran {{email}}.',
   familyVerificationCode: 'Kod Pengesahan Keluarga',
   familyVerificationCodes: 'Kod Pengesahan Keluarga',
   fixedMedicine: 'Ubat tetap',
@@ -578,7 +581,8 @@ const ms = {
   morningCheckIn: 'Daftar masuk pagi',
   myProfile: 'Profil Saya',
   newPassword: 'Kata Laluan Baharu',
-  noMedicineAdded: 'Belum ada ubat ditambah',
+  noMedicineAdded: 'Tiada ubat yang ditetapkan',
+  noMedicationsAssignedDetail: 'Anda tidak mempunyai ubat yang ditetapkan buat masa ini.',
   noPendingFamilyVerificationCode: 'Tiada kod pengesahan keluarga tertunda.',
   noPendingVerification: 'Tiada pengesahan tertunda. Sila log masuk semula.',
   notYet: 'Belum lagi',
@@ -669,7 +673,7 @@ const ms = {
   closeRewardPopup: 'Tutup pop timbul ganjaran',
   closeRewardHistory: 'Tutup sejarah ganjaran',
   viewRewardHistory: 'Lihat sejarah ganjaran yang ditebus',
-  yourMedicineRemindersAppearHere: 'Peringatan ubat anda akan muncul di sini.',
+  yourMedicineRemindersAppearHere: 'Sila minum lebih banyak air dan kekal sihat!',
 };
 
 const zh = {
@@ -857,6 +861,7 @@ const zh = {
   enterUsernameOrEmail: '输入您的电邮',
   familyMember: '家人',
   familyMemberRegistered: '{{email}} 已注册。',
+  familyRegistrationPending: '请验证一位老人，以完成 {{email}} 的注册。',
   fixedMedicine: '固定药物',
   forgotPassword: '忘记密码？',
   game: '游戏',
@@ -907,7 +912,8 @@ const zh = {
   meds: '药物',
   missed: '错过',
   newPassword: '新密码',
-  noMedicineAdded: '还没有添加药物',
+  noMedicineAdded: '没有安排药物',
+  noMedicationsAssignedDetail: '您目前没有任何药物安排。',
   noPendingVerification: '没有待验证记录。请重新登录。',
   notYet: '还未',
   password: '密码',
@@ -953,7 +959,7 @@ const zh = {
   verificationCode: '验证码：{{code}}',
   verificationSuccessful: '验证成功。',
   verifyAndContinue: '验证并继续',
-  yourMedicineRemindersAppearHere: '你的药物提醒会显示在这里。',
+  yourMedicineRemindersAppearHere: '请多喝水，保持健康！',
 };
 
 const ta = {
@@ -1119,6 +1125,7 @@ const ta = {
   enterUsernameOrEmail: 'உங்கள் மின்னஞ்சலை உள்ளிடவும்',
   familyMember: 'குடும்ப உறுப்பினர்',
   familyMemberRegistered: '{{email}} பதிவு செய்யப்பட்டது.',
+  familyRegistrationPending: '{{email}} பதிவை முடிக்க ஒரு மூத்தவரைச் சரிபார்க்கவும்.',
   fixedMedicine: 'நிலையான மருந்து',
   forgotPassword: 'கடவுச்சொல் மறந்துவிட்டதா?',
   game: 'விளையாட்டு',
@@ -1169,7 +1176,8 @@ const ta = {
   meds: 'மருந்துகள்',
   missed: 'தவறியது',
   newPassword: 'புதிய கடவுச்சொல்',
-  noMedicineAdded: 'இன்னும் மருந்து சேர்க்கப்படவில்லை',
+  noMedicineAdded: 'மருந்துகள் எதுவும் ஒதுக்கப்படவில்லை',
+  noMedicationsAssignedDetail: 'தற்போது உங்களுக்கு எந்த மருந்தும் ஒதுக்கப்படவில்லை.',
   noPendingVerification: 'நிலுவையில் சரிபார்ப்பு இல்லை. மீண்டும் உள்நுழையவும்.',
   notYet: 'இன்னும் இல்லை',
   password: 'கடவுச்சொல்',
@@ -1236,7 +1244,7 @@ const ta = {
   verificationCode: 'சரிபார்ப்பு குறியீடு: {{code}}',
   verificationSuccessful: 'சரிபார்ப்பு வெற்றிகரமாக முடிந்தது.',
   verifyAndContinue: 'சரிபார்த்து தொடரவும்',
-  yourMedicineRemindersAppearHere: 'உங்கள் மருந்து நினைவூட்டல்கள் இங்கே தோன்றும்.',
+  yourMedicineRemindersAppearHere: 'அதிகமாகத் தண்ணீர் குடித்து ஆரோக்கியமாக இருங்கள்!',
 };
 
 i18n.use(initReactI18next).init({

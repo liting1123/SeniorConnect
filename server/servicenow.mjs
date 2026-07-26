@@ -376,24 +376,12 @@ function toUserRecord(record = {}) {
 }
 
 function getSingaporeParts(value = new Date()) {
-  if (!(value instanceof Date)) {
-    const serviceNowDateTimeMatch = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::\d{2})?$/.exec(
-      String(value || '').trim(),
-    );
-
-    if (serviceNowDateTimeMatch) {
-      const [, year, month, day, hour, minute] = serviceNowDateTimeMatch;
-
-      return {
-        dateKey: `${year}-${month}-${day}`,
-        hour: Number(hour),
-        minute: Number(minute),
-        totalMinutes: Number(hour) * 60 + Number(minute),
-      };
-    }
-  }
-
-  const date = value instanceof Date ? value : new Date(value);
+  const rawValue = String(value || '').trim();
+  const normalizedValue = rawValue.replace(' ', 'T');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedValue);
+  const date = value instanceof Date
+    ? value
+    : new Date(hasTimezone ? normalizedValue : `${normalizedValue}Z`);
 
   if (Number.isNaN(date.getTime())) {
     return null;
@@ -1643,10 +1631,12 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
     ? (await findLoginRecordByIdentifier(normalizedCaregiverEmail))?.sys_id
     : '');
 
+  const linkedSeniorProfileIds = new Set();
+
   if (caregiverUserId) {
     const caregiverProfileParams = new URLSearchParams({
       sysparm_query: `${CAREGIVER_CONNECTION_FIELD_MAP.user}=${caregiverUserId}`,
-      sysparm_fields: 'sys_id',
+      sysparm_fields: `sys_id,${CAREGIVER_CONNECTION_FIELD_MAP.senior}`,
       sysparm_limit: '100',
     });
     const caregiverProfileData = await serviceNowFetch(
@@ -1655,9 +1645,14 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
 
     for (const profile of caregiverProfileData?.result || []) {
       const caregiverProfileId = String(profile?.sys_id || '').trim();
+      const linkedSeniorProfileId = getReferenceValue(profile?.[CAREGIVER_CONNECTION_FIELD_MAP.senior]);
 
       if (caregiverProfileId) {
         queryParts.add(`${APPOINTMENT_FIELD_MAP.caregiver}=${caregiverProfileId}`);
+      }
+
+      if (linkedSeniorProfileId) {
+        linkedSeniorProfileIds.add(linkedSeniorProfileId);
       }
     }
   }
@@ -1689,7 +1684,15 @@ export async function getAppointmentsForCaregiver({ caregiverId, caregiverEmail,
     records.map((record) => getAppointmentReferenceValue(record, APPOINTMENT_FIELD_MAP.senior, ['senior_name', 'senior'])),
   );
 
-  return records.map((record) => toCaregiverAppointmentRecord(record, seniorNamesByProfileId));
+  const appointments = records.map((record) => toCaregiverAppointmentRecord(record, seniorNamesByProfileId));
+
+  // Defensive ownership filter: only return appointments for seniors linked
+  // to this caregiver, even if the caregiver reference query is broad.
+  if (linkedSeniorProfileIds.size > 0) {
+    return appointments.filter((appointment) => linkedSeniorProfileIds.has(String(appointment.seniorId || '').trim()));
+  }
+
+  return appointments;
 }
 
 export async function getAppointmentsForSenior({ seniorUserId, seniorEmail, limit = 100 } = {}) {
@@ -2207,21 +2210,26 @@ export async function createFamilyVerification({ seniorId, familyEmail, familyUs
     throw Object.assign(new Error('Senior ID was not found.'), { status: 404 });
   }
 
-  if (!normalizedFamilyEmail || !normalizedFamilyUserId) {
-    throw Object.assign(new Error('Family member account is required.'), { status: 400 });
+  if (!normalizedFamilyEmail) {
+    throw Object.assign(new Error('Family member email is required.'), { status: 400 });
   }
 
   const expiresAt = getServiceNowUtcDateTime(new Date(Date.now() + 10 * 60 * 1000));
   const verificationCode = generateVerificationCode();
+  const verificationPayload = {
+    [FAMILY_VERIFICATION_FIELD_MAP.senior]: seniorProfile.sys_id,
+    [FAMILY_VERIFICATION_FIELD_MAP.familyEmail]: normalizedFamilyEmail,
+    [FAMILY_VERIFICATION_FIELD_MAP.code]: verificationCode,
+    [FAMILY_VERIFICATION_FIELD_MAP.expiresAt]: expiresAt,
+  };
+
+  if (normalizedFamilyUserId) {
+    verificationPayload[FAMILY_VERIFICATION_FIELD_MAP.familyUser] = normalizedFamilyUserId;
+  }
+
   const data = await serviceNowFamilyVerificationFetch('', {
     method: 'POST',
-    body: JSON.stringify({
-      [FAMILY_VERIFICATION_FIELD_MAP.senior]: seniorProfile.sys_id,
-      [FAMILY_VERIFICATION_FIELD_MAP.familyEmail]: normalizedFamilyEmail,
-      [FAMILY_VERIFICATION_FIELD_MAP.code]: verificationCode,
-      [FAMILY_VERIFICATION_FIELD_MAP.expiresAt]: expiresAt,
-      [FAMILY_VERIFICATION_FIELD_MAP.familyUser]: normalizedFamilyUserId,
-    }),
+    body: JSON.stringify(verificationPayload),
   });
   const verification = toFamilyVerificationRecord(data?.result || {});
 
@@ -2277,7 +2285,16 @@ export async function getPendingFamilyVerificationCodesForSenior(userId) {
   return activeRecords;
 }
 
-export async function verifyFamilyVerification({ verificationId, seniorId, familyEmail, familyUserId, code, relationship }) {
+//verify a family verification code and create a caregiver connection if valid
+export async function verifyFamilyVerification({
+  verificationId,
+  seniorId,
+  familyEmail,
+  familyUserId,
+  code,
+  relationship,
+  pendingRegistration,
+}) {
   const normalizedCode = String(code || '').trim();
   const normalizedFamilyEmail = normalizeLoginValue(familyEmail);
   const normalizedFamilyUserId = String(familyUserId || '').trim();
@@ -2310,7 +2327,10 @@ export async function verifyFamilyVerification({ verificationId, seniorId, famil
     throw Object.assign(new Error('Verification request was not found.'), { status: 404 });
   }
 
-  if (verification.familyEmail.toLowerCase() !== normalizedFamilyEmail || verification.familyUserId !== normalizedFamilyUserId) {
+  if (
+    verification.familyEmail.toLowerCase() !== normalizedFamilyEmail
+    || (verification.familyUserId && verification.familyUserId !== normalizedFamilyUserId)
+  ) {
     throw Object.assign(new Error('This verification request does not belong to this account.'), { status: 403 });
   }
 
@@ -2326,15 +2346,33 @@ export async function verifyFamilyVerification({ verificationId, seniorId, famil
     throw Object.assign(new Error('Verification code is incorrect.'), { status: 401 });
   }
 
+  let registeredUser = null;
+  let effectiveFamilyUserId = normalizedFamilyUserId;
+
+  if (pendingRegistration) {
+    registeredUser = await registerWithServiceNow({
+      email: pendingRegistration.email,
+      password: pendingRegistration.password,
+      name: pendingRegistration.name,
+      role: relationship || 'Family',
+    });
+    effectiveFamilyUserId = registeredUser.id;
+  }
+
+  if (!effectiveFamilyUserId) {
+    throw Object.assign(new Error('Family member account is required.'), { status: 400 });
+  }
+
   await serviceNowFamilyVerificationFetch(`/${encodeURIComponent(verification.id)}`, {
     method: 'PATCH',
     body: JSON.stringify({
       [FAMILY_VERIFICATION_FIELD_MAP.verifiedAt]: getServiceNowUtcDateTime(),
+      [FAMILY_VERIFICATION_FIELD_MAP.familyUser]: effectiveFamilyUserId,
     }),
   });
 
   const role = getRoleFromRelationship(relationship);
-  await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(normalizedFamilyUserId)}`), {
+  await serviceNowFetch(getNamedTablePath(LOGIN_TABLE, `/${encodeURIComponent(effectiveFamilyUserId)}`), {
     method: 'PATCH',
     body: JSON.stringify({
       [LOGIN_FIELD_MAP.role]: role,
@@ -2342,13 +2380,17 @@ export async function verifyFamilyVerification({ verificationId, seniorId, famil
   });
 
   const connection = await createCaregiverConnection({
-    caregiverId: normalizedFamilyUserId,
+    caregiverId: effectiveFamilyUserId,
     caregiverEmail: normalizedFamilyEmail,
     seniorId: verification.seniorId,
     relationship: relationship || 'Family Member',
   });
 
-  return { verification: { ...verification, status: 'Verified', code: undefined }, connection };
+  return {
+    verification: { ...verification, status: 'Verified', code: undefined },
+    connection,
+    ...(registeredUser ? { user: registeredUser } : {}),
+  };
 }
 
 function toCaregiverSeniorRecord(connection = {}, seniorProfile = {}, seniorUser = {}) {
@@ -2417,39 +2459,58 @@ function toActiveSosAlert(record = {}) {
   };
 }
 
-export async function getLatestActiveSosAlertForSenior(senior = {}) {
+function buildSeniorSosQuery({ seniorProfileId, seniorName, seniorPhone }) {
+  if (seniorProfileId) {
+    return `${SOS_ALERT_FIELD_MAP.senior}=${seniorProfileId}`;
+  }
+
+  if (seniorName && seniorPhone) {
+    // Compatibility fallback for callers without a profile ID. Requiring both
+    // values prevents a shared name or reused phone number from matching alone.
+    return `${SOS_ALERT_FIELD_MAP.seniorName}=${seniorName}^${SOS_ALERT_FIELD_MAP.seniorPhone}=${seniorPhone}`;
+  }
+
+  return '';
+}
+
+function isSosRecordOwnedBySenior(record = {}, { seniorProfileId }) {
+  const recordSeniorId = getReferenceValue(record[SOS_ALERT_FIELD_MAP.senior]).trim();
+
+  if (!seniorProfileId) {
+    return false;
+  }
+
+  return Boolean(recordSeniorId) && recordSeniorId.toLowerCase() === seniorProfileId.toLowerCase();
+}
+
+export async function getActiveSosAlertsForSenior(senior = {}, { limit = 20 } = {}) {
   const seniorProfileId = String(senior.id || senior.sysId || '').trim();
   const seniorName = String(senior.name || '').trim();
   const seniorPhone = String(senior.phone || '').trim();
-  let query = '';
-
-  if (seniorProfileId) {
-    query = `${SOS_ALERT_FIELD_MAP.senior}=${seniorProfileId}`;
-  } else if (seniorName && seniorPhone) {
-    // Compatibility fallback for callers without a profile ID. Requiring both
-    // values prevents a shared name or reused phone number from matching alone.
-    query = `${SOS_ALERT_FIELD_MAP.seniorName}=${seniorName}^${SOS_ALERT_FIELD_MAP.seniorPhone}=${seniorPhone}`;
-  }
+  const query = buildSeniorSosQuery({ seniorProfileId, seniorName, seniorPhone });
 
   if (!query) {
-    return null;
+    return [];
   }
 
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
   const params = new URLSearchParams({
     sysparm_query: `${query}^ORDERBYDESCsys_created_on`,
-    sysparm_limit: '5',
+    sysparm_limit: String(normalizedLimit),
   });
   const data = await serviceNowFetch(getNamedTablePath(SOS_ALERT_TABLE, `?${params.toString()}`));
-  const activeAlert = (data?.result || [])
+
+  return (data?.result || [])
     // ServiceNow may drop an invalid encoded-query condition and return rows
     // for every senior. Never trust the server-side filter without checking
     // the stored owner again.
-    .filter((record) => {
-      const recordSeniorId = getReferenceValue(record[SOS_ALERT_FIELD_MAP.senior]).trim();
-      return Boolean(recordSeniorId) && recordSeniorId.toLowerCase() === seniorProfileId.toLowerCase();
-    })
+    .filter((record) => isSosRecordOwnedBySenior(record, { seniorProfileId }))
     .map(toActiveSosAlert)
-    .find(Boolean);
+    .filter(Boolean);
+}
+
+export async function getLatestActiveSosAlertForSenior(senior = {}) {
+  const [activeAlert] = await getActiveSosAlertsForSenior(senior, { limit: 5 });
 
   return activeAlert || null;
 }

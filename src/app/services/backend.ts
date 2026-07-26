@@ -3,6 +3,7 @@ type BackendUser = {
   userId: string;
   email: string;
   name: string;
+  role?: string;
   phone?: string;
   gender?: string;
   dateOfBirth?: string;
@@ -592,7 +593,12 @@ export async function verifyFamilyCode(
     verificationId: string;
   },
 ) {
-  const data = await request<{ verification: FamilyVerification; connection: unknown }>(
+  const data = await request<{
+    verification: FamilyVerification;
+    connection: unknown;
+    user?: BackendUser;
+    token?: string;
+  }>(
     user,
     '/api/servicenow/family-verification/verify',
     {
@@ -607,6 +613,16 @@ export async function verifyFamilyCode(
       }),
     },
   );
+
+  if (data.user && data.token) {
+    setStoredUser({
+      uid: data.user.userId,
+      email: data.user.email || user.email,
+      displayName: data.user.name,
+      token: data.token,
+      role: data.user.role || 'Family',
+    });
+  }
 
   return data;
 }

@@ -7,3 +7,10 @@ node_modules
 .careconnect-local.sqlite
 .careconnect-local.sqlite-shm
 .careconnect-local.sqlite-wal
+
+# Android signing material — never commit key files (even the standard debug
+# keystore, whose private key ships with every SDK install).
+*.keystore
+*.jks
+mobile/android/local.properties
+mobile/android/app/google-services.json
